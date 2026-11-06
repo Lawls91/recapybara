@@ -6,7 +6,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 
 pub struct ClaudeRun {
@@ -115,30 +115,64 @@ pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<Pat
 
 static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
 
-/// Deletes the run's project folders (D7). Claude's child processes can recreate one (an empty `memory`) just after
-/// claude exits, so they are deleted again 2 and 10 seconds later, in the background.
-/// ponytail: a timed retry, not a wait on the process tree; the next run and the next start sweep too.
+/// Runs going now. Every run shares one project folder (D7), so it is deleted only when no other run uses it.
+static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Counts a run as going until dropped.
+struct InFlight;
+
+impl InFlight {
+    fn start() -> Self {
+        IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+        InFlight
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Deletes `d`; a failure other than "not there" is logged with the path, never swallowed.
+fn remove(d: &Path) {
+    match fs::remove_dir_all(d) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => eprintln!("D7 cleanup: couldn't delete {}: {e}", d.display()),
+        _ => {}
+    }
+}
+
+/// Deletes `dirs` unless a run other than the caller's own `mine` (0 or 1) is going. Returns whether it did.
+fn remove_if_idle(dirs: &[PathBuf], mine: usize) -> bool {
+    let idle = IN_FLIGHT.load(Ordering::SeqCst) <= mine;
+    if idle {
+        dirs.iter().for_each(|d| remove(d));
+    }
+    idle
+}
+
+/// Deletes the run's project folders (D7), and again 2 and 10 seconds later in the background, in case something
+/// the run started writes there late. Skipped while another run is going; the next run's end deletes them then.
 fn clean_projects(dirs: Vec<PathBuf>) {
-    let rm = |ds: &[PathBuf]| ds.iter().for_each(|d| drop(fs::remove_dir_all(d)));
-    rm(&dirs);
+    remove_if_idle(&dirs, 1);
     std::thread::spawn(move || {
         for s in [2, 8] {
             std::thread::sleep(std::time::Duration::from_secs(s));
-            rm(&dirs);
+            remove_if_idle(&dirs, 0);
         }
     });
 }
 
-/// Deletes `~/.claude/projects/<slug of runs_dir>` (D7): at app start and before each run.
+/// Deletes `~/.claude/projects/<slug of runs_dir>` (D7) at app start, before any run.
 pub fn sweep_project(home: &Path, runs_dir: &Path) {
-    let _ = fs::remove_dir_all(home.join(".claude").join("projects").join(slug(runs_dir)));
+    remove(&home.join(".claude").join("projects").join(slug(runs_dir)));
 }
 
 /// At startup: deletes every `hooks-*` capture folder a killed run left in `runs_dir` (D7). No run is going yet.
 pub fn sweep_captures(runs_dir: &Path) {
     for e in fs::read_dir(runs_dir).into_iter().flatten().flatten() {
         if e.file_name().to_string_lossy().starts_with("hooks-") && e.path().is_dir() {
-            let _ = fs::remove_dir_all(e.path());
+            remove(&e.path());
         }
     }
 }
@@ -147,7 +181,9 @@ pub fn sweep_captures(runs_dir: &Path) {
 /// whether the run succeeded or not. Returns stdout and the captured hook payloads.
 pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) -> io::Result<Output> {
     fs::create_dir_all(runs_dir).map_err(|e| io::Error::new(e.kind(), format!("create {}: {e}", runs_dir.display())))?;
-    sweep_project(home, runs_dir); // whatever an earlier run's late children left
+    let _going = InFlight::start();
+    // Whatever an earlier run left late, unless another run is using the folder.
+    remove_if_idle(&[home.join(".claude").join("projects").join(slug(runs_dir))], 1);
     let capture_dir = runs_dir.join(format!("hooks-{}-{}", std::process::id(), RUN_SEQ.fetch_add(1, Ordering::Relaxed)));
     let mut cmd = Command::new(program);
     cmd.arg("-p")
@@ -306,6 +342,25 @@ mod tests {
         assert!(!projects.join(slug(&runs)).exists());
         assert!(projects.join("C--Users-someone-else").join("memory").exists(), "another project's memory is kept");
         sweep_project(&home.join("nohome"), &runs); // nothing there: nothing to do
+    }
+
+    #[test]
+    fn the_shared_project_folder_is_kept_while_another_run_is_going() {
+        let d = temp("busy").join("C--d-runs");
+        let mk = || fs::create_dir_all(d.join("memory")).unwrap();
+        mk();
+        let other = InFlight::start();
+        assert!(!remove_if_idle(&[d.clone()], 0), "another run is going: background retry skips");
+        let mine = InFlight::start();
+        assert!(!remove_if_idle(&[d.clone()], 1), "another run besides mine: my run's end skips");
+        assert!(d.exists());
+        drop(other);
+        assert!(remove_if_idle(&[d.clone()], 1), "only mine: deleted");
+        assert!(!d.exists());
+        drop(mine);
+        mk();
+        assert!(remove_if_idle(&[d.clone()], 0), "nothing going: the retry deletes");
+        assert!(!d.exists());
     }
 
     #[test]

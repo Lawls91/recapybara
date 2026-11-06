@@ -30,9 +30,9 @@ struct AppState {
     pending_open: Mutex<Option<String>>,
 }
 
-/// Env override, else the real folder (D37).
+/// Env override (set and non-empty), else the real folder (D37).
 pub fn dir_from_env(var: &str, real: PathBuf) -> PathBuf {
-    std::env::var_os(var).map(PathBuf::from).unwrap_or(real)
+    std::env::var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or(real)
 }
 
 fn show_main(app: &AppHandle) {
@@ -359,5 +359,9 @@ mod tests {
         std::env::remove_var("MC_TEST_DIR_UNSET");
         assert_eq!(dir_from_env("MC_TEST_DIR_SET", "real".into()), PathBuf::from(r"C:\tmp\x"));
         assert_eq!(dir_from_env("MC_TEST_DIR_UNSET", "real".into()), PathBuf::from("real"));
+        // Set but empty (a shell's "unset" can leave it so) is unset: an empty home would point D7's cleanup at
+        // a relative .claude\projects and leave the real copies behind.
+        std::env::set_var("MC_TEST_DIR_EMPTY", "");
+        assert_eq!(dir_from_env("MC_TEST_DIR_EMPTY", "real".into()), PathBuf::from("real"));
     }
 }

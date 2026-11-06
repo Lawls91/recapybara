@@ -176,10 +176,12 @@ fn is_error(a: &Value) -> bool {
     }
 }
 
-/// `PROJ-123`: a project key (a letter, then letters or digits) and a number.
+/// `PROJ-123`: a project key (a letter, then letters, digits or `_`) and a number.
 fn is_ticket_key(s: &str) -> bool {
     s.split_once('-').is_some_and(|(p, n)| {
-        p.len() >= 2 && p.starts_with(|c: char| c.is_ascii_uppercase()) && p.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        p.len() >= 2
+            && p.starts_with(|c: char| c.is_ascii_uppercase())
+            && p.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
             && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
     })
 }
@@ -791,10 +793,10 @@ mod tests {
         let sites = json!({ "hook_event_name": "PostToolUse", "tool_name": "mcp__claude_ai_Atlassian__getAccessibleAtlassianResources",
             "tool_response": [{ "type": "text", "text": r#"{"data":{"resources":[{"cloudId":"c","products":[{"id":"jira","key":"x"}]}]}}"# }] });
         assert_eq!(found_keys(&[sites]), Vec::<String>::new());
-        for not_key in ["PROJ", "DONE", "PROJ-", "-12", "E-1", "1PM-2", "PROJ-12a", "PR OJ-1"] {
+        for not_key in ["PROJ", "DONE", "PROJ-", "-12", "E-1", "1PM-2", "_AB-1", "PROJ-12a", "PR OJ-1"] {
             assert!(!is_ticket_key(not_key), "{not_key}");
         }
-        for key in ["PROJ-1000", "PROJ-707", "AB2-9"] {
+        for key in ["PROJ-1000", "PROJ-707", "AB2-9", "AB_C-1"] {
             assert!(is_ticket_key(key), "{key}");
         }
     }
