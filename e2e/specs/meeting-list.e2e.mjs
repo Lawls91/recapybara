@@ -107,6 +107,12 @@ describe("meeting list", () => {
     await closeMenu();
   });
 
+  it("a meeting with a transcript and no summary shows Summary tab status Not run (D44)", async () => {
+    await row("transcriptReady").click();
+    await expect($("#tab-summary .tq")).toHaveText("Not run");
+    await expect($("#tab-transcript .tq")).toHaveText("1 min");
+  });
+
   it("Scheduled, In call, Awaiting transcript and Skipped show their D49 state card, with Unskip only on Skipped", async () => {
     const cards = {
       scheduled: "Captures when the call ends",

@@ -300,7 +300,7 @@ function summaryBody(m: Meeting) {
   if (m.state === "summarising")
     return `<div class="card"><h5><i class="spin"></i>Summarising</h5><p>Claude is writing the summary. It shows here when it’s checked.</p></div>`;
   if (m.state === "summaryFailed")
-    return `<div class="card err"><h5>Summary failed</h5><p>Claude returned no valid summary.</p><button class="btn pri" id="summary-action">${summaryAction(m)}</button></div>`;
+    return `<div class="card err"><h5>Summary failed</h5><p id="summary-error">${esc(m.summaryError || "Claude returned no valid summary.")}</p><button class="btn pri" id="summary-action">${summaryAction(m)}</button></div>`;
   if (shown.summary) return summaryView(shown.summary);
   return `<div class="card"><h5>No summary yet</h5><p>The transcript is ready. Run a summary to get decisions, actions and open questions with checked citations.</p><button class="btn pri" id="summary-action">${summaryAction(m)}</button></div>`;
 }

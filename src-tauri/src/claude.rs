@@ -17,9 +17,30 @@ pub struct ClaudeRun {
     pub stdin: String,
 }
 
-/// `MEETING_CAPTURE_CLAUDE`, else `claude` on PATH (D36).
+/// `claude` in the first PATH directory holding it as a program or a `.cmd`/`.bat` shim, in PATHEXT order.
+/// Resolved here so the spawn never goes through a shell (the prompt and schema are on argv).
+pub fn find_on(path: &std::ffi::OsStr, pathext: &str) -> Option<std::path::PathBuf> {
+    let exts: Vec<String> = pathext
+        .split(';')
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| [".com", ".exe", ".bat", ".cmd"].contains(&e.as_str()))
+        .collect();
+    std::env::split_paths(path)
+        .flat_map(|dir| exts.iter().map(move |e| dir.join(format!("claude{e}"))))
+        .find(|p| p.is_file())
+}
+
+/// `MEETING_CAPTURE_CLAUDE` if set, else `claude` found on PATH (D36). Unfound, plain `claude`: the spawn
+/// then fails as not found.
 pub fn program() -> OsString {
-    std::env::var_os("MEETING_CAPTURE_CLAUDE").unwrap_or_else(|| "claude".into())
+    if let Some(p) = std::env::var_os("MEETING_CAPTURE_CLAUDE").filter(|p| !p.is_empty()) {
+        return p;
+    }
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    std::env::var_os("PATH")
+        .and_then(|path| find_on(&path, if cfg!(windows) { &pathext } else { "" }))
+        .map(Into::into)
+        .unwrap_or_else(|| "claude".into())
 }
 
 /// Claude Code's project-folder name for a cwd: every non letter/digit becomes `-` (D7).
@@ -45,6 +66,10 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
         .args(&run.args)
         .current_dir(runs_dir)
         .env_remove("ANTHROPIC_API_KEY")
+        // Set when the app was started from a Claude Code session; the child is its own session.
+        // CLAUDE_CODE_GIT_BASH_PATH stays: Claude Code on Windows needs it.
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -65,11 +90,9 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
     let _ = fs::remove_dir_all(home.join(".claude").join("projects").join(slug(runs_dir)));
     let out = result.map_err(|e| io::Error::new(e.kind(), format!("run {}: {e}", program.to_string_lossy())))?;
     if !out.status.success() {
-        return Err(io::Error::other(format!(
-            "claude exited with {}: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr)
-        )));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let detail = if stderr.trim().is_empty() { String::new() } else { format!(": {}", stderr.trim()) };
+        return Err(io::Error::other(format!("claude exited with {}{detail}", out.status)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -114,6 +137,26 @@ mod tests {
         ));
         assert!(s.contains("gitrepo--claude-worktrees"), "{s}");
         assert_eq!(s, "C--Users-alex-AppData-Local-Temp-claude-E--repos-toolbox-11111111-2222-3333-4444-555555555555-scratchpad-gitrepo--claude-worktrees-sample-session-name");
+    }
+
+    fn temp(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("mc-find-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn claude_is_found_on_path_as_exe_or_cmd_shim() {
+        let (a, b) = (temp("a"), temp("b"));
+        fs::write(b.join("claude.cmd"), "@echo off").unwrap();
+        let path = std::env::join_paths([&a, &b]).unwrap();
+        assert_eq!(find_on(&path, ".COM;.EXE;.BAT;.CMD"), Some(b.join("claude.cmd")), "npm-style shim");
+        fs::write(a.join("claude.exe"), "").unwrap();
+        fs::write(b.join("claude.exe"), "").unwrap();
+        assert_eq!(find_on(&path, ".COM;.EXE;.BAT;.CMD"), Some(a.join("claude.exe")), "first PATH entry wins");
+        fs::write(temp("c").join("claude.ps1"), "").unwrap();
+        assert_eq!(find_on(&std::env::join_paths([temp("c")]).unwrap(), ".PS1;.EXE"), None, "only exe and cmd shims run");
     }
 
     #[test]

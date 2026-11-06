@@ -26,6 +26,8 @@ export interface Meeting {
   state: State;
   hasTranscript: boolean;
   hasSummary: boolean;
+  /** Why the last summary run failed (shown on the Summary failed card). */
+  summaryError?: string | null;
 }
 
 /** D41: dot family and label for each state. */

@@ -134,6 +134,7 @@ describe("summarise with checked citations", () => {
     await expect($("#tab-summary .spin")).toBeDisplayed();
     await expect($("#tab-summary")).toHaveText(expect.stringContaining("Failed"), { wait: 15000 });
     await expect($("#summary-action")).toHaveText("Run summary");
+    await expect($("#summary-error")).toHaveText("claude exited with exit code: 1"); // the real reason, on the card
     // The header holds only the ... menu (D42).
     await expect($$("#detail .ttlrow button")).toBeElementsArrayOfSize(1);
     await expect($("#detail .ttlrow button")).toHaveAttribute("id", "detail-menu");
@@ -206,6 +207,7 @@ describe("summarise with checked citations", () => {
     const id = await importLong({ stdout: "{not json" });
     await expect(row(id).$(".lbl")).toHaveText("Summary failed");
     expect(fs.existsSync(root("library", id, "summary.md"))).toBe(false);
+    await expect($("#summary-error")).toHaveText("Claude's result isn't JSON.");
     scenario({ structuredOutput: VALID });
     await $("#summary-action").click();
     await expect(row(id).$(".lbl")).toHaveText("Summary ready");

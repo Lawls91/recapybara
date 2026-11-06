@@ -18,6 +18,10 @@ fn run_case(name: &str, scenario_json: &str) -> (PathBuf, std::io::Result<String
     std::env::set_var("FAKE_CLAUDE_SCENARIO", &scenario);
     std::env::set_var("MEETING_CAPTURE_HOME", dir.join("home"));
     std::env::set_var("ANTHROPIC_API_KEY", "sk-should-not-leak");
+    // As when the app was started from a Claude Code session.
+    std::env::set_var("CLAUDECODE", "1");
+    std::env::set_var("CLAUDE_CODE_ENTRYPOINT", "cli");
+    std::env::set_var("CLAUDE_CODE_GIT_BASH_PATH", r"C:\Program Files\Git\bin\bash.exe");
     let sibling = dir.join("home").join(".claude").join("projects").join("sibling");
     fs::create_dir_all(&sibling).unwrap();
     // Bigger than a pipe buffer, as a ticket 04 transcript is.
@@ -43,6 +47,9 @@ fn run_is_isolated_and_cleans_its_project_folder() {
     }
     assert!(!argv.contains(&"--bare"));
     assert!(rec["env"].get("ANTHROPIC_API_KEY").is_none());
+    assert!(rec["env"].get("CLAUDECODE").is_none(), "a nested-session marker");
+    assert!(rec["env"].get("CLAUDE_CODE_ENTRYPOINT").is_none());
+    assert_eq!(rec["env"]["CLAUDE_CODE_GIT_BASH_PATH"], r"C:\Program Files\Git\bin\bash.exe", "Claude Code on Windows needs it");
     assert_eq!(rec["stdin"].as_str().unwrap().len(), 200_008);
     assert!(!PathBuf::from(rec["projectDir"].as_str().unwrap()).exists(), "runs project folder not deleted");
     assert!(dir.join("home/.claude/projects/sibling").exists(), "sibling deleted");

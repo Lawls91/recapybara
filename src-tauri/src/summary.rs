@@ -149,12 +149,20 @@ pub fn check(s: &mut Summary, vtt: &str) {
 
 /// The summary from a `--output-format json` result: its `structured_output` (D18), kept as returned.
 pub fn parse_result(stdout: &str) -> Result<(Summary, Value), String> {
-    let v: Value = serde_json::from_str(stdout.trim()).map_err(|e| format!("result isn't JSON: {e}"))?;
+    // Each message is short and carries no result text, so it can sit on the card (meeting.json).
+    let v: Value = serde_json::from_str(stdout.trim()).map_err(|_| "Claude's result isn't JSON.".to_string())?;
     if v["is_error"] == true {
-        return Err(format!("Claude reported an error: {}", v["result"]));
+        return Err(format!("Claude reported an error ({}).", v["subtype"].as_str().unwrap_or("no detail")));
     }
-    let raw = v.get("structured_output").cloned().ok_or("result has no structured_output")?;
-    let s = serde_json::from_value(raw.clone()).map_err(|e| format!("structured_output isn't a summary: {e}"))?;
+    let Some(raw) = v.get("structured_output").cloned() else {
+        let denied: Vec<&str> = v["permission_denials"].as_array().into_iter().flatten().filter_map(|d| d["tool_name"].as_str()).collect();
+        return Err(if denied.is_empty() {
+            "Claude returned no structured summary.".into()
+        } else {
+            format!("Claude returned no structured summary (denied: {}).", denied.join(", "))
+        });
+    };
+    let s = serde_json::from_value(raw.clone()).map_err(|e| format!("Claude's summary doesn't match the schema: {e}"))?;
     Ok((s, raw))
 }
 
@@ -274,23 +282,33 @@ pub fn load(dir: &Path) -> Option<Summary> {
 /// earlier ones and nothing else (D24). Failure keeps an earlier summary and marks the meeting "summary failed",
 /// on every exit, a panic included.
 pub fn summarise(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Result<String>) -> Result<Summary, String> {
+    let first = library::load(dir);
     let attempt = std::panic::AssertUnwindSafe(|| -> Result<Summary, String> {
-        let m = library::load(dir).map_err(|e| e.to_string())?;
+        let m = first.as_ref().map_err(|e| e.to_string())?;
         let vtt = fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
-        let (mut s, raw) = parse_result(&run(&run_for(&m, &vtt, model)).map_err(|e| e.to_string())?)?;
+        let (mut s, raw) = parse_result(&run(&run_for(m, &vtt, model)).map_err(|e| run_failure(&e))?)?;
         check(&mut s, &vtt);
         library::write_atomic(&dir.join(library::SUMMARY_JSON), &serde_json::to_vec_pretty(&raw).unwrap())
-            .and_then(|_| library::write_atomic(&dir.join(library::SUMMARY_MD), render(&m, &s).as_bytes()))
+            .and_then(|_| library::write_atomic(&dir.join(library::SUMMARY_MD), render(m, &s).as_bytes()))
             .map_err(|e| e.to_string())?;
         Ok(s)
     });
     let outcome = std::panic::catch_unwind(attempt).unwrap_or_else(|_| Err("the summary run panicked".into()));
     // Re-read: the run takes minutes, and meeting.json may have changed meanwhile.
-    let mut m = library::load(dir).map_err(|e| e.to_string())?;
+    let mut m = library::load(dir).or(first).map_err(|e| e.to_string())?;
     m.state = if outcome.is_ok() { State::Done } else { State::SummaryFailed };
+    m.summary_error = outcome.as_ref().err().cloned();
     m.last_summary = Some(chrono::Local::now().fixed_offset());
     library::save(dir, &m).map_err(|e| e.to_string())?;
     outcome
+}
+
+/// A failed claude run, said shortly: not found gets D40's fix; otherwise the first line (stderr's first line).
+fn run_failure(e: &io::Error) -> String {
+    if e.kind() == io::ErrorKind::NotFound {
+        return "Claude Code not found. Install it or add it to PATH, then Re-run summary.".into();
+    }
+    e.to_string().lines().next().unwrap_or_default().chars().take(300).collect()
 }
 
 /// Marks the meeting "summarising" before its run starts, refusing a second run while one is going.
@@ -490,6 +508,29 @@ mod tests {
         let panicked = summarise(&dir, "opus", |_| panic!("synthetic panic"));
         assert!(panicked.is_err());
         assert_eq!(library::load(&dir).unwrap().state, State::SummaryFailed);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_run_records_why_on_the_meeting_and_a_missing_cli_says_so() {
+        let dir = temp("why");
+        library::save(&dir, &Meeting { subject: "Why".into(), ..Meeting::default() }).unwrap();
+        fs::write(dir.join(library::VTT), CUE).unwrap();
+        let why = |run: Box<dyn FnOnce(&ClaudeRun) -> io::Result<String>>| {
+            let _ = summarise(&dir, "opus", run);
+            library::load(&dir).unwrap().summary_error.unwrap_or_default()
+        };
+        assert_eq!(
+            why(Box::new(|_| Err(io::Error::new(io::ErrorKind::NotFound, "run claude: program not found")))),
+            "Claude Code not found. Install it or add it to PATH, then Re-run summary."
+        );
+        let denied = json!({ "is_error": false, "result": "", "permission_denials": [{ "tool_name": "StructuredOutput" }] });
+        assert_eq!(why(Box::new(move |_| Ok(denied.to_string()))), "Claude returned no structured summary (denied: StructuredOutput).");
+        assert_eq!(why(Box::new(|_| Ok("{not json".into()))), "Claude's result isn't JSON.");
+        let stderr = "claude exited with exit code: 1: Claude Code on Windows requires git-bash\nmore detail";
+        assert_eq!(why(Box::new(move |_| Err(io::Error::other(stderr)))), "claude exited with exit code: 1: Claude Code on Windows requires git-bash");
+        // A good run clears it.
+        assert_eq!(why(Box::new(|_| Ok(json!({ "is_error": false, "structured_output": { "overview": "x" } }).to_string()))), "");
         fs::remove_dir_all(dir).unwrap();
     }
 

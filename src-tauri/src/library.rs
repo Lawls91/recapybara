@@ -49,6 +49,8 @@ pub struct Meeting {
     pub claude_version: Option<String>,
     pub last_fetch: Option<DateTime<FixedOffset>>,
     pub last_summary: Option<DateTime<FixedOffset>>,
+    /// Why the last summary run failed, shown on its Summary failed card. Never transcript text.
+    pub summary_error: Option<String>,
 }
 
 /// A meeting as the list sees it: its folder name is its id.

@@ -73,7 +73,8 @@ Fake claude scenarios (the file is read on every run, so it can be rewritten bet
 Each meeting is a folder in the library, `YYYY-MM-DD HHmm <Subject>`, holding `meeting.json` and, once there
 is one, `transcript.vtt` exactly as imported, then `summary.md` (D21) and `summary.json` (Claude's structured
 output as returned, which the Summary tab re-checks against `transcript.vtt` to draw its citation chips).
-Importing or attaching a transcript starts its summary. The list reads every folder with a `meeting.json`; every field
+Importing or attaching a transcript starts its summary. A failed run leaves its short reason in `meeting.json` (`summaryError`), shown on the Summary failed card.
+Without `MEETING_CAPTURE_CLAUDE`, the app runs the first `claude.exe` (or `claude.cmd` shim) on PATH. The list reads every folder with a `meeting.json`; every field
 defaults, so a test or a QA run can seed a state by hand:
 
 ```json
