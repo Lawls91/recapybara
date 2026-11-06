@@ -97,6 +97,11 @@ pub const STOPPED: &str = "The calendar search stopped before its last page. Ref
 /// page fails the whole refresh. An event counts only if its read has `onlineMeeting.joinUrl`; an event whose read
 /// is missing, failed or unreadable is left out, to be tried on the next refresh.
 pub fn parse(captured: &[Value], now: DateTime<Utc>) -> Result<Vec<Event>, String> {
+    counted(captured, now).map(|(events, _)| events)
+}
+
+/// `parse`, plus how many Teams events were left out because their time zone isn't one the app converts.
+pub fn counted(captured: &[Value], now: DateTime<Utc>) -> Result<(Vec<Event>, usize), String> {
     let mut pages: HashMap<u64, Vec<Value>> = HashMap::new();
     for p in captured.iter().filter(|p| ok(p, SEARCH) && p["tool_input"]["query"] == "*") {
         pages.entry(offset(&p["tool_input"]["offset"])).or_insert_with(|| values(&p["tool_response"]));
@@ -124,13 +129,14 @@ pub fn parse(captured: &[Value], now: DateTime<Utc>) -> Result<Vec<Event>, Strin
         }
     }
 
-    let mut events: Vec<Event> = vec![];
+    let (mut events, mut skipped): (Vec<Event>, usize) = (vec![], 0);
     for e in found.into_iter().filter(|e| e["isCancelled"] != true) {
         let uri = e["uri"].as_str().unwrap_or_default();
         let Some(read) = reads.get(uri) else { continue };
         let Some(join) = read["onlineMeeting"]["joinUrl"].as_str().filter(|j| !j.is_empty()) else { continue };
         let (Some(start), Some(end)) = (time(&e["start"]), time(&e["end"])) else {
             eprintln!("calendar: left out {uri}: start {} or end {} isn't a UTC time", e["start"], e["end"]);
+            skipped += 1;
             continue;
         };
         if end <= now - Duration::hours(2) || start >= now + Duration::hours(24) || events.iter().any(|x| x.uri == uri) {
@@ -149,7 +155,7 @@ pub fn parse(captured: &[Value], now: DateTime<Utc>) -> Result<Vec<Event>, Strin
             meeting_transcript_url: read["meetingTranscriptUrl"].as_str().map(Into::into),
         });
     }
-    Ok(events)
+    Ok((events, skipped))
 }
 
 /// The calendar status line (D40).
@@ -162,6 +168,8 @@ pub struct Status {
     /// The last refresh's failure, with its fix. Cleared by the next good one. Not `error`: WebDriver reads a
     /// returned object with an `error` key as its own failure, so the E2E suite couldn't read it.
     pub failure: Option<String>,
+    /// Teams events the last good refresh left out for a time zone it can't convert, said in the status line.
+    pub skipped: usize,
 }
 
 #[derive(Default)]
@@ -206,14 +214,15 @@ impl Calendar {
             i.last_start = Some(now);
         }
         changed();
-        let attempt = std::panic::AssertUnwindSafe(|| run(&run_for(now)).map_err(|e| run_failure(&e)).and_then(|o| parse(&o.captured, now)));
+        let attempt = std::panic::AssertUnwindSafe(|| run(&run_for(now)).map_err(|e| run_failure(&e)).and_then(|o| counted(&o.captured, now)));
         let outcome = std::panic::catch_unwind(attempt).unwrap_or_else(|_| Err("The calendar refresh crashed. Refresh calendar to try again.".into()));
         {
             let mut i = self.0.lock().unwrap();
             i.status.refreshing = false;
             match outcome {
-                Ok(events) => {
+                Ok((events, skipped)) => {
                     i.events = events;
+                    i.status.skipped = skipped;
                     i.status.updated = Some(now);
                     i.status.failure = None;
                 }
@@ -340,6 +349,10 @@ mod tests {
         let mut tz = all_teams();
         tz[1] = search(Some(2), &other_zone);
         assert_eq!(subjects(&parse(&tz, now()).unwrap()), ["Backlog Refinement", "Focus"]);
+        assert_eq!(counted(&tz, now()).unwrap().1, 1, "and counted, for the status line");
+        let cal = Calendar::default();
+        cal.refresh(now(), good(tz), || {});
+        assert_eq!(cal.status().skipped, 1);
     }
 
     #[test]
@@ -436,7 +449,7 @@ mod tests {
         one[3] = read(2, None, false);
         cal.refresh(later, good(one), || {});
         assert_eq!(subjects(&cal.events()), ["Partner sync"]);
-        assert_eq!(cal.status(), Status { updated: Some(later), refreshing: false, failure: None });
+        assert_eq!(cal.status(), Status { updated: Some(later), refreshing: false, failure: None, skipped: 0 });
     }
 
     #[test]

@@ -35,4 +35,6 @@ test("the calendar status line reads refreshing, else the failure with its fix, 
   const fix = "Claude Code not found. Install it or add it to PATH, then Refresh calendar.";
   expect(calendarLine({ updated: at, refreshing: false, failure: fix })).toEqual({ text: fix, error: true });
   expect(calendarLine({ updated: null, refreshing: false, failure: null }).text).toBe("Calendar not loaded");
+  expect(calendarLine({ updated: at, refreshing: false, failure: null, skipped: 2 }).text).toBe("Updated 14:00 · 2 events skipped: unknown time zone");
+  expect(calendarLine({ updated: at, refreshing: false, failure: null, skipped: 1 }).text).toBe("Updated 14:00 · 1 event skipped: unknown time zone");
 });

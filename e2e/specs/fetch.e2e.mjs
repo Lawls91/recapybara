@@ -28,8 +28,9 @@ const failed = justEnded(4, "Partner briefing");
 const all = [fetched, stubbed, forbidden, failed];
 
 const meetingOf = async (e) => (await invoke("list_meetings")).find((m) => m.eventId === e.id);
+// Four fetches run one at a time, each firing every captured read through Git Bash: allow a minute.
 const until = (e, state) =>
-  browser.waitUntil(async () => (await meetingOf(e))?.state === state, { timeout: 30000, timeoutMsg: `${e.subject} never became ${state}` });
+  browser.waitUntil(async () => (await meetingOf(e))?.state === state, { timeout: 60000, timeoutMsg: `${e.subject} never became ${state}` });
 const folder = (m, ...p) => root("library", m.id, ...p);
 const row = (id) => $(`.row[data-id="${id}"]`);
 const argAfter = (argv, flag) => argv[argv.indexOf(flag) + 1];
@@ -65,6 +66,7 @@ describe("auto-fetch after a meeting", () => {
     const m = await meetingOf(stubbed);
     expect(fs.existsSync(folder(m, "transcript.vtt"))).toBe(false);
     await expect(row(m.id).$(".lbl")).toHaveText("Capture failed");
+    await until(fetched, "done");
     expect(fs.existsSync(folder(await meetingOf(fetched), "transcript.vtt"))).toBe(true);
     await row(m.id).click();
     await expect($("#attach-strip")).toBeDisplayed(); // manual import stays available (D14)

@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary, Jira key check, calendar refresh (Outline tickets 01, 03, 04, 05, 06, 07). v1 is single-user.
+Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting (Outline tickets 01, 03, 04, 05, 06, 07, 08). v1 is single-user.
 
 ## Build and run
 
@@ -85,6 +85,12 @@ Fake claude scenarios (the file is read on every run, so it can be rewritten bet
       "tool_response": [{ "type": "text", "text": "{\"uri\":\"calendar:///events/E1\",\"id\":\"E1\",\"subject\":\"Backlog Refinement\",\"organizerName\":\"Robin Sample\",\"namedAttendees\":[{\"name\":\"Speaker A\",\"address\":\"a@example.com\"}],\"start\":{\"dateTime\":\"2026-11-07T14:00:00.0000000\",\"timeZone\":\"UTC\"},\"end\":{\"dateTime\":\"2026-11-07T15:00:00.0000000\",\"timeZone\":\"UTC\"}}{\"moreResults\":false}" }] },
     { "tool_name": "mcp__claude_ai_Microsoft_365__read_resource", "tool_input": { "uri": "calendar:///events/E1" },
       "tool_response": [{ "type": "text", "text": "{\"onlineMeeting\":{\"joinUrl\":\"https://teams.example/j/1\"}}" }] } ] }
+{ "result": {…}, "version": "2.1.318 (Claude Code)", "hooks": [ /* calendar search and reads, as above */,  // a fetch (D13)
+    { "tool_name": "mcp__claude_ai_Microsoft_365__read_resource", "tool_input": { "uri": "<the read's meetingTranscriptUrl>" },
+      "tool_response": [{ "type": "text", "text": "{\"meeting\":{…},\"transcripts\":[{\"createdDateTime\":\"2026-11-07T14:00:00Z\",\"content\":\"WEBVTT\n\n…\"}]}" }] },
+    { "event": "PostToolUseFailure", "tool_name": "mcp__claude_ai_Microsoft_365__read_resource",
+      "tool_input": { "uri": "…" }, "error": "MCP error 3003: …" } ] }   // not reachable
+// Every run fires every hook its --settings matches, so one scenario can serve the refresh, each fetch and the summary.
 { "stdout": "{not json" }                      // a malformed result: the summary fails
 { "exitCode": 1 }                              // claude fails: the summary fails
 ```
@@ -113,7 +119,28 @@ page fails the refresh), and keeps the events from 2 hours ago to 24 hours ahead
 `onlineMeeting.joinUrl`. Claude's reply is ignored. The cache is in memory only (the refresh at start refills it), and
 lists each event as Scheduled, unless a library folder has its event id. Only UTC times (`timeZone: "UTC"`, what the
 connector returned) or times with an offset convert; an event in another zone is left out and logged. A failed refresh
-keeps the cache and puts the failure, with its fix, in the status line.
+keeps the cache and puts the failure, with its fix, in the status line. Events left out for their time zone are
+counted there too: "Updated 14:00 · 2 events skipped: unknown time zone".
+
+Auto-fetch (D12-D14): when a cached Teams event ends (checked every 30 s, right after each calendar refresh), the app
+creates its folder (`meeting.json` only, "Awaiting transcript") and runs a haiku fetch with `MAX_MCP_OUTPUT_TOKENS=200000`,
+whose prompt gives the event's `meetingTranscriptUrl`. Only a captured `read_resource` whose `tool_input.uri` equals that
+URL exactly counts. The capture must be `{meeting, transcripts[]}`; transcripts created from 30 minutes before the start
+to the end are kept, each must be VTT with a cue. One part is saved as `transcript.vtt` exactly; several are saved as
+`transcript.part<n>.vtt` and merged into `transcript.vtt` on one timeline. Then the summary starts. Outcomes:
+
+| Capture | Meeting |
+| --- | --- |
+| valid | "Transcript ready", then the summary |
+| empty list, or none in the window | retried at +2, +10, +30, +120 min from the end, then "No transcript" |
+| no read of the exact URL, a failed run, another error | a failed attempt, retried the same way, then "Capture failed" |
+| the size-limit stub ("exceeds maximum allowed tokens"), any other shape | "Capture failed" at once, with its toast |
+| a 403 or 3003 (either hook) | "Not reachable", no more attempts |
+
+An event that ended under 120 minutes ago while the app was closed gets an attempt as soon as the calendar finds it,
+then the rest of the schedule from its end. `meeting.json` keeps `transcriptUrl`, `attempts`, `nextAttempt` and
+`claudeVersion` (`claude --version` at each attempt), so a schedule survives a restart after the cache has forgotten the
+event: seed `"state": "awaitingTranscript"` with a past `nextAttempt` and a `transcriptUrl` to make one due at start.
 
 Without `MEETING_CAPTURE_CLAUDE`, the app runs the first `claude.exe` (or `claude.cmd` shim) on PATH. The list reads every folder with a `meeting.json`; every field
 defaults, so a test or a QA run can seed a state by hand:
