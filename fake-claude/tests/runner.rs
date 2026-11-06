@@ -20,7 +20,9 @@ fn run_case(name: &str, scenario_json: &str) -> (PathBuf, std::io::Result<String
     std::env::set_var("ANTHROPIC_API_KEY", "sk-should-not-leak");
     let sibling = dir.join("home").join(".claude").join("projects").join("sibling");
     fs::create_dir_all(&sibling).unwrap();
-    let run = claude::ClaudeRun { stdin: "on stdin".into(), ..claude::calendar_refresh(chrono::Utc::now()) };
+    // Bigger than a pipe buffer, as a ticket 04 transcript is.
+    let stdin = format!("on stdin{}", "x".repeat(200_000));
+    let run = claude::ClaudeRun { stdin, ..claude::calendar_refresh(chrono::Utc::now()) };
     let out = claude::run(&FAKE.into(), &dir.join("data").join("runs"), &dir.join("home"), &run);
     (dir, out)
 }
@@ -41,7 +43,7 @@ fn run_is_isolated_and_cleans_its_project_folder() {
     }
     assert!(!argv.contains(&"--bare"));
     assert!(rec["env"].get("ANTHROPIC_API_KEY").is_none());
-    assert_eq!(rec["stdin"], "on stdin");
+    assert_eq!(rec["stdin"].as_str().unwrap().len(), 200_008);
     assert!(!PathBuf::from(rec["projectDir"].as_str().unwrap()).exists(), "runs project folder not deleted");
     assert!(dir.join("home/.claude/projects/sibling").exists(), "sibling deleted");
     fs::remove_dir_all(&dir).unwrap();

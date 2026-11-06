@@ -47,8 +47,13 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
         .stderr(Stdio::piped());
     crate::platform::no_console(&mut cmd);
     let result = cmd.spawn().and_then(|mut child| {
-        child.stdin.take().unwrap().write_all(run.stdin.as_bytes())?;
-        child.wait_with_output()
+        // Feed stdin on its own thread while stdout/stderr drain, so a large transcript can't deadlock.
+        let mut stdin = child.stdin.take().unwrap();
+        let input = run.stdin.clone();
+        let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+        let out = child.wait_with_output();
+        let _ = writer.join();
+        out
     });
     // ponytail: hook transcript_path ground truth (D7) arrives with the first hooked run (tickets 06-08).
     let _ = fs::remove_dir_all(home.join(".claude").join("projects").join(slug(runs_dir)));

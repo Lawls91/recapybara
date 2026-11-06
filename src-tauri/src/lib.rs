@@ -158,6 +158,14 @@ pub fn run() {
             let first = s.library_path.is_none();
             let logon = s.start_at_logon;
             app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None) });
+            // Display name follows productName only (D50).
+            if let Some(w) = app.get_webview_window("main") {
+                w.set_title(&app.package_info().name)?;
+            }
+            // Re-point the Run key at this exe (a rename reinstall moves it). Enable only: never disable at startup.
+            if !first && logon {
+                let _ = app.autolaunch().enable();
+            }
             let item = build_tray(app.handle(), logon)?;
             *app.state::<AppState>().logon_item.lock().unwrap() = Some(item);
             if first {
@@ -187,7 +195,6 @@ mod tests {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(conf["identifier"], "com.lawls91.meetingcapture");
         assert_eq!(RUN_KEY_NAME, "com.lawls91.meetingcapture");
-        assert_eq!(conf["productName"], "Meeting capture");
     }
 
     #[test]

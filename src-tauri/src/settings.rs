@@ -54,6 +54,8 @@ mod tests {
             ..Settings::default()
         };
         save(&dir, &saved).unwrap();
+        let on_disk: serde_json::Value = serde_json::from_str(&fs::read_to_string(dir.join(FILE)).unwrap()).unwrap();
+        assert_eq!(on_disk["summaryModel"], "opus");
         let loaded = load(&dir);
         assert_eq!(loaded.library_path.as_deref(), Some(r"D:\lib"));
         assert_eq!(loaded.summary_model, "opus");
