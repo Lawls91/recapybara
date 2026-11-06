@@ -402,7 +402,7 @@ pub fn transcript_md(t: &Transcript) -> String {
 pub const GLOSSARY: &str = "glossary.md";
 
 fn glossary_line(c: &Correction) -> String {
-    format!("{} -> {}", c.from, c.to)
+    format!("{} -> {}", c.from.trim(), c.to.trim())
 }
 
 pub fn in_glossary(glossary: &str, c: &Correction) -> bool {
@@ -612,6 +612,13 @@ mod tests {
         add_to_glossary(&lib, &c).unwrap();
         assert_eq!(fs::read_to_string(lib.join(GLOSSARY)).unwrap(), "Orbit\r\nPROJ\r\nfelter -> filter\r\n");
         assert!(in_glossary(&fs::read_to_string(lib.join(GLOSSARY)).unwrap(), &c));
+        // Padded values (a correction found after punctuation) are the same entry, not a new line each click.
+        fs::write(lib.join(GLOSSARY), "").unwrap();
+        let padded = fix(" felter", "filter ", "");
+        add_to_glossary(&lib, &padded).unwrap();
+        add_to_glossary(&lib, &padded).unwrap();
+        assert_eq!(fs::read_to_string(lib.join(GLOSSARY)).unwrap(), "felter -> filter\n");
+        assert!(in_glossary("felter -> filter\n", &padded));
         assert!(add_to_glossary(&lib, &fix("a\nb", "c", "")).is_err());
         assert!(add_to_glossary(&lib, &fix("", "c", "")).is_err());
         fs::write(lib.join(GLOSSARY), b"caf\xe9").unwrap();
