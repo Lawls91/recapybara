@@ -20,7 +20,10 @@
           <span id="calendar-status">Calendar not loaded</span>
           <button id="refresh-button" class="ib sm" title="Refresh calendar" aria-label="Refresh calendar"><i class="ic">&#xE72C;</i></button>
         </div>
-        <p id="import-error" class="import-error" hidden></p>
+        <p id="import-error" class="import-error" hidden>
+          <span id="import-error-text"></span>
+          <button id="import-error-close" class="ib sm" title="Dismiss" aria-label="Dismiss"><i class="ic">&#xE711;</i></button>
+        </p>
         <div id="meeting-list" class="list" role="listbox" aria-label="Meetings"></div>
       </aside>
       <div class="detwrap">
@@ -56,7 +59,7 @@
               <h3><label for="start-at-logon">Start at logon</label></h3>
               <p class="desc">Opens in the tray when you sign in to Windows.</p>
             </div>
-            <input type="checkbox" id="start-at-logon" class="switch" />
+            <label class="toggle"><input type="checkbox" id="start-at-logon" class="switch" /><span id="start-at-logon-state"></span></label>
           </section>
           <section>
             <h3><label for="appearance">Appearance</label></h3>

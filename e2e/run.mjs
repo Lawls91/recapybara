@@ -1,8 +1,9 @@
 // Runs each E2E spec in its own wdio process, so each gets its own temp library,
 // app-data and home folders through the D37 env vars (tauri-driver inherits the launcher's env).
 // Needs a debug build first: `npx tauri build --debug --no-bundle`.
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,26 @@ for (const f of [app, fake]) {
 // tauri-driver auto-install needs cargo on PATH.
 const cargoBin = path.join(os.homedir(), ".cargo", "bin");
 const PATH = `${cargoBin}${path.delimiter}${process.env.PATH}`;
+
+// The service leaves each spec's tauri-driver (and its msedgedriver) running on Windows. A leftover holding
+// the driver port makes the next spec's driver fail silently and attach to a stale app, so each spec's
+// new driver processes are stopped by PID when it ends, and a taken port fails the run.
+const DRIVERS = ["tauri-driver.exe", "msedgedriver.exe"];
+const driverPids = () =>
+  new Set(
+    DRIVERS.flatMap((image) =>
+      execFileSync("tasklist", ["/FO", "CSV", "/NH", "/FI", `IMAGENAME eq ${image}`], { encoding: "utf8" })
+        .split("\n")
+        .map((l) => l.split(",")[1]?.replaceAll('"', ""))
+        .filter((pid) => /^\d+$/.test(pid ?? "")),
+    ),
+  );
+const portFree = (port) =>
+  new Promise((resolve) => {
+    const s = net.createServer().once("error", () => resolve(false));
+    s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
+  });
+const DRIVER_PORT = 4444; // @wdio/tauri-service's default tauriDriverPort
 
 const only = process.argv[2];
 const specs = fs
@@ -60,6 +81,12 @@ for (const spec of specs) {
     delete env.MEETING_CAPTURE_DATA_DIR;
     delete env.MEETING_CAPTURE_HOME;
   }
+  if (!(await portFree(DRIVER_PORT))) {
+    console.error(`\ne2e: port ${DRIVER_PORT} is already taken, so this spec's tauri-driver couldn't start and a session`);
+    console.error(`could attach to a stale driver. Stop the owner (netstat -ano | findstr :${DRIVER_PORT}), then rerun.`);
+    process.exit(1);
+  }
+  const before = driverPids();
   console.log(`\n=== e2e: ${spec} (root ${root})`);
   const r = spawnSync("npx", ["wdio", "run", path.join(here, "wdio.conf.mjs"), "--spec", path.join(here, "specs", spec)], {
     cwd: repo,
@@ -68,6 +95,9 @@ for (const spec of specs) {
     shell: true,
   });
   if (r.status !== 0) failed++;
+  for (const pid of driverPids()) {
+    if (!before.has(pid)) spawnSync("taskkill", ["/PID", pid, "/T", "/F"], { stdio: "ignore" });
+  }
 }
 console.log(`\ne2e: ${specs.length - failed}/${specs.length} spec files passed`);
 process.exit(failed ? 1 : 0);

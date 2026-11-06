@@ -1,6 +1,6 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
-import { at, fixture, invoke, root, seed } from "../helpers.mjs";
+import { at, fixture, freshFixture, invoke, root, seed } from "../helpers.mjs";
 
 // The native Choose file dialog is bypassed: the test invokes the command the dialog's pick feeds.
 const importFile = (path, id = null) => invoke("import_transcript", { path, id }).catch((e) => e);
@@ -11,13 +11,13 @@ describe("import a transcript", () => {
   before(async () => {
     seed("upcoming", { subject: "Bug Triage", start: at(1, 16), state: "scheduled" });
     seed("yesterday", { subject: "Planning call", start: at(-1, 15), state: "done" });
-    seed("missing", { subject: "Backlog Refinement", start: at(-1, 13), state: "noTranscript", joinUrl: "https://teams.example/r" });
+    seed("missing", { subject: "Backlog Refinement", start: at(-1, 13), state: "noTranscript", joinUrl: "https://teams.example/r", organiser: "Robin Sample" });
     await browser.refresh();
     await expect(rows()).toBeElementsArrayOfSize(3);
   });
 
   it("an imported fixture appears at the top of the past meetings as Transcript ready", async () => {
-    await importFile(fixture());
+    await importFile(freshFixture());
     await expect(rows()).toBeElementsArrayOfSize(4);
     const r = await rows();
     await expect(r[0]).toHaveAttribute("data-id", "upcoming"); // upcoming stays above the past meetings
@@ -42,9 +42,9 @@ describe("import a transcript", () => {
     await $('.row[data-id="missing"]').click();
     await expect($("#attach-strip")).toHaveText(expect.stringContaining("Attach the transcript"));
     const before = folders().length;
-    await importFile(fixture("bad.vtt"), "missing");
+    await importFile(freshFixture("bad.vtt"), "missing");
     await expect($("#attach-strip")).toHaveText(expect.stringContaining("bad.vtt: doesn't start with WEBVTT"));
-    await importFile(fixture(), "missing");
+    await importFile(freshFixture(), "missing");
     await expect($('.row[data-id="missing"] .lbl')).toHaveText("Transcript ready");
     await expect($("#attach-strip")).not.toBeExisting();
     expect(folders().length).toBe(before);
@@ -57,8 +57,12 @@ describe("import a transcript", () => {
     const meeting = JSON.parse(fs.readFileSync(root("library", "missing", "meeting.json"), "utf8"));
     expect([meeting.subject, meeting.joinUrl, meeting.source]).toEqual(["Backlog Refinement", "https://teams.example/r", "import"]);
     const before = folders().length;
-    await importFile(fixture());
+    await importFile(freshFixture());
     await expect(rows()).toBeElementsArrayOfSize(5);
     expect(folders().length).toBe(before + 1);
+    // "imported" marks the ad-hoc meetings only; the attached calendar meeting keeps its organiser.
+    await expect($('.row[data-id="missing"] .r2')).toHaveText(expect.stringContaining("Robin Sample"));
+    await expect($('.row[data-id="missing"] .r2')).not.toHaveText(expect.stringContaining("imported"));
+    await expect((await rows())[1].$(".r2")).toHaveText(expect.stringContaining("imported"));
   });
 });

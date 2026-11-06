@@ -68,3 +68,13 @@ export const seedAllStates = async (browser) => {
   }
   await browser.refresh();
 };
+
+/** A fixture copied into the test root and modified now, so an import is dated today (D15), whatever the checkout's file time. */
+export const freshFixture = (name = "Sprint review.vtt") => {
+  const copy = root("incoming", name);
+  fs.mkdirSync(path.dirname(copy), { recursive: true });
+  fs.copyFileSync(fixture(name), copy);
+  const now = new Date();
+  fs.utimesSync(copy, now, now);
+  return copy;
+};

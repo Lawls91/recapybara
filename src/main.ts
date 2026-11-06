@@ -43,6 +43,7 @@ async function loadSettings() {
   $("library-path").textContent = libraryLabel(current.libraryPath);
   $<HTMLSelectElement>("summary-model").value = current.summaryModel;
   $<HTMLInputElement>("start-at-logon").checked = current.startAtLogon;
+  $("start-at-logon-state").textContent = current.startAtLogon ? "On" : "Off";
   $<HTMLSelectElement>("appearance").value = current.appearance;
 }
 
@@ -85,7 +86,8 @@ function renderList() {
         `<div class="gh">${esc(g.label)}${g.date ? ` <span>${esc(g.date)}</span>` : ""}</div>` +
         g.items
           .map((m) => {
-            const second = [span(m), m.source === "import" ? "imported" : (m.organiser ?? "")].filter(Boolean).map(esc).join(" · ");
+            const adHoc = m.source === "import" && !m.joinUrl && !m.eventId;
+            const second = [span(m), adHoc ? "imported" : (m.organiser ?? "")].filter(Boolean).map(esc).join(" · ");
             return `<div id="row-${slug(m.id)}" class="row f-${STATES[m.state].family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
               <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
               ${mark(m)}
@@ -211,6 +213,7 @@ async function importFiles(paths: string[], id: string | null) {
 }
 
 $("import-button").onclick = () => chooseFile(null);
+$("import-error-close").onclick = () => ($("import-error").hidden = true);
 
 listen<string>("library-changed", async (e) => {
   selected = e.payload;
@@ -222,7 +225,7 @@ listen<{ id: string | null; message: string }>("import-refused", (e) => {
     refusals.push(e.payload.message);
     if (e.payload.id === selected) renderDetail();
   } else {
-    $("import-error").textContent = e.payload.message;
+    $("import-error-text").textContent = e.payload.message;
     $("import-error").hidden = false;
   }
 });
@@ -261,7 +264,12 @@ function attachStrip() {
   const n = refusals.length;
   return `<div id="attach-strip" class="strip err"><i class="ic big">&#xE7BA;</i>
     <div class="st"><b>${n === 1 ? "The file wasn’t attached" : `${n} files weren’t attached`}</b>
-    ${refusals.map((r) => `<span class="refusal">${esc(r)}</span>`).join("")}</div>
+    ${refusals
+      .map((r) => {
+        const [name, why] = r.includes(": ") ? [r.slice(0, r.indexOf(": ")), r.slice(r.indexOf(": ") + 2)] : ["", r];
+        return `<span class="refusal">${name ? `<b>${esc(name)}</b>: ` : ""}${esc(why)}</span>`;
+      })
+      .join("")}</div>
     <button id="attach-choose" class="btn">Choose file</button></div>`;
 }
 

@@ -35,11 +35,25 @@ button {
   line-height: 1;
   display: inline-block;
 }
-.list,
-.body,
-.settings .det {
-  scrollbar-width: thin;
-  scrollbar-color: var(--mc-stroke2) transparent;
+/* thin overlay-style scrollbars: no arrow buttons, thumb shown while the pointer is over the pane */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+:hover::-webkit-scrollbar-thumb {
+  background-color: var(--mc-stroke2);
 }
 [hidden] {
   display: none !important;
@@ -136,6 +150,9 @@ button {
   margin-left: auto;
 }
 .import-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin: 0 14px 6px 16px;
   padding: 8px 10px;
   border-radius: 8px;
@@ -387,7 +404,7 @@ button {
   background: var(--mc-card);
   border-radius: 10px;
   border: 1px solid var(--mc-stroke);
-  padding: 26px 34px 20px;
+  padding: 26px 34px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -597,6 +614,13 @@ button {
   gap: 2px;
   color: var(--mc-txt);
 }
+.strip .btn {
+  background: var(--mc-card);
+}
+.strip .st .refusal b {
+  font-size: inherit;
+  font-weight: 600;
+}
 .strip .st b {
   font-size: 14px;
 }
@@ -723,6 +747,16 @@ select {
   height: 30px;
   padding: 0 8px;
   min-width: 146px;
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 76px;
+}
+.import-error span {
+  flex: 1;
+  padding-top: 4px;
 }
 .switch {
   appearance: none;

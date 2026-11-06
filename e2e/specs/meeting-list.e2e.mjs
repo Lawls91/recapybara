@@ -95,6 +95,18 @@ describe("meeting list", () => {
     await expect($("#detail-title")).toHaveText(subject);
   });
 
+  it("Exclude series needs a join URL (D17), and a Skipped meeting offers no Skip", async () => {
+    await kebab("transcriptReady"); // seeded without a join URL
+    expect(await menuLabels()).not.toContain("Exclude series");
+    await closeMenu();
+    await kebab("captureFailed");
+    expect(await menuLabels()).toEqual(expect.arrayContaining(["Skip", "Exclude series"]));
+    await closeMenu();
+    await kebab("skipped");
+    expect(await menuLabels()).not.toContain("Skip");
+    await closeMenu();
+  });
+
   it("Scheduled, In call, Awaiting transcript and Skipped show their D49 state card, with Unskip only on Skipped", async () => {
     const cards = {
       scheduled: "Captures when the call ends",

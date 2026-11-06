@@ -76,7 +76,9 @@ pub fn validate(name: &str, bytes: &[u8]) -> Result<(), String> {
     if !name.to_lowercase().ends_with(".vtt") {
         return Err(format!("{name}: only Teams transcripts (.vtt) can be imported."));
     }
-    let text = String::from_utf8_lossy(bytes);
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return Err(format!("{name}: isn't UTF-8 text, so it isn't a Teams transcript. Download it again from the Teams recap."));
+    };
     let text = text.trim_start_matches('\u{feff}');
     if !text.starts_with("WEBVTT") {
         return Err(format!(
@@ -154,12 +156,14 @@ pub fn attach(library: &Path, id: &str, src: &Path) -> Result<(), String> {
     write_atomic(&dir.join(VTT), &bytes).and_then(|_| save(&dir, &m)).map_err(|e| e.to_string())
 }
 
-/// A direct child folder of the library; ids come from the page, so no separators or `..`.
+/// A direct child folder of the library. Ids come from the page, so exactly one plain name:
+/// no separators, `..` or drive prefix (`C:x` would join outside the library on Windows).
 pub fn meeting_dir(library: &Path, id: &str) -> Result<PathBuf, String> {
-    if id.is_empty() || id.contains(['/', '\\']) || id == ".." || id == "." {
-        return Err(format!("Not a meeting: {id}"));
+    let mut parts = Path::new(id).components();
+    match (parts.next(), parts.next()) {
+        (Some(std::path::Component::Normal(_)), None) if !id.contains([':', '/', '\\']) => Ok(library.join(id)),
+        _ => Err(format!("Not a meeting: {id}")),
     }
-    Ok(library.join(id))
 }
 
 pub fn load(dir: &Path) -> io::Result<Meeting> {
@@ -319,6 +323,8 @@ mod tests {
         assert!(no_cue.unwrap_err().contains("has no transcript lines"));
         let docx = import_new(&lib, &source(&src, "notes.docx", FIXTURE.as_bytes()));
         assert!(docx.unwrap_err().contains("only Teams transcripts (.vtt)"));
+        let latin1 = import_new(&lib, &source(&src, "latin1.vtt", b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ncaf\xe9\n"));
+        assert!(latin1.unwrap_err().contains("isn't UTF-8 text"));
         assert!(folders(&lib).is_empty());
         import_new(&lib, &source(&src, "Sprint review.vtt", FIXTURE.as_bytes())).unwrap();
         assert_eq!(folders(&lib).len(), 1);
@@ -335,7 +341,9 @@ mod tests {
         let m = load(&dir).unwrap();
         assert_eq!((m.state, m.join_url.as_deref()), (State::TranscriptReady, Some("https://teams/x")));
         assert_eq!(folders(&lib).len(), 1);
-        assert!(attach(&lib, "..", &src.join("Sprint review.vtt")).is_err());
+        for bad in ["..", ".", "", "C:x", r"a\b", "a/b"] {
+            assert!(meeting_dir(&lib, bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
