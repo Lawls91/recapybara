@@ -92,9 +92,11 @@ export interface MenuItem {
 export function menuFor(m: Meeting): MenuItem[] {
   const items: MenuItem[] = [{ id: "open", label: "Open", icon: "", key: "Enter" }];
   if (needsTranscript(m.state)) items.push({ id: "import", label: "Import transcript", icon: "", bold: true });
+  // Nothing that starts another run while one is going (a second run could finish first and be overwritten).
+  const busy = m.state === "summarising";
   if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "", bold: true });
-  else if (m.hasSummary) items.push({ id: "summarise", label: "Re-run summary", icon: "" });
-  if (m.hasTranscript) items.push({ id: "replace", label: "Replace transcript…", icon: "" });
+  else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "" });
+  if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "" });
   items.push({ id: "folder", label: "Open folder", icon: "" });
   const group: MenuItem[] = [];
   if (m.state !== "skipped") group.push({ id: "skip", label: "Skip", icon: "", key: "S" });

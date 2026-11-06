@@ -109,7 +109,9 @@ fn import_transcript(app: AppHandle, path: String, id: Option<String>) -> Result
     .map_err(|e| e.to_string())?;
     // Every import, attach or Replace transcript… starts the summary (D15, D49).
     if let Ok(done) = &result {
-        start_summary(&app, done)?;
+        if let Err(e) = start_summary(&app, done) {
+            eprintln!("summary not started for {done}: {e}"); // the import itself landed
+        }
     }
     result
 }
@@ -118,12 +120,7 @@ fn import_transcript(app: AppHandle, path: String, id: Option<String>) -> Result
 /// meeting-changed events, plus one toast (D29).
 fn start_summary(app: &AppHandle, id: &str) -> Result<(), String> {
     let dir = library::meeting_dir(&library_path(app)?, id)?;
-    let mut m = library::load(&dir).map_err(|e| e.to_string())?;
-    if !dir.join(library::VTT).exists() {
-        return Err("This meeting has no transcript yet.".into());
-    }
-    m.state = library::State::Summarising;
-    library::save(&dir, &m).map_err(|e| e.to_string())?;
+    let m = summary::begin(&dir)?;
     let _ = app.emit("meeting-changed", id);
     let state = app.state::<AppState>();
     let (runs, home) = (state.data_dir.join("runs"), state.home.clone());

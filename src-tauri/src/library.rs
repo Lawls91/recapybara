@@ -155,6 +155,9 @@ pub fn attach(library: &Path, id: &str, src: &Path) -> Result<(), String> {
     let dir = meeting_dir(library, id)?;
     let bytes = read_checked(src)?;
     let mut m = load(&dir).map_err(|e| e.to_string())?;
+    if m.state == State::Summarising {
+        return Err("A summary is running for this meeting. Replace the transcript when it finishes.".into());
+    }
     with_transcript(&mut m, &bytes);
     write_atomic(&dir.join(VTT), &bytes).and_then(|_| save(&dir, &m)).map_err(|e| e.to_string())
 }
@@ -222,7 +225,7 @@ pub struct Transcript {
 pub fn millis(t: &str) -> Option<u32> {
     let (whole, frac) = t.trim().split_once('.').unwrap_or((t.trim(), "0"));
     let s = whole.split(':').try_fold(0u32, |acc, p| Some(acc * 60 + p.parse::<u32>().ok()?))?;
-    let ms: u32 = format!("{frac:0<3}")[..3].parse().ok()?;
+    let ms: u32 = frac.chars().chain(std::iter::repeat('0')).take(3).collect::<String>().parse().ok()?;
     Some(s * 1000 + ms)
 }
 
@@ -420,6 +423,25 @@ mod tests {
         fs::create_dir_all(lib.join("stray")).unwrap();
         let ids: Vec<String> = list(&lib).into_iter().map(|l| l.id).collect();
         assert_eq!(ids, ["new", "old"]);
+    }
+
+    #[test]
+    fn millis_reads_cue_times_and_never_panics_on_odd_fractions() {
+        assert_eq!(millis("00:00:03.720"), Some(3720));
+        assert_eq!(millis("01:02:03"), Some(3_723_000));
+        assert_eq!(millis("00:03.5"), Some(3500));
+        assert_eq!(millis("00:00:03.12é"), None); // a byte slice at 3 would cut the é
+    }
+
+    #[test]
+    fn replacing_the_transcript_is_refused_while_a_summary_runs() {
+        let (src, lib) = (temp("src6"), temp("lib6"));
+        let dir = lib.join("running");
+        fs::create_dir_all(&dir).unwrap();
+        save(&dir, &Meeting { subject: "running".into(), state: State::Summarising, ..Meeting::default() }).unwrap();
+        let refused = attach(&lib, "running", &source(&src, "Sprint review.vtt", FIXTURE.as_bytes()));
+        assert!(refused.unwrap_err().contains("summary is running"));
+        assert!(!dir.join(VTT).exists());
     }
 
     #[test]

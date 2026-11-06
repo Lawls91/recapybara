@@ -29,7 +29,7 @@ export interface Summary {
   questions: Item[];
 }
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** D21 order: the run's sections, then Decisions, Actions, Open questions. Empty lists are left out. */
 export const lists = (s: Summary): { title: string; items: Item[]; owners: boolean }[] =>

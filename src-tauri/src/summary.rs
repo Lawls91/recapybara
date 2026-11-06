@@ -108,25 +108,34 @@ fn contains(haystack: &str, quote: &[String]) -> bool {
     h.contains(&format!(" {} ", quote.join(" ")))
 }
 
+/// The cue `at` names: one starting within that second (the prompt asks for cue starts, and Claude cites
+/// 00:00:03.720 as 00:00:03), else the cue containing it. Abutting cues share an instant, so start wins.
+fn cue_at(cues: &[Cue], at: u32) -> Option<usize> {
+    cues.iter()
+        .position(|q| (at..=at + 999).contains(&q.start))
+        .or_else(|| cues.iter().position(|q| q.start <= at && at <= q.end))
+}
+
 fn check_citation(cues: &[Cue], c: &mut Citation) {
-    // `at` names a whole second, so a cue counts when it overlaps that second: Claude cites a cue
-    // starting 00:00:03.720 as 00:00:03.
-    let Some(i) = library::millis(&c.at).and_then(|at| cues.iter().position(|q| q.start <= at + 999 && at <= q.end))
-    else {
+    let Some(i) = library::millis(&c.at).and_then(|at| cue_at(cues, at)) else {
         c.check = Check::NoCue;
         return;
     };
-    let cue = &cues[i];
+    let quote = words(&c.quote);
+    // The cue itself first, then the one before and the one after.
+    let matched = [Some(i), i.checked_sub(1), Some(i + 1)]
+        .into_iter()
+        .flatten()
+        .find(|&j| quote.len() >= 3 && cues.get(j).is_some_and(|q| contains(&q.text, &quote)));
+    c.check = match matched {
+        Some(_) => Check::Verified,
+        None if quote.len() < 3 => Check::TooShort,
+        None => Check::NotInCue,
+    };
+    // The peek shows the cue that matched, or the cited one when none did.
+    let cue = &cues[matched.unwrap_or(i)];
     (c.cue_at, c.speaker, c.cue_text, c.turn) =
         (Some(library::hms(cue.start)), Some(cue.speaker.clone()), Some(cue.text.clone()), Some(cue.turn));
-    let quote = words(&c.quote);
-    c.check = if quote.len() < 3 {
-        Check::TooShort
-    } else if cues[i.saturating_sub(1)..(i + 2).min(cues.len())].iter().any(|q| contains(&q.text, &quote)) {
-        Check::Verified
-    } else {
-        Check::NotInCue
-    };
 }
 
 /// Checks every citation against the raw cues of `vtt` (D20). Items are never dropped.
@@ -262,10 +271,11 @@ pub fn load(dir: &Path) -> Option<Summary> {
 }
 
 /// Runs the summary for the meeting in `dir` and writes `summary.json` and `summary.md`, replacing any
-/// earlier ones and nothing else (D24). Failure keeps an earlier summary and marks the meeting "summary failed".
+/// earlier ones and nothing else (D24). Failure keeps an earlier summary and marks the meeting "summary failed",
+/// on every exit, a panic included.
 pub fn summarise(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Result<String>) -> Result<Summary, String> {
-    let mut m = library::load(dir).map_err(|e| e.to_string())?;
-    let outcome = (|| {
+    let attempt = std::panic::AssertUnwindSafe(|| -> Result<Summary, String> {
+        let m = library::load(dir).map_err(|e| e.to_string())?;
         let vtt = fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
         let (mut s, raw) = parse_result(&run(&run_for(&m, &vtt, model)).map_err(|e| e.to_string())?)?;
         check(&mut s, &vtt);
@@ -273,11 +283,28 @@ pub fn summarise(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Re
             .and_then(|_| library::write_atomic(&dir.join(library::SUMMARY_MD), render(&m, &s).as_bytes()))
             .map_err(|e| e.to_string())?;
         Ok(s)
-    })();
+    });
+    let outcome = std::panic::catch_unwind(attempt).unwrap_or_else(|_| Err("the summary run panicked".into()));
+    // Re-read: the run takes minutes, and meeting.json may have changed meanwhile.
+    let mut m = library::load(dir).map_err(|e| e.to_string())?;
     m.state = if outcome.is_ok() { State::Done } else { State::SummaryFailed };
     m.last_summary = Some(chrono::Local::now().fixed_offset());
     library::save(dir, &m).map_err(|e| e.to_string())?;
     outcome
+}
+
+/// Marks the meeting "summarising" before its run starts, refusing a second run while one is going.
+pub fn begin(dir: &Path) -> Result<Meeting, String> {
+    let mut m = library::load(dir).map_err(|e| e.to_string())?;
+    if !dir.join(library::VTT).exists() {
+        return Err("This meeting has no transcript yet.".into());
+    }
+    if m.state == State::Summarising {
+        return Err("A summary is already running for this meeting.".into());
+    }
+    m.state = State::Summarising;
+    library::save(dir, &m).map_err(|e| e.to_string())?;
+    Ok(m)
 }
 
 /// D47 toast wording. Titles over 60 characters are cut with an ellipsis.
@@ -334,6 +361,24 @@ mod tests {
         }
         let no_cue = checked(CUE, item(vec![cite("00:00:15", "the approach of adding")]));
         assert_eq!(no_cue.citations[0].check, Check::NoCue);
+    }
+
+    #[test]
+    fn a_citation_of_a_cue_start_picks_that_cue_when_cues_abut_and_peeks_at_the_matched_cue() {
+        // Cue 2 starts at 00:00:03.720, where cue 1 ends: "00:00:03" is cue 2's start, as the prompt asks.
+        let vtt = "WEBVTT\n\n00:00:01.200 --> 00:00:03.720\n<v A>alpha bravo charlie</v>\n\n\
+                   00:00:03.720 --> 00:00:09.000\n<v A>delta echo foxtrot</v>\n\n\
+                   00:00:09.000 --> 00:00:12.000\n<v B>golf hotel india</v>\n";
+        let after = checked(vtt, item(vec![cite("00:00:03", "golf hotel india")]));
+        assert!(after.verified, "the cue after cue 2");
+        let c = &after.citations[0];
+        assert_eq!((c.cue_at.as_deref(), c.turn, c.speaker.as_deref()), (Some("00:00:09"), Some(1), Some("B")), "peek at the cue that matched");
+        // Inside a cue with no cue starting in that second, the cue containing it still counts.
+        let inside = checked(vtt, item(vec![cite("00:00:05", "delta echo foxtrot")]));
+        assert_eq!(inside.citations[0].cue_at.as_deref(), Some("00:00:03"));
+        assert!(inside.verified);
+        let not_in = checked(vtt, item(vec![cite("00:00:03", "nothing like this")]));
+        assert_eq!((not_in.citations[0].check, not_in.citations[0].cue_at.as_deref()), (Check::NotInCue, Some("00:00:03")));
     }
 
     #[test]
@@ -428,6 +473,41 @@ mod tests {
         assert!(summarise(&dir, "opus", |_| Ok("{not json".into())).is_err());
         assert!(fs::read_to_string(dir.join(library::SUMMARY_MD)).unwrap().contains("Second run"));
         assert_eq!(library::load(&dir).unwrap().state, State::SummaryFailed);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_second_run_is_refused_while_one_is_running_and_every_exit_marks_the_meeting() {
+        let dir = temp("guard");
+        library::save(&dir, &Meeting { subject: "Guard".into(), ..Meeting::default() }).unwrap();
+        assert!(begin(&dir).unwrap_err().contains("no transcript"));
+        fs::write(dir.join(library::VTT), CUE).unwrap();
+        begin(&dir).unwrap();
+        assert_eq!(library::load(&dir).unwrap().state, State::Summarising);
+        assert!(begin(&dir).unwrap_err().contains("already running"));
+
+        // A panic in the run still ends "summary failed".
+        let panicked = summarise(&dir, "opus", |_| panic!("synthetic panic"));
+        assert!(panicked.is_err());
+        assert_eq!(library::load(&dir).unwrap().state, State::SummaryFailed);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn meeting_json_written_during_the_run_is_kept() {
+        let dir = temp("stale");
+        library::save(&dir, &Meeting { subject: "Stale".into(), ..Meeting::default() }).unwrap();
+        fs::write(dir.join(library::VTT), CUE).unwrap();
+        summarise(&dir, "opus", |_| {
+            // Something else updates meeting.json while Claude runs.
+            let mut m = library::load(&dir).unwrap();
+            m.transcript_sha256 = Some("new-sha".into());
+            library::save(&dir, &m).unwrap();
+            Ok(json!({ "is_error": false, "structured_output": { "overview": "x" } }).to_string())
+        })
+        .unwrap();
+        let m = library::load(&dir).unwrap();
+        assert_eq!((m.state, m.transcript_sha256.as_deref()), (State::Done, Some("new-sha")));
         fs::remove_dir_all(dir).unwrap();
     }
 

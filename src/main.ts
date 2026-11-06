@@ -12,12 +12,11 @@ import {
   summaryAction,
   type Meeting,
 } from "./meetings";
-import { chipLabel, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
+import { chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 // Stable element ids from the folder name (WebView2 exposes ids as UIA AutomationIds).
 const slug = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "-");
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 let current: Settings;
 let meetings: Meeting[] = [];
@@ -313,7 +312,7 @@ function itemHtml(it: Item, owners: boolean) {
   const chips = it.citations
     .map((c) => {
       const n = citeIndex.push(c) - 1;
-      return `<button class="chip ${c.check === "verified" ? "ok" : "bad"}" id="cite-${n}" data-cite="${n}">${chipLabel(c)}</button>`;
+      return `<button class="chip ${c.check === "verified" ? "ok" : "bad"}" id="cite-${n}" data-cite="${n}">${esc(chipLabel(c))}</button>`;
     })
     .join("");
   const markers =
@@ -344,7 +343,7 @@ function openPeek(chip: HTMLElement) {
   // A verified quote shows its whole turn; an unverified one shows the cue it was checked against.
   const head = `Transcript at ${(!reason && turn?.at) || c.cueAt || c.at}`;
   const line = (at: string, who: string, html: string) =>
-    `<p class="turn"><span class="th"><span class="tm">[${at}]</span> <b class="sp">${esc(who)}</b></span><span class="tx">${html}</span></p>`;
+    `<p class="turn"><span class="th"><span class="tm">[${esc(at)}]</span> <b class="sp">${esc(who)}</b></span><span class="tx">${html}</span></p>`;
   const body =
     !reason && turn
       ? line(turn.at, turn.speaker, markQuote(turn.text, c.quote))
@@ -355,7 +354,7 @@ function openPeek(chip: HTMLElement) {
   peek.className = "peek";
   peek.setAttribute("role", "dialog");
   peek.setAttribute("aria-label", head);
-  peek.innerHTML = `<div class="pkh"><b id="peek-title">${head}</b>${
+  peek.innerHTML = `<div class="pkh"><b id="peek-title">${esc(head)}</b>${
     turn ? `<button id="peek-open" class="lnk">Open full transcript</button>` : ""
   }<button id="peek-close" class="btn sm">Close</button></div><div class="pkb" id="peek-body">${body}</div>`;
   $("detail").append(peek);
