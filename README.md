@@ -32,7 +32,8 @@ per-user MSI with the WiX 5.0.2 dotnet global tool, which it installs from NuGet
   `productName` (AUMID `com.lawls91.meetingcapture`, the toast identity) and the HKCU Run value
   `com.lawls91.meetingcapture` (start at logon, D31).
 - Renaming: change `productName` only, rebuild, install over the old build. The fixed UpgradeCode makes it an in-place
-  upgrade: one Apps & features entry, the new name on the shortcut and window title, settings kept.
+  upgrade: one Apps & features entry, the new name on the shortcut and window title, settings kept. An upgrade writes
+  the Run value only if it was already there, so start at logon turned off stays off.
 - Uninstall (Apps & features) removes the exe, the shortcut and the Run value. Settings
   (`%APPDATA%\com.lawls91.meetingcapture`) and the library stay.
 - The frozen values in `installer/wix/Package.wxs` (D50) are pinned by a test in `src-tauri/src/lib.rs`.
