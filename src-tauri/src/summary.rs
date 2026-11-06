@@ -350,6 +350,7 @@ pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun
         allowed_tools: JIRA_READ_TOOLS,
         capture: JIRA_READ_TOOLS,
         args: vec!["--json-schema".into(), schema().to_string()],
+        env: &[],
         stdin,
     }
 }

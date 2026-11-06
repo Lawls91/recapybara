@@ -18,6 +18,8 @@ pub struct ClaudeRun {
     pub capture: &'static [&'static str],
     /// Run-specific flags, e.g. `--json-schema` (D18).
     pub args: Vec<String>,
+    /// Extra child environment, e.g. `MAX_MCP_OUTPUT_TOKENS` (D13).
+    pub env: &'static [(&'static str, &'static str)],
     pub stdin: String,
 }
 
@@ -45,6 +47,15 @@ pub fn program() -> OsString {
         .and_then(|path| find_on(&path, if cfg!(windows) { &pathext } else { "" }))
         .map(Into::into)
         .unwrap_or_else(|| "claude".into())
+}
+
+/// `claude --version`, trimmed, for the meeting metadata (D14). None when it can't be run.
+pub fn version(program: &OsString) -> Option<String> {
+    let mut cmd = Command::new(program);
+    cmd.arg("--version").env_remove("ANTHROPIC_API_KEY").stdin(Stdio::null());
+    crate::platform::no_console(&mut cmd);
+    let out = cmd.output().ok().filter(|o| o.status.success())?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|v| !v.is_empty())
 }
 
 /// Claude Code's project-folder name for a cwd: every non letter/digit becomes `-` (D7).
@@ -200,6 +211,7 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
         // CLAUDE_CODE_GIT_BASH_PATH stays: Claude Code on Windows needs it.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .envs(run.env.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

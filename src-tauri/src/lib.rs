@@ -10,6 +10,7 @@ use tauri_plugin_dialog::DialogExt;
 
 pub mod calendar;
 pub mod claude;
+pub mod fetch;
 pub mod library;
 mod platform;
 pub mod settings;

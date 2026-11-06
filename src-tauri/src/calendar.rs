@@ -48,6 +48,7 @@ pub fn run_for(now: DateTime<Utc>) -> ClaudeRun {
         allowed_tools: TOOLS,
         capture: TOOLS,
         args: vec![],
+        env: &[],
         stdin: String::new(),
     }
 }

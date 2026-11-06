@@ -55,6 +55,12 @@ pub struct Meeting {
     /// None: summarised before keys were checked, so no key is marked until a re-run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub found_keys: Option<Vec<String>>,
+    /// The cached event's `meetingTranscriptUrl`, the one URI a capture may come from (D13).
+    pub transcript_url: Option<String>,
+    /// Fetch attempts made so far (D12).
+    pub attempts: u32,
+    /// When the next fetch attempt is due; none once the schedule has ended (D12, D25).
+    pub next_attempt: Option<DateTime<FixedOffset>>,
 }
 
 /// A meeting as the list sees it: its folder name is its id.
@@ -116,7 +122,7 @@ fn unique_dir(library: &Path, name: &str) -> PathBuf {
     (2..).map(|n| library.join(format!("{name} ({n})"))).find(|p| !p.exists()).unwrap()
 }
 
-fn sha256(bytes: &[u8]) -> String {
+pub(crate) fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -134,6 +140,7 @@ pub fn save(dir: &Path, m: &Meeting) -> io::Result<()> {
 fn with_transcript(m: &mut Meeting, bytes: &[u8]) {
     m.state = State::TranscriptReady;
     m.source = Some("import".into());
+    m.next_attempt = None;
     m.transcript_sha256 = Some(sha256(bytes));
 }
 
@@ -153,6 +160,15 @@ pub fn import_new(library: &Path, src: &Path) -> Result<String, String> {
         save(&dir, &m)
     };
     io().map_err(|e| e.to_string())?;
+    Ok(dir.file_name().unwrap().to_string_lossy().into_owned())
+}
+
+/// A new meeting folder for `m`, named from its start and subject (D25), holding only `meeting.json`. Returns its id.
+pub fn create(library: &Path, m: &Meeting) -> io::Result<String> {
+    let start = m.start.unwrap_or_else(|| Local::now().fixed_offset()).with_timezone(&Local).fixed_offset();
+    let dir = unique_dir(library, &folder_name(start, &m.subject));
+    fs::create_dir_all(&dir)?;
+    save(&dir, m)?;
     Ok(dir.file_name().unwrap().to_string_lossy().into_owned())
 }
 
