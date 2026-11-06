@@ -59,6 +59,9 @@ const PAIRS: [string, string[], number][] = [
   ["mc-read", ["mc-peek", "mc-mark"], TEXT],
   ["tr-warn", ["mc-peek"], TEXT],
   ["mc-focus", ["mc-peek"], UI],
+  // the series filter chip (D17)
+  ["mc-acctxt", ["mc-accsoft"], TEXT],
+  ["mc-focus", ["mc-accsoft"], UI],
 ];
 
 function failures(t: Tokens): string[] {

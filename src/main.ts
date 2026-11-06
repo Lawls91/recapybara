@@ -29,6 +29,9 @@ let menuMeeting: Meeting | null = null;
 let renders = 0;
 let shown: { transcript: Transcript | null; summary: Summary | null } = { transcript: null, summary: null };
 let scrollToTurn: number | null = null;
+/** Show all in this series (D17): the list keeps the meetings sharing this join URL. A list-state filter, so search
+ * (ticket 15) can filter within it. */
+let series: { joinUrl: string; subject: string } | null = null;
 
 // ---------- settings and appearance (D46) ----------
 
@@ -50,6 +53,43 @@ async function loadSettings() {
   $<HTMLInputElement>("start-at-logon").checked = current.startAtLogon;
   $("start-at-logon-state").textContent = current.startAtLogon ? "On" : "Off";
   $<HTMLSelectElement>("appearance").value = current.appearance;
+  // Excluded series, each with Remove (D46).
+  $("excluded-series").innerHTML = current.excludedSeries.length
+    ? `<div class="exl">${current.excludedSeries
+        .map((s, i) => `<div class="exr"><span class="exn">${esc(s.subject || s.joinUrl)}</span><button class="lnk" id="include-${i}" data-include="${i}"><i class="ic">&#xE74D;</i>Remove</button></div>`)
+        .join("")}</div>`
+    : `<p class="desc">No series excluded.</p>`;
+  $("excluded-series").querySelectorAll<HTMLElement>("[data-include]").forEach(
+    (b) => (b.onclick = () => include(current.excludedSeries[Number(b.dataset.include)].joinUrl)),
+  );
+}
+
+function failed(e: unknown) {
+  $("import-error-text").textContent = String(e);
+  $("import-error").hidden = false;
+}
+
+// ---------- skip and exclude (D17, D49) ----------
+
+async function skip(m: Meeting) {
+  const was = selected === m.id;
+  const id = await invoke<string>("skip_meeting", { id: m.id }).catch(failed);
+  // A cached event's id is its uri; skipped, it is its new folder.
+  if (id && was) selected = id;
+  await loadMeetings();
+}
+
+async function unskip(m: Meeting) {
+  await invoke("unskip_meeting", { id: m.id }).catch(failed);
+}
+
+async function exclude(m: Meeting) {
+  if (!m.joinUrl || current.excludedSeries.some((s) => s.joinUrl === m.joinUrl)) return;
+  await save({ excludedSeries: [...current.excludedSeries, { joinUrl: m.joinUrl, subject: m.subject }] });
+}
+
+async function include(joinUrl: string) {
+  await save({ excludedSeries: current.excludedSeries.filter((s) => s.joinUrl !== joinUrl) });
 }
 
 async function save(change: Partial<Settings>) {
@@ -81,11 +121,21 @@ async function loadMeetings() {
 
 function renderList() {
   const list = $("meeting-list");
-  if (!meetings.length) {
+  const chip = $("series-filter");
+  chip.hidden = !series;
+  chip.innerHTML = series
+    ? `<span class="schip" id="series-chip">Series: ${esc(series.subject)} <button id="series-clear" title="Show all meetings" aria-label="Clear series filter">×</button></span>`
+    : "";
+  if (series) $("series-clear").onclick = () => {
+    series = null;
+    renderList();
+  };
+  const shown = series ? meetings.filter((m) => m.joinUrl === series!.joinUrl) : meetings;
+  if (!shown.length) {
     list.innerHTML = `<div class="empty"><div class="emt">No meetings yet</div><p class="ems">Import a Teams transcript, and meetings from your calendar will show here as they happen.</p></div>`;
     return;
   }
-  list.innerHTML = dayGroups(meetings, new Date())
+  list.innerHTML = dayGroups(shown, new Date())
     .map(
       (g) =>
         `<div class="gh">${esc(g.label)}${g.date ? ` <span>${esc(g.date)}</span>` : ""}</div>` +
@@ -139,6 +189,8 @@ $("meeting-list").addEventListener("keydown", (e) => {
   const m = byId(row.dataset.id)!;
   if (e.key === "Enter") open(m.id);
   else if (e.key === "Delete") askDelete(m);
+  else if ((e.key === "s" || e.key === "S") && menuFor(m).some((i) => i.id === "skip")) skip(m);
+  else if ((e.key === "e" || e.key === "E") && menuFor(m).some((i) => i.id === "exclude")) exclude(m);
   else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")];
     const next = rows[rows.indexOf(row) + (e.key === "ArrowDown" ? 1 : -1)];
@@ -186,7 +238,13 @@ $("row-menu").addEventListener("click", async (e) => {
   else if (action === "folder") await invoke("open_folder", { id: m.id });
   else if (action === "delete") askDelete(m);
   else if (action === "summarise") await runSummary(m.id);
-  // ponytail: Skip, Exclude series, Show all in this series are ticket 10.
+  else if (action === "skip") await skip(m);
+  else if (action === "exclude") await exclude(m);
+  else if (action === "include") await include(m.joinUrl!);
+  else if (action === "series") {
+    series = { joinUrl: m.joinUrl!, subject: m.subject };
+    renderList();
+  }
 });
 document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#row-menu, .kebab")) closeMenu();
@@ -449,7 +507,7 @@ async function renderDetail() {
   if (card) {
     det.innerHTML = `${head}<div id="state-card" class="card state">
       <h5>${mark(m)}</h5><p id="state-sentence">${card}</p>
-      ${m.state === "skipped" ? `<button id="unskip" class="btn">Unskip</button>` : ""}</div>`;
+      ${m.state !== "skipped" ? "" : m.excluded ? `<button id="include-series" class="btn">Include series</button>` : `<button id="unskip" class="btn">Unskip</button>`}</div>`;
   } else {
     const sumStatus =
       m.state === "summarising" ? `<i class="spin"></i>` : m.state === "summaryFailed" ? `<span class="tq err">Failed</span>` : m.hasSummary ? "" : `<span class="tq">Not run</span>`;
@@ -470,6 +528,10 @@ async function renderDetail() {
         renderDetail();
       }),
   );
+  const un = document.getElementById("unskip");
+  if (un) un.onclick = () => unskip(m);
+  const inc = document.getElementById("include-series");
+  if (inc) inc.onclick = () => include(m.joinUrl!);
   const choose = document.getElementById("attach-choose");
   if (choose) choose.onclick = () => chooseFile(m.id);
   const action = document.getElementById("summary-action");

@@ -137,3 +137,14 @@ export const calendar = (events, joinUrls, extra = {}) => ({
   hooks: [search(events), ...events.map((e, i) => read(e, joinUrls[i]))],
   ...extra,
 });
+
+// Fetch scenarios (D13): the transcript read answers {meeting, transcripts[]} as a text block (Research, Headless Claude Code).
+export const vtt = (who) => `WEBVTT\n\nsynth/1-0\n00:00:01.000 --> 00:00:04.000\n<v Speaker A>Synthetic ${who} opens the call.</v>\n`;
+export const body = (e, content) =>
+  JSON.stringify({
+    meeting: { id: "SYNTH", subject: e.subject, startDateTime: `${e.start.dateTime}Z`, endDateTime: `${e.end.dateTime}Z` },
+    transcripts: content ? [{ id: "T1", createdDateTime: `${e.start.dateTime}Z`, endDateTime: `${e.end.dateTime}Z`, content }] : [],
+  });
+export const transcriptRead = (e, text) => ({ tool_name: `${M365}read_resource`, tool_input: { uri: transcriptUrl(e) }, tool_response: [{ type: "text", text }] });
+/** The fake claude's records of fetches for event `e`: each fetch's prompt names the event's meetingTranscriptUrl. */
+export const fetchesOf = (e) => claudeRecords().filter((r) => r.argv.some((a) => a.includes(transcriptUrl(e))));

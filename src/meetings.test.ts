@@ -23,6 +23,18 @@ test("a running summary's menu offers neither Re-run summary nor Replace transcr
   expect(ids("summarising")).not.toContain("replace");
 });
 
+test("Skip is only on a meeting not yet captured, and an excluded series offers Include series instead (D17)", () => {
+  const ids = (m: Meeting) => menuFor(m).map((i) => i.id);
+  expect(ids({ ...meeting("scheduled"), hasTranscript: false })).toContain("skip");
+  expect(ids({ ...meeting("captureFailed"), hasTranscript: false })).toContain("skip");
+  expect(ids(meeting("done"))).not.toContain("skip");
+  expect(ids({ ...meeting("skipped"), hasTranscript: false })).not.toContain("skip");
+  const teams = { ...meeting("scheduled"), hasTranscript: false, joinUrl: "https://teams.example/j/1" };
+  expect(ids(teams)).toEqual(expect.arrayContaining(["exclude", "series"]));
+  expect(ids({ ...teams, excluded: true })).toEqual(expect.arrayContaining(["include", "series"]));
+  expect(ids({ ...teams, excluded: true })).not.toContain("exclude");
+});
+
 test("a meeting from the calendar cache has no Open folder until it is captured", () => {
   expect(menuFor({ ...meeting("scheduled"), source: "calendar" }).map((i) => i.id)).not.toContain("folder");
   expect(menuFor(meeting("scheduled")).map((i) => i.id)).toContain("folder");

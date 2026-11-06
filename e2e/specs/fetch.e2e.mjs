@@ -1,19 +1,12 @@
 import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import path from "node:path";
-import { calendar, claudeRecords, event, freshFixture, invoke, M365, root, scenario, transcriptUrl } from "../helpers.mjs";
+import { body, calendar, claudeRecords, event, freshFixture, invoke, M365, root, scenario, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
 
 // Ticket 08: auto-fetch after a meeting (D12, D13, D14, D25). Every payload is synthetic, in the shapes Research
 // recorded (Headless Claude Code): the transcript read answers {meeting, transcripts[]} as a text block.
 const READ = `${M365}read_resource`;
 const VERSION = "2.1.318 (Claude Code)";
-const vtt = (who) => `WEBVTT\n\nsynth/1-0\n00:00:01.000 --> 00:00:04.000\n<v Speaker A>Synthetic ${who} opens the call.</v>\n`;
-const body = (e, content) =>
-  JSON.stringify({
-    meeting: { id: "SYNTH", subject: e.subject, startDateTime: `${e.start.dateTime}Z`, endDateTime: `${e.end.dateTime}Z` },
-    transcripts: content ? [{ id: "T1", createdDateTime: `${e.start.dateTime}Z`, endDateTime: `${e.end.dateTime}Z`, content }] : [],
-  });
-const transcriptRead = (e, text) => ({ tool_name: READ, tool_input: { uri: transcriptUrl(e) }, tool_response: [{ type: "text", text }] });
 const STUB = String.raw`Error: result (60,000 characters across 1 line) exceeds maximum allowed tokens. Output has been saved to C:\Users\synthetic\.claude\projects\synthetic\tool-results\toolu_synthetic.txt`;
 
 /** An event that ended a minute ago, 50 minutes long. */

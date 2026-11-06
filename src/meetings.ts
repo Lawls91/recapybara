@@ -26,6 +26,8 @@ export interface Meeting {
   state: State;
   hasTranscript: boolean;
   hasSummary: boolean;
+  /** Its series is excluded (D17). */
+  excluded?: boolean;
   /** Why the last summary run failed (shown on the Summary failed card). */
   summaryError?: string | null;
 }
@@ -102,8 +104,11 @@ export function menuFor(m: Meeting): MenuItem[] {
   // A meeting from the calendar cache has no folder until it is captured (D25).
   if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "" });
   const group: MenuItem[] = [];
-  if (m.state !== "skipped") group.push({ id: "skip", label: "Skip", icon: "", key: "S" });
-  if (m.joinUrl) group.push({ id: "exclude", label: "Exclude series", icon: "", key: "E" }); // D17 keys a series by join URL
+  // Skip stops a capture (D17), so only a meeting not yet captured has it.
+  if (m.state !== "skipped" && !m.hasTranscript && !busy) group.push({ id: "skip", label: "Skip", icon: "", key: "S" });
+  // D17 keys a series by join URL.
+  if (m.joinUrl)
+    group.push(m.excluded ? { id: "include", label: "Include series", icon: "" } : { id: "exclude", label: "Exclude series", icon: "", key: "E" });
   group.push({ id: "delete", label: "Delete", icon: "", key: "Del", danger: true });
   group[0].sep = true;
   items.push(...group);

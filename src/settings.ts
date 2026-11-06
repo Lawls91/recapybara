@@ -2,7 +2,8 @@ export interface Settings {
   libraryPath: string | null;
   summaryModel: string;
   startAtLogon: boolean;
-  excludedSeries: string[];
+  /** Exclude series (D17): keyed by join URL; the subject names it in Settings. */
+  excludedSeries: { joinUrl: string; subject: string }[];
   appearance: string;
 }
 

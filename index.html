@@ -24,6 +24,7 @@
           <span id="import-error-text"></span>
           <button id="import-error-close" class="ib sm" title="Dismiss" aria-label="Dismiss"><i class="ic">&#xE711;</i></button>
         </p>
+        <div id="series-filter" class="sfilter" hidden></div>
         <div id="meeting-list" class="list" role="listbox" aria-label="Meetings"></div>
       </aside>
       <div class="detwrap">
@@ -73,7 +74,7 @@
           <section>
             <h3>Excluded series</h3>
             <p class="desc">Meetings in these series are never captured.</p>
-            <p id="excluded-series" class="desc">No series excluded.</p>
+            <div id="excluded-series"></div>
           </section>
         </div>
       </div>
