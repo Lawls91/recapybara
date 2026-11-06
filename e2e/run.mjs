@@ -1,6 +1,6 @@
 // Runs each E2E spec in its own wdio process, so each gets its own temp library,
 // app-data and home folders through the D37 env vars (tauri-driver inherits the launcher's env).
-// Needs a release build first: `npx tauri build`.
+// Needs a debug build first: `npx tauri build --debug --no-bundle`.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..");
-const release = path.join(process.env.CARGO_TARGET_DIR ?? path.join(repo, "target"), "release");
+// Debug build (shares artifacts with cargo test): `npx tauri build --debug --no-bundle`.
+const release = path.join(process.env.CARGO_TARGET_DIR ?? path.join(repo, "target"), "debug");
 const app = path.join(release, "meeting-capture.exe");
 const fake = path.join(release, "fake-claude.exe");
 for (const f of [app, fake]) {
