@@ -100,10 +100,12 @@ pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<Pat
     let mut dirs = vec![projects.join(slug(runs_dir))];
     for tp in captured.iter().filter_map(|p| p["transcript_path"].as_str()) {
         let Some(rest) = norm(tp).strip_prefix(&prefix).map(|r| tp[tp.len() - r.len()..].replace('/', "\\")) else { continue };
-        // Exactly `<folder>\<file>`, the folder a plain name.
+        // Exactly `<folder>\<file>`, the folder in slug()'s alphabet only: Win32 strips trailing dots and spaces, so
+        // "..." or " " would name projects itself, and "C:" is drive-relative.
         if let Some((folder, file)) = rest.split_once('\\') {
             let d = projects.join(folder);
-            if !file.is_empty() && !file.contains('\\') && !["", ".", ".."].contains(&folder) && !dirs.contains(&d) {
+            let slug_like = !folder.is_empty() && folder.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+            if !file.is_empty() && !file.contains('\\') && slug_like && !dirs.contains(&d) {
                 dirs.push(d);
             }
         }
@@ -259,7 +261,20 @@ mod tests {
         let slug_dir = PathBuf::from(r"C:\h\.claude\projects\C--d-runs");
         assert_eq!(at(r"C:\h\.claude\projects\C--d-runs\s.jsonl"), [slug_dir.clone()], "same as the slug");
         assert_eq!(at("c:/H/.claude/projects/Other-Slug/s.jsonl"), [slug_dir.clone(), PathBuf::from(r"C:\h\.claude\projects\Other-Slug")]);
-        for outside in [r"C:\h\.claude\projects\..\s.jsonl", r"C:\h\.claude\projects\s.jsonl", r"C:\h\.claude\projects\a\b\s.jsonl", r"C:\h\.claude\x\s.jsonl", r"C:\elsewhere\s.jsonl"] {
+        // Win32 strips trailing dots and spaces, so "...", " ", ". ." and ".. " name projects itself; "C:" is drive-relative.
+        for outside in [
+            r"C:\h\.claude\projects\..\s.jsonl",
+            r"C:\h\.claude\projects\...\s.jsonl",
+            r"C:\h\.claude\projects\ \s.jsonl",
+            r"C:\h\.claude\projects\. .\s.jsonl",
+            r"C:\h\.claude\projects\.. \s.jsonl",
+            r"C:\h\.claude\projects\C:\s.jsonl",
+            r"C:\h\.claude\projects\abc.\s.jsonl",
+            r"C:\h\.claude\projects\s.jsonl",
+            r"C:\h\.claude\projects\a\b\s.jsonl",
+            r"C:\h\.claude\x\s.jsonl",
+            r"C:\elsewhere\s.jsonl",
+        ] {
             assert_eq!(at(outside), [slug_dir.clone()], "{outside}");
         }
         assert_eq!(project_dirs(home, runs, &[]), [slug_dir]);
