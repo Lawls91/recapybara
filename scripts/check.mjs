@@ -2,7 +2,7 @@
 // Stops at the first failure and exits non-zero.
 //   1. cargo test under cargo-llvm-cov, failing under 80% Rust line coverage
 //   2. Vitest
-//   3. tauri build --debug --no-bundle (app + fake claude; the installer is `npx tauri build`, not part of check)
+//   3. tauri build --debug --no-bundle (app + fake claude; the MSI is `npm run msi`, not part of check)
 //   4. cargo build -p fake-claude, then E2E (WebdriverIO + @wdio/tauri-service) against that build
 // Prerequisites it installs when missing: llvm-tools-preview, cargo-llvm-cov.
 // tauri-driver and msedgedriver are fetched by @wdio/tauri-service on first E2E run.

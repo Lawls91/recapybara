@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Meeting capture MSI: per-user (no UAC), unsigned, no custom actions. Built by scripts\build-msi.ps1.
+
+  Frozen layer (D50), never derived from productName; src-tauri/src/lib.rs pins each one in a test:
+    - UpgradeCode, so every later build (a rename included) upgrades in place
+    - install folder %LOCALAPPDATA%\Programs\com.lawls91.meetingcapture
+    - the Start-menu shortcut's System.AppUserModel.ID com.lawls91.meetingcapture (the toast AUMID;
+      Windows drops toasts whose AUMID matches no shortcut)
+    - the HKCU Run value name com.lawls91.meetingcapture (the app's start-at-logon writes the same name)
+  Display layer: $(var.ProductName) only (Apps & features entry, shortcut name).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package Name="$(var.ProductName)" Manufacturer="lawls91" Version="$(var.Version)"
+           UpgradeCode="{6D924D52-CF86-41C9-8AD5-364EF36A2E0D}"
+           Scope="perUser" Compressed="yes">
+
+    <!-- AllowSameVersionUpgrades: a rebuild with the same version (a rename) is a full remove-then-install,
+         so one Apps & features entry and the shortcut is recreated under the new name. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed."
+                  AllowSameVersionUpgrades="yes" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="app.ico" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="app.ico" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="com.lawls91.meetingcapture" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="$(var.ProductName)" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="LogonRun" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PayloadDir)\**" />
+    </ComponentGroup>
+
+    <!-- No Icon= attribute: the shortcut takes its icon from the exe (tauri-build embeds icon.ico), a path
+         that survives upgrades; an Icon= path points into the per-ProductCode installer cache, which a
+         MajorUpgrade deletes (a lesson learned). -->
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="*">
+      <Shortcut Id="StartLnk" Name="$(var.ProductName)"
+                Target="[INSTALLFOLDER]meeting-capture.exe" WorkingDirectory="INSTALLFOLDER">
+        <ShortcutProperty Key="System.AppUserModel.ID" Value="com.lawls91.meetingcapture" />
+      </Shortcut>
+      <RegistryValue Root="HKCU" Key="Software\com.lawls91.meetingcapture" Name="StartMenu"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Start at logon (D31) on from install, as the app's own toggle writes it; uninstall removes the value.
+         ponytail: an upgrade rewrites it even if the user had turned start at logon off (the app never
+         disables at startup, so the E2E suite can't clear a real Run value). Upgrade path: the app
+         re-syncs the value to settings at startup once E2E stops sharing HKCU with the installed app. -->
+    <Component Id="LogonRun" Directory="INSTALLFOLDER" Guid="*">
+      <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="com.lawls91.meetingcapture" Type="string"
+                     Value="&quot;[INSTALLFOLDER]meeting-capture.exe&quot; --autostart" KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

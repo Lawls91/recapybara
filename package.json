@@ -9,7 +9,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "e2e": "node e2e/run.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "msi": "pwsh -NoProfile -File scripts/build-msi.ps1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",

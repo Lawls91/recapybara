@@ -252,6 +252,16 @@ mod tests {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(conf["identifier"], "com.lawls91.meetingcapture");
         assert_eq!(RUN_KEY_NAME, "com.lawls91.meetingcapture");
+        // The MSI's frozen layer (D50): changing any of these breaks upgrades, toasts or uninstall.
+        let wxs = include_str!("../../installer/wix/Package.wxs");
+        for frozen in [
+            r#"UpgradeCode="{6D924D52-CF86-41C9-8AD5-364EF36A2E0D}""#,
+            r#"<Directory Id="INSTALLFOLDER" Name="com.lawls91.meetingcapture" />"#,
+            r#"<ShortcutProperty Key="System.AppUserModel.ID" Value="com.lawls91.meetingcapture" />"#,
+            r#"Name="com.lawls91.meetingcapture" Type="string""#,
+        ] {
+            assert!(wxs.contains(frozen), "Package.wxs lost frozen identifier: {frozen}");
+        }
     }
 
     #[test]
