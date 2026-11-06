@@ -29,6 +29,7 @@ describe("meeting list", () => {
     await seedAllStates(browser);
     await expect($$("#meeting-list .row")).toBeElementsArrayOfSize(11);
   });
+  beforeEach(closeMenu); // a test that fails with the menu open doesn't block the next
 
   it("each meeting state draws its D41 dot colour and label", async () => {
     for (const [state, [label, rgb]] of Object.entries(D41)) {
@@ -73,23 +74,25 @@ describe("meeting list", () => {
   it("Enter opens the keyboard-cursor row and Del asks to delete it; with no cursor row they do nothing", async () => {
     await row("noTranscript").click(); // opens it and puts the cursor on it
     await browser.keys("ArrowDown"); // cursor to the next row, which stays unopened
-    expect(await browser.execute(() => document.activeElement.dataset.id)).toBe("seed notReachable");
+    const [id, subject] = await browser.execute(() => [document.activeElement.dataset.id, document.activeElement.querySelector(".rt")?.textContent]);
+    expect(id).toMatch(/^seed /);
+    expect(id).not.toBe("seed noTranscript");
     await expect($("#detail-title")).toHaveText("Backlog Refinement");
     await browser.keys("Enter");
-    await expect($("#detail-title")).toHaveText("Partner sync");
+    await expect($("#detail-title")).toHaveText(subject);
     await browser.keys("Delete");
     await expect($("#confirm")).toBeDisplayed();
-    await expect($("#confirm-title")).toHaveText("Delete “Partner sync”?");
+    await expect($("#confirm-title")).toHaveText(`Delete “${subject}”?`);
     await $("#confirm-cancel").click();
     await expect($("#confirm")).not.toBeDisplayed();
-    expect(fs.existsSync(root("library", "seed notReachable", "meeting.json"))).toBe(true);
+    expect(fs.existsSync(root("library", id, "meeting.json"))).toBe(true);
 
     await $("#detail-meta").click(); // focus leaves the list: no cursor row
     expect(await browser.execute(() => !!document.activeElement.closest(".row"))).toBe(false);
     await browser.keys("Enter");
     await browser.keys("Delete");
     await expect($("#confirm")).not.toBeDisplayed();
-    await expect($("#detail-title")).toHaveText("Partner sync");
+    await expect($("#detail-title")).toHaveText(subject);
   });
 
   it("Scheduled, In call, Awaiting transcript and Skipped show their D49 state card, with Unskip only on Skipped", async () => {

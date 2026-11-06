@@ -52,6 +52,7 @@ describe("import a transcript", () => {
 
   it("the attach strip attaches to its meeting, while the list's Import transcript creates an ad-hoc meeting", async () => {
     // The previous test attached through the strip: same folder and meeting, transcript in place.
+    expect(fs.existsSync(root("library", "missing", "transcript.vtt"))).toBe(true);
     expect(fs.readFileSync(root("library", "missing", "transcript.vtt"))).toEqual(fs.readFileSync(fixture()));
     const meeting = JSON.parse(fs.readFileSync(root("library", "missing", "meeting.json"), "utf8"));
     expect([meeting.subject, meeting.joinUrl, meeting.source]).toEqual(["Backlog Refinement", "https://teams.example/r", "import"]);
