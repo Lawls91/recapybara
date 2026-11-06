@@ -21,4 +21,5 @@ Rules that hold for every ticket:
 - **Automation first** (Testing Decisions): every behaviour not tied to something external gets an
   automated test (`cargo test`, Vitest, WebdriverIO E2E with the fake `claude`). `(live)` criteria are
   for external facts only.
-- **Never call the real Claude in CI**; tests use the fake `claude` binary (D36).
+- **Local first**: `npm run check` (all suites plus the 80% coverage gate) is the verdict until CI lands in Outline ticket 18.
+- **Never call the real Claude in tests or CI**; tests use the fake `claude` binary (D36).
