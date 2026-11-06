@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting (Outline tickets 01, 03, 04, 05, 06, 07, 08). v1 is single-user.
+Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10). v1 is single-user.
 
 ## Build and run
 
@@ -141,6 +141,18 @@ An event that ended under 120 minutes ago while the app was closed gets an attem
 then the rest of the schedule from its end. `meeting.json` keeps `transcriptUrl`, `attempts`, `nextAttempt` and
 `claudeVersion` (`claude --version` at each attempt), so a schedule survives a restart after the cache has forgotten the
 event: seed `"state": "awaitingTranscript"` with a past `nextAttempt` and a `transcriptUrl` to make one due at start.
+
+Skip and Exclude series (D17), from a row's `...` menu (or S and E on the keyboard-cursor row): skipped and excluded
+meetings are never fetched or summarised. Skip is offered only on a meeting with no transcript yet. Skipping a calendar
+event creates its folder at once, `meeting.json` with `"state": "skipped", "skipped": true`, so the skip survives a
+restart and catch-up passes it by. The Skipped card's Unskip clears it: a meeting that ended under 120 minutes ago is
+fetched at once, an upcoming one when it ends, and an older one becomes "No transcript" (import its transcript by hand).
+Exclude series is keyed by the Teams join URL all occurrences share, stored in `settings.json` as
+`"excludedSeries": [{ "joinUrl": "…", "subject": "…" }]` and listed in Settings, each with Remove. Every occurrence
+without a transcript lists as Skipped (its card offers Include series); one already captured keeps its state and summary.
+Show all in this series (meetings with a join URL) filters the list to that join URL, newest first, under a chip
+"Series: <subject> ×"; × clears it. To seed: a skipped folder is `"state": "skipped"` (plus `"skipped": true`, and
+`end` and `transcriptUrl` for Unskip to fetch); a series is folders sharing one `joinUrl`.
 
 Without `MEETING_CAPTURE_CLAUDE`, the app runs the first `claude.exe` (or `claude.cmd` shim) on PATH. The list reads every folder with a `meeting.json`; every field
 defaults, so a test or a QA run can seed a state by hand:
