@@ -1,3 +1,10 @@
+// The service's window-focus recovery polls ~8 s per element command for @wdio/tauri-plugin, which this
+// single-window app doesn't ship. An explicit switchToWindow turns that recovery off for the session.
+const pinWindow = async () => {
+  const { browser } = await import("@wdio/globals");
+  await browser.switchToWindow((await browser.getWindowHandles())[0]);
+};
+
 // Launched per spec by e2e/run.mjs, which sets MC_APP and the D37 env vars.
 export const config = {
   runner: "local",
@@ -12,4 +19,6 @@ export const config = {
   mochaOpts: { timeout: 90000 },
   logLevel: "warn",
   waitforTimeout: 10000,
+  before: pinWindow,
+  onReload: pinWindow,
 };

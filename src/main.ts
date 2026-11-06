@@ -104,6 +104,8 @@ async function open(id: string) {
   selected = id;
   refusals = [];
   renderList();
+  // The opened row keeps the keyboard cursor, so arrows, Enter and Del carry on from it.
+  document.querySelector<HTMLElement>("#meeting-list .row.sel")?.focus();
   await renderDetail();
 }
 
