@@ -1,0 +1,15 @@
+# Build output
+target/
+src-tauri/target/
+node_modules/
+dist/
+*.log
+
+# Local config
+.env
+.env.*
+
+# Never commit real meeting content (Design D34): transcripts are blocked everywhere
+# except synthetic test fixtures.
+*.vtt
+!**/fixtures/**/*.vtt
