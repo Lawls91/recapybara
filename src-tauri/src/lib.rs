@@ -8,6 +8,7 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
 
+pub mod calendar;
 pub mod claude;
 pub mod library;
 mod platform;
@@ -28,6 +29,7 @@ struct AppState {
     logon_item: Mutex<Option<CheckMenuItem<Wry>>>,
     /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
     pending_open: Mutex<Option<String>>,
+    calendar: calendar::Calendar,
 }
 
 /// Env override (set and non-empty), else the real folder (D37).
@@ -97,7 +99,8 @@ fn library_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[tauri::command]
 fn list_meetings(app: AppHandle) -> Result<Vec<library::Listed>, String> {
-    Ok(library::list(&library_path(&app)?))
+    let lib = library_path(&app)?;
+    Ok(calendar::listed(&app.state::<AppState>().calendar.events(), library::list(&lib)))
 }
 
 /// The Transcript tab: turns with the last summary run's corrections applied, the same ones `transcript.md` holds (D22).
@@ -192,17 +195,34 @@ fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
     std::process::Command::new("explorer").arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-async fn refresh_calendar(app: AppHandle) -> Result<(), String> {
+/// One calendar refresh (D9) through the user's claude. `scheduled`: only if 30 minutes have passed since the last.
+/// Never two at once; the page follows along through calendar-changed.
+fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
     let state = app.state::<AppState>();
     let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
-    tauri::async_runtime::spawn_blocking(move || {
-        claude::run(&claude::program(), &runs, &home, &claude::calendar_refresh(chrono::Utc::now()))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    let run = |r: &claude::ClaudeRun| claude::run(&claude::program(), &runs, &home, r);
+    let changed = || {
+        let _ = app.emit("calendar-changed", ());
+    };
+    let now = chrono::Utc::now();
+    if scheduled {
+        state.calendar.tick(now, run, changed);
+    } else {
+        state.calendar.refresh(now, run, changed);
+    }
+}
+
+/// The list's refresh button and the tray's Refresh calendar now (D47). Returns when the refresh has ended, or at
+/// once when one is already going.
+#[tauri::command]
+async fn refresh_calendar(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || refresh_calendar_now(&app, false)).await.map_err(|e| e.to_string())
+}
+
+/// The calendar status line (D40).
+#[tauri::command]
+fn calendar_status(state: State<AppState>) -> calendar::Status {
+    state.calendar.status()
 }
 
 fn first_run(app: &AppHandle) {
@@ -288,7 +308,7 @@ pub fn run() {
                 library::recover(std::path::Path::new(lib));
             }
             let logon = s.start_at_logon;
-            app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None) });
+            app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar: Default::default() });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&app.package_info().name)?;
@@ -299,6 +319,12 @@ pub fn run() {
             }
             let item = build_tray(app.handle(), logon)?;
             *app.state::<AppState>().logon_item.lock().unwrap() = Some(item);
+            // The calendar at start, then every 30 minutes (D9).
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                refresh_calendar_now(&handle, true);
+                std::thread::sleep(calendar::TICK);
+            });
             if first {
                 first_run(app.handle());
             } else if !std::env::args().any(|a| a == "--autostart") {
@@ -317,6 +343,7 @@ pub fn run() {
             save_settings,
             pick_library_folder,
             refresh_calendar,
+            calendar_status,
             list_meetings,
             get_transcript,
             add_to_glossary,

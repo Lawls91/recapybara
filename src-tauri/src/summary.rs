@@ -152,7 +152,7 @@ pub const JIRA_READ_TOOLS: &[&str] = &[
 ];
 
 /// The parts of a hook's `tool_response` that are whole answers: each text block parsed as JSON where it is JSON.
-fn answers(resp: &Value) -> Vec<Value> {
+pub(crate) fn answers(resp: &Value) -> Vec<Value> {
     let parse = |t: &str| serde_json::from_str(t).unwrap_or_else(|_| Value::String(t.into()));
     let block = |b: &Value| b["text"].as_str().map(parse).unwrap_or_else(|| b.clone());
     match resp {
@@ -167,7 +167,7 @@ fn answers(resp: &Value) -> Vec<Value> {
 
 /// An answer that says it failed: text starting "Error", or `error`/`isError` true, or a non-empty
 /// `errorMessages`/`errors` (Jira's REST shape).
-fn is_error(a: &Value) -> bool {
+pub(crate) fn is_error(a: &Value) -> bool {
     let set = |v: &Value| v == &json!(true) || v.as_array().is_some_and(|x| !x.is_empty()) || v.as_object().is_some_and(|x| !x.is_empty());
     match a {
         Value::String(t) => t.trim_start().get(..5).is_some_and(|w| w.eq_ignore_ascii_case("error")),

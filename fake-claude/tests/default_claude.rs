@@ -1,5 +1,5 @@
 //! With MEETING_CAPTURE_CLAUDE unset the app runs `claude` from PATH (D36), as a real install does.
-use meeting_capture_lib::claude;
+use meeting_capture_lib::{calendar, claude};
 use serde_json::Value;
 use std::{fs, path::PathBuf};
 
@@ -24,7 +24,7 @@ fn the_default_claude_is_found_as_claude_exe_on_path() {
     std::env::set_var("FAKE_CLAUDE_SCENARIO", &scenario);
     std::env::set_var("MEETING_CAPTURE_HOME", dir.join("home"));
 
-    let run = claude::ClaudeRun { ..claude::calendar_refresh(chrono::Utc::now()) };
+    let run = claude::ClaudeRun { ..calendar::run_for(chrono::Utc::now()) };
     let out = claude::run(&claude::program(), &dir.join("data").join("runs"), &dir.join("home"), &run);
     let out: Value = serde_json::from_str(&out.expect("the claude.exe on PATH ran").stdout).unwrap();
     assert_eq!(out["structured_output"]["overview"], "from PATH");

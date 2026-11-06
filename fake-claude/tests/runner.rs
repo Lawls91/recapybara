@@ -1,4 +1,4 @@
-use meeting_capture_lib::claude;
+use meeting_capture_lib::{calendar, claude};
 use serde_json::Value;
 use std::{fs, path::PathBuf};
 
@@ -26,7 +26,7 @@ fn run_case(name: &str, scenario_json: &str, capture: &'static [&'static str]) -
     fs::create_dir_all(&sibling).unwrap();
     // Bigger than a pipe buffer, as a ticket 04 transcript is.
     let stdin = format!("on stdin{}", "x".repeat(200_000));
-    let run = claude::ClaudeRun { stdin, capture, ..claude::calendar_refresh(chrono::Utc::now()) };
+    let run = claude::ClaudeRun { stdin, capture, ..calendar::run_for(chrono::Utc::now()) };
     let out = claude::run(&FAKE.into(), &dir.join("data").join("runs"), &dir.join("home"), &run);
     (dir, out)
 }

@@ -87,3 +87,10 @@ export const freshFixture = (name = "Sprint review.vtt") => {
   fs.utimesSync(copy, now, now);
   return copy;
 };
+
+/** Refresh calendar (the list's button and the tray's item), once the start-up refresh has ended: a refresh asked
+ * for while one is going does nothing (D9). Resolves when this one has ended. */
+export const refreshCalendar = async () => {
+  await browser.waitUntil(async () => !(await invoke("calendar_status")).refreshing, { timeout: 15000 });
+  await invoke("refresh_calendar");
+};

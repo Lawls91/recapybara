@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { menuFor, type Meeting } from "./meetings";
+import { calendarLine, menuFor, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -21,4 +21,18 @@ test("a running summary's menu offers neither Re-run summary nor Replace transcr
   expect(ids("done")).toEqual(expect.arrayContaining(["summarise", "replace"]));
   expect(ids("summarising")).not.toContain("summarise");
   expect(ids("summarising")).not.toContain("replace");
+});
+
+test("a meeting from the calendar cache has no Open folder until it is captured", () => {
+  expect(menuFor({ ...meeting("scheduled"), source: "calendar" }).map((i) => i.id)).not.toContain("folder");
+  expect(menuFor(meeting("scheduled")).map((i) => i.id)).toContain("folder");
+});
+
+test("the calendar status line reads refreshing, else the failure with its fix, else the last update time", () => {
+  const at = new Date(2026, 10, 5, 14, 0).toISOString(); // 14:00 local
+  expect(calendarLine({ updated: at, refreshing: false, failure: null })).toEqual({ text: "Updated 14:00", error: false });
+  expect(calendarLine({ updated: at, refreshing: true, failure: "x" }).text).toBe("Refreshing calendar…");
+  const fix = "Claude Code not found. Install it or add it to PATH, then Refresh calendar.";
+  expect(calendarLine({ updated: at, refreshing: false, failure: fix })).toEqual({ text: fix, error: true });
+  expect(calendarLine({ updated: null, refreshing: false, failure: null }).text).toBe("Calendar not loaded");
 });

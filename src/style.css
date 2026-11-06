@@ -141,13 +141,16 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  min-height: 30px;
   padding: 0 14px 0 18px;
   font-size: 12px;
   color: var(--mc-txt3);
 }
 .status .ib {
   margin-left: auto;
+}
+#calendar-status.err {
+  color: var(--st-failtxt);
 }
 .import-error {
   display: flex;

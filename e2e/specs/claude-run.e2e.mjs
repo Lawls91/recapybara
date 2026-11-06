@@ -1,11 +1,11 @@
 import { expect } from "@wdio/globals";
 import fs from "node:fs";
 import path from "node:path";
-import { invoke, lastClaudeRecord, root } from "../helpers.mjs";
+import { lastClaudeRecord, refreshCalendar, root } from "../helpers.mjs";
 
 describe("claude run cleanup", () => {
   it("after a Claude run the runs project folder is deleted and a sibling project is untouched", async () => {
-    await invoke("refresh_calendar"); // the tray's Refresh calendar now
+    await refreshCalendar(); // the tray's Refresh calendar now
 
     const rec = lastClaudeRecord();
     // The fake made the folder (its slug comes from observed names) inside MEETING_CAPTURE_HOME...

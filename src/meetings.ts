@@ -99,7 +99,8 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "", bold: true });
   else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "" });
   if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "" });
-  items.push({ id: "folder", label: "Open folder", icon: "" });
+  // A meeting from the calendar cache has no folder until it is captured (D25).
+  if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "" });
   const group: MenuItem[] = [];
   if (m.state !== "skipped") group.push({ id: "skip", label: "Skip", icon: "", key: "S" });
   if (m.joinUrl) group.push({ id: "exclude", label: "Exclude series", icon: "", key: "E" }); // D17 keys a series by join URL
@@ -109,4 +110,19 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "" });
   items.push({ id: "export", label: "Export to vault", icon: "", later: true, sep: true });
   return items;
+}
+
+/** The calendar refresh's state (D9), as the backend reports it. */
+export interface CalendarStatus {
+  updated: string | null;
+  refreshing: boolean;
+  failure: string | null;
+}
+
+/** D40's calendar status line: refreshing, else the last failure with its fix, else when it last refreshed. */
+export function calendarLine(s: CalendarStatus): { text: string; error: boolean } {
+  if (s.refreshing) return { text: "Refreshing calendar…", error: false };
+  if (s.failure) return { text: s.failure, error: true };
+  if (!s.updated) return { text: "Calendar not loaded", error: false };
+  return { text: `Updated ${new Date(s.updated).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`, error: false };
 }

@@ -4,12 +4,14 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { libraryLabel, type Settings } from "./settings";
 import {
+  calendarLine,
   dayGroups,
   menuFor,
   needsTranscript,
   STATE_CARDS,
   STATES,
   summaryAction,
+  type CalendarStatus,
   type Meeting,
 } from "./meetings";
 import { chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
@@ -506,12 +508,18 @@ $("change-folder").onclick = async () => {
 $<HTMLSelectElement>("summary-model").onchange = (e) => save({ summaryModel: (e.target as HTMLSelectElement).value });
 $<HTMLInputElement>("start-at-logon").onchange = (e) => save({ startAtLogon: (e.target as HTMLInputElement).checked });
 $<HTMLSelectElement>("appearance").onchange = (e) => save({ appearance: (e.target as HTMLSelectElement).value });
-$("refresh-button").onclick = async () => {
-  $("calendar-status").textContent = "Refreshing calendar…";
-  await invoke("refresh_calendar").catch(() => {});
-  // ponytail: the calendar cache and its status wording are ticket 07.
-  $("calendar-status").textContent = "Calendar not loaded";
-};
+// The calendar status line (D40); the refresh's outcome arrives as calendar-changed, whoever started it.
+async function loadCalendarStatus() {
+  const line = calendarLine(await invoke<CalendarStatus>("calendar_status"));
+  const el = $("calendar-status");
+  el.textContent = line.text;
+  el.classList.toggle("err", line.error);
+}
+$("refresh-button").onclick = () => invoke("refresh_calendar").catch(() => {});
+listen("calendar-changed", async () => {
+  await loadCalendarStatus();
+  await loadMeetings();
+});
 
 listen("settings-changed", async () => {
   await loadSettings();
@@ -519,3 +527,4 @@ listen("settings-changed", async () => {
 });
 listen("open-settings", () => show("settings"));
 loadSettings().then(loadMeetings);
+loadCalendarStatus();

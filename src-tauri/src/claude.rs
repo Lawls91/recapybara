@@ -232,27 +232,6 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
     Ok(Output { stdout: String::from_utf8_lossy(&out.stdout).into_owned(), captured })
 }
 
-/// Calendar refresh run (D9). ponytail: ticket 07 adds the capture hook, parsing and the schedule.
-pub fn calendar_refresh(now: chrono::DateTime<chrono::Utc>) -> ClaudeRun {
-    let fmt = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    ClaudeRun {
-        prompt: format!(
-            "Call outlook_calendar_search with query \"*\", afterDateTime {}, beforeDateTime {}, limit 25, \
-             following nextOffset until moreResults is false. Then call read_resource on each event's uri. Reply DONE.",
-            fmt(now - chrono::Duration::hours(2)),
-            fmt(now + chrono::Duration::hours(24)),
-        ),
-        model: "haiku".into(),
-        args: vec![],
-        capture: &[],
-        allowed_tools: &[
-            "mcp__claude_ai_Microsoft_365__outlook_calendar_search",
-            "mcp__claude_ai_Microsoft_365__read_resource",
-        ],
-        stdin: String::new(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,15 +367,5 @@ mod tests {
             assert_eq!(at(outside), [slug_dir.clone()], "{outside}");
         }
         assert_eq!(project_dirs(home, runs, &[]), [slug_dir]);
-    }
-
-    #[test]
-    fn calendar_refresh_is_haiku_with_two_tools_and_a_26_hour_window() {
-        let now = chrono::DateTime::parse_from_rfc3339("2026-11-05T12:00:00Z").unwrap().into();
-        let r = calendar_refresh(now);
-        assert_eq!(r.model, "haiku");
-        assert_eq!(r.allowed_tools.len(), 2);
-        assert!(r.prompt.contains("afterDateTime 2026-11-05T10:00:00Z"));
-        assert!(r.prompt.contains("beforeDateTime 2026-11-06T12:00:00Z"));
     }
 }

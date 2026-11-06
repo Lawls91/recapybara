@@ -3,12 +3,12 @@ import { expect } from "@wdio/globals";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { invoke, lastClaudeRecord } from "../helpers.mjs";
+import { lastClaudeRecord, refreshCalendar } from "../helpers.mjs";
 
 describe("real folders", () => {
   it("without the overrides the app uses the real app-data folder and home", async () => {
     expect(process.env.MEETING_CAPTURE_DATA_DIR).toBeUndefined();
-    await invoke("refresh_calendar");
+    await refreshCalendar();
 
     const rec = lastClaudeRecord();
     const realRuns = path.join(process.env.APPDATA, "com.lawls91.meetingcapture", "runs");
