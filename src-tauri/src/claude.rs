@@ -115,6 +115,25 @@ pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<Pat
 
 static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
 
+/// Deletes the run's project folders (D7). Claude's child processes can recreate one (an empty `memory`) just after
+/// claude exits, so they are deleted again 2 and 10 seconds later, in the background.
+/// ponytail: a timed retry, not a wait on the process tree; the next run and the next start sweep too.
+fn clean_projects(dirs: Vec<PathBuf>) {
+    let rm = |ds: &[PathBuf]| ds.iter().for_each(|d| drop(fs::remove_dir_all(d)));
+    rm(&dirs);
+    std::thread::spawn(move || {
+        for s in [2, 8] {
+            std::thread::sleep(std::time::Duration::from_secs(s));
+            rm(&dirs);
+        }
+    });
+}
+
+/// Deletes `~/.claude/projects/<slug of runs_dir>` (D7): at app start and before each run.
+pub fn sweep_project(home: &Path, runs_dir: &Path) {
+    let _ = fs::remove_dir_all(home.join(".claude").join("projects").join(slug(runs_dir)));
+}
+
 /// At startup: deletes every `hooks-*` capture folder a killed run left in `runs_dir` (D7). No run is going yet.
 pub fn sweep_captures(runs_dir: &Path) {
     for e in fs::read_dir(runs_dir).into_iter().flatten().flatten() {
@@ -128,6 +147,7 @@ pub fn sweep_captures(runs_dir: &Path) {
 /// whether the run succeeded or not. Returns stdout and the captured hook payloads.
 pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) -> io::Result<Output> {
     fs::create_dir_all(runs_dir).map_err(|e| io::Error::new(e.kind(), format!("create {}: {e}", runs_dir.display())))?;
+    sweep_project(home, runs_dir); // whatever an earlier run's late children left
     let capture_dir = runs_dir.join(format!("hooks-{}-{}", std::process::id(), RUN_SEQ.fetch_add(1, Ordering::Relaxed)));
     let mut cmd = Command::new(program);
     cmd.arg("-p")
@@ -166,9 +186,7 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
         out
     });
     let captured = if run.capture.is_empty() { vec![] } else { take_captured(&capture_dir) };
-    for d in project_dirs(home, runs_dir, &captured) {
-        let _ = fs::remove_dir_all(d);
-    }
+    clean_projects(project_dirs(home, runs_dir, &captured));
     let out = result.map_err(|e| io::Error::new(e.kind(), format!("run {}: {e}", program.to_string_lossy())))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -275,6 +293,19 @@ mod tests {
         left.sort();
         assert_eq!(left, ["hooks-file.txt", "keep"]);
         sweep_captures(&runs.join("missing")); // no runs folder yet: nothing to do
+    }
+
+    #[test]
+    fn the_sweep_deletes_only_the_runs_project_folder_even_with_just_an_empty_memory_dir() {
+        let home = temp("sweepproj");
+        let runs = home.join("data").join("runs");
+        let projects = home.join(".claude").join("projects");
+        fs::create_dir_all(projects.join(slug(&runs)).join("memory")).unwrap();
+        fs::create_dir_all(projects.join("C--Users-someone-else").join("memory")).unwrap();
+        sweep_project(&home, &runs);
+        assert!(!projects.join(slug(&runs)).exists());
+        assert!(projects.join("C--Users-someone-else").join("memory").exists(), "another project's memory is kept");
+        sweep_project(&home.join("nohome"), &runs); // nothing there: nothing to do
     }
 
     #[test]

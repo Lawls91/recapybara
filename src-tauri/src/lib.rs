@@ -282,6 +282,7 @@ pub fn run() {
             let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
             let s = settings::load(&data_dir);
             claude::sweep_captures(&data_dir.join("runs"));
+            claude::sweep_project(&home, &data_dir.join("runs"));
             let first = s.library_path.is_none();
             if let Some(lib) = &s.library_path {
                 library::recover(std::path::Path::new(lib));

@@ -176,11 +176,24 @@ fn is_error(a: &Value) -> bool {
     }
 }
 
-/// Every `"key"` string anywhere in `v`: how a Jira issue names itself.
+/// `PROJ-123`: a project key (a letter, then letters or digits) and a number.
+fn is_ticket_key(s: &str) -> bool {
+    s.split_once('-').is_some_and(|(p, n)| {
+        p.len() >= 2 && p.starts_with(|c: char| c.is_ascii_uppercase()) && p.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+            && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
+    })
+}
+
+/// Every `"key"` string anywhere in `v` that is a ticket key: how a Jira issue (or its parent or links) names itself.
 fn named_keys(v: &Value, out: &mut Vec<String>) {
     match v {
         Value::Object(o) => o.iter().for_each(|(k, x)| match x {
-            Value::String(s) if k == "key" => out.push(s.to_ascii_uppercase()),
+            Value::String(s) if k == "key" => {
+                let s = s.to_ascii_uppercase();
+                if is_ticket_key(&s) {
+                    out.push(s);
+                }
+            }
             _ => named_keys(x, out),
         }),
         Value::Array(a) => a.iter().for_each(|x| named_keys(x, out)),
@@ -765,6 +778,25 @@ mod tests {
         fs::write(dir.join(library::META), r#"{"subject":"Old","state":"done","foundKeys":[]}"#).unwrap();
         assert_eq!(load(&dir).unwrap().decisions[0].missing_keys, ["PROJ-123"], "checked and not found");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_live_get_jira_issue_shape_a_plain_json_string_of_issues_nodes_counts() {
+        // As seen live: tool_response is the JSON itself as a string, not text blocks (synthetic values).
+        let text = r#"{"issues":{"nodes":[{"id":"1","key":"ABC-77","fields":{"status":{"statusCategory":{"key":"done"}},
+            "project":{"key":"ABC"},"parent":{"key":"ABC-5"}}}]}}"#;
+        let p = json!({ "hook_event_name": "PostToolUse", "tool_name": "mcp__claude_ai_Atlassian__getJiraIssue", "tool_response": text });
+        // Only ticket keys: not the status category ("DONE") or the project ("ABC"); the parent may stay.
+        assert_eq!(found_keys(&[p]), ["ABC-5", "ABC-77"]);
+        let sites = json!({ "hook_event_name": "PostToolUse", "tool_name": "mcp__claude_ai_Atlassian__getAccessibleAtlassianResources",
+            "tool_response": [{ "type": "text", "text": r#"{"data":{"resources":[{"cloudId":"c","products":[{"id":"jira","key":"x"}]}]}}"# }] });
+        assert_eq!(found_keys(&[sites]), Vec::<String>::new());
+        for not_key in ["PROJ", "DONE", "PROJ-", "-12", "E-1", "1PM-2", "PROJ-12a", "PR OJ-1"] {
+            assert!(!is_ticket_key(not_key), "{not_key}");
+        }
+        for key in ["PROJ-1000", "PROJ-707", "AB2-9"] {
+            assert!(is_ticket_key(key), "{key}");
+        }
     }
 
     #[test]
