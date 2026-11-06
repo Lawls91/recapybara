@@ -12,11 +12,14 @@ pub mod claude;
 pub mod library;
 mod platform;
 pub mod settings;
+pub mod summary;
 
 use settings::Settings;
 
 /// Run-key value name, frozen (D50). Never derive it from productName.
 pub const RUN_KEY_NAME: &str = "com.lawls91.meetingcapture";
+/// Toast identity, frozen (D50): the MSI's Start-menu shortcut carries it.
+pub const AUMID: &str = "com.lawls91.meetingcapture";
 
 struct AppState {
     data_dir: PathBuf,
@@ -104,7 +107,57 @@ fn import_transcript(app: AppHandle, path: String, id: Option<String>) -> Result
         Err(message) => app.emit("import-refused", serde_json::json!({ "id": id, "message": message })),
     }
     .map_err(|e| e.to_string())?;
+    // Every import, attach or Replace transcript… starts the summary (D15, D49).
+    if let Ok(done) = &result {
+        start_summary(&app, done)?;
+    }
     result
+}
+
+/// Marks the meeting "summarising" and runs its summary in the background. Outcomes arrive as
+/// meeting-changed events, plus one toast (D29).
+fn start_summary(app: &AppHandle, id: &str) -> Result<(), String> {
+    let dir = library::meeting_dir(&library_path(app)?, id)?;
+    let mut m = library::load(&dir).map_err(|e| e.to_string())?;
+    if !dir.join(library::VTT).exists() {
+        return Err("This meeting has no transcript yet.".into());
+    }
+    m.state = library::State::Summarising;
+    library::save(&dir, &m).map_err(|e| e.to_string())?;
+    let _ = app.emit("meeting-changed", id);
+    let state = app.state::<AppState>();
+    let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
+    let model = state.settings.lock().unwrap().summary_model.clone();
+    let (app, id) = (app.clone(), id.to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        let outcome = summary::summarise(&dir, &model, |run| claude::run(&claude::program(), &runs, &home, run));
+        let body = match &outcome {
+            Ok(s) => summary::ready_body(s),
+            Err(e) => {
+                eprintln!("summary failed for {id}: {e}");
+                summary::FAILED_BODY.into()
+            }
+        };
+        let _ = app.emit("meeting-changed", &id);
+        let (click_app, click_id) = (app.clone(), id.clone());
+        platform::toast(&summary::toast_title(&m), &body, move || {
+            show_main(&click_app);
+            let _ = click_app.emit("open-meeting", &click_id);
+        });
+    });
+    Ok(())
+}
+
+/// Run summary / Re-run summary (D49).
+#[tauri::command]
+fn summarise(app: AppHandle, id: String) -> Result<(), String> {
+    start_summary(&app, &id)
+}
+
+/// The checked summary for the Summary tab, or none before the first one (D43).
+#[tauri::command]
+fn get_summary(app: AppHandle, id: String) -> Result<Option<summary::Summary>, String> {
+    Ok(summary::load(&library::meeting_dir(&library_path(&app)?, &id)?))
 }
 
 #[tauri::command]
@@ -237,7 +290,9 @@ pub fn run() {
             get_transcript,
             pick_transcript_file,
             import_transcript,
-            open_folder
+            open_folder,
+            summarise,
+            get_summary
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -252,6 +307,7 @@ mod tests {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(conf["identifier"], "com.lawls91.meetingcapture");
         assert_eq!(RUN_KEY_NAME, "com.lawls91.meetingcapture");
+        assert_eq!(AUMID, "com.lawls91.meetingcapture");
         // The MSI's frozen layer (D50): changing any of these breaks upgrades, toasts or uninstall.
         let wxs = include_str!("../../installer/wix/Package.wxs");
         for frozen in [

@@ -1,0 +1,22 @@
+{
+  "overview": "The team agreed a retry limit approach.",
+  "sections": [
+    { "title": "Retry rule", "points": [
+      { "text": "A retry limit is the preferred approach.", "citations": [{ "at": "00:00:10", "quote": "the approach of adding" }], "inferred": false, "ticketKeys": [] }
+    ] },
+    { "title": "Rollout", "points": [
+      { "text": "Rollout waits for the retry work.", "citations": [{ "at": "00:00:05", "quote": "retry limit field" }], "inferred": true, "ticketKeys": [] }
+    ] }
+  ],
+  "decisions": [
+    { "text": "Go with the retry limit.", "citations": [{ "at": "00:00:04", "quote": "so we agreed" }], "inferred": false, "ticketKeys": [] }
+  ],
+  "actions": [
+    { "text": "Write up the retry limit.", "citations": [{ "at": "00:00:10", "quote": "adding a simple retry" }], "inferred": false, "ticketKeys": [], "owner": "Speaker A" },
+    { "text": "Ship it on Friday.", "citations": [{ "at": "00:00:10", "quote": "ship it on Friday" }], "inferred": false, "ticketKeys": [], "owner": null }
+  ],
+  "questions": [
+    { "text": "Who reviews the retry limit?", "citations": [], "inferred": true, "ticketKeys": [] }
+  ],
+  "corrections": []
+}

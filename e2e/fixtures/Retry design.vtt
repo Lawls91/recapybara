@@ -1,0 +1,2205 @@
+WEBVTT
+
+1
+00:00:03.720 --> 00:00:13.960
+<v Speaker A>so we agreed the approach of adding a simple retry limit field</v>
+
+2
+00:00:14.500 --> 00:00:18.300
+<v Speaker A>point 2 on the hotfix branch needs a written plan before release</v>
+
+3
+00:00:18.500 --> 00:00:22.300
+<v Speaker A>point 3 on the release notes needs a owner before release</v>
+
+4
+00:00:22.500 --> 00:00:26.300
+<v Speaker A>point 4 on the policy editor needs a demo before release</v>
+
+5
+00:00:26.500 --> 00:00:30.300
+<v Speaker B>point 5 on the test matrix needs a smoke test before release</v>
+
+6
+00:00:30.500 --> 00:00:34.300
+<v Speaker B>point 6 on the audit log needs a second review before release</v>
+
+7
+00:00:34.500 --> 00:00:38.300
+<v Speaker B>point 7 on the retry rule needs a quick spike before release</v>
+
+8
+00:00:38.500 --> 00:00:42.300
+<v Speaker C>point 8 on the filter chain needs a written plan before release</v>
+
+9
+00:00:42.500 --> 00:00:46.300
+<v Speaker C>point 9 on the hotfix branch needs a owner before release</v>
+
+10
+00:00:46.500 --> 00:00:50.300
+<v Speaker C>point 10 on the release notes needs a demo before release</v>
+
+11
+00:00:50.500 --> 00:00:54.300
+<v Speaker A>point 11 on the policy editor needs a smoke test before release</v>
+
+12
+00:00:54.500 --> 00:00:58.300
+<v Speaker A>point 12 on the test matrix needs a second review before release</v>
+
+13
+00:00:58.500 --> 00:01:02.300
+<v Speaker A>point 13 on the audit log needs a quick spike before release</v>
+
+14
+00:01:02.500 --> 00:01:06.300
+<v Speaker B>point 14 on the retry rule needs a written plan before release</v>
+
+15
+00:01:06.500 --> 00:01:10.300
+<v Speaker B>point 15 on the filter chain needs a owner before release</v>
+
+16
+00:01:10.500 --> 00:01:14.300
+<v Speaker B>point 16 on the hotfix branch needs a demo before release</v>
+
+17
+00:01:14.500 --> 00:01:18.300
+<v Speaker C>point 17 on the release notes needs a smoke test before release</v>
+
+18
+00:01:18.500 --> 00:01:22.300
+<v Speaker C>point 18 on the policy editor needs a second review before release</v>
+
+19
+00:01:22.500 --> 00:01:26.300
+<v Speaker C>point 19 on the test matrix needs a quick spike before release</v>
+
+20
+00:01:26.500 --> 00:01:30.300
+<v Speaker A>point 20 on the audit log needs a written plan before release</v>
+
+21
+00:01:30.500 --> 00:01:34.300
+<v Speaker A>point 21 on the retry rule needs a owner before release</v>
+
+22
+00:01:34.500 --> 00:01:38.300
+<v Speaker A>point 22 on the filter chain needs a demo before release</v>
+
+23
+00:01:38.500 --> 00:01:42.300
+<v Speaker B>point 23 on the hotfix branch needs a smoke test before release</v>
+
+24
+00:01:42.500 --> 00:01:46.300
+<v Speaker B>point 24 on the release notes needs a second review before release</v>
+
+25
+00:01:46.500 --> 00:01:50.300
+<v Speaker B>point 25 on the policy editor needs a quick spike before release</v>
+
+26
+00:01:50.500 --> 00:01:54.300
+<v Speaker C>point 26 on the test matrix needs a written plan before release</v>
+
+27
+00:01:54.500 --> 00:01:58.300
+<v Speaker C>point 27 on the audit log needs a owner before release</v>
+
+28
+00:01:58.500 --> 00:02:02.300
+<v Speaker C>point 28 on the retry rule needs a demo before release</v>
+
+29
+00:02:02.500 --> 00:02:06.300
+<v Speaker A>point 29 on the filter chain needs a smoke test before release</v>
+
+30
+00:02:06.500 --> 00:02:10.300
+<v Speaker A>point 30 on the hotfix branch needs a second review before release</v>
+
+31
+00:02:10.500 --> 00:02:14.300
+<v Speaker A>point 31 on the release notes needs a quick spike before release</v>
+
+32
+00:02:14.500 --> 00:02:18.300
+<v Speaker B>point 32 on the policy editor needs a written plan before release</v>
+
+33
+00:02:18.500 --> 00:02:22.300
+<v Speaker B>point 33 on the test matrix needs a owner before release</v>
+
+34
+00:02:22.500 --> 00:02:26.300
+<v Speaker B>point 34 on the audit log needs a demo before release</v>
+
+35
+00:02:26.500 --> 00:02:30.300
+<v Speaker C>point 35 on the retry rule needs a smoke test before release</v>
+
+36
+00:02:30.500 --> 00:02:34.300
+<v Speaker C>point 36 on the filter chain needs a second review before release</v>
+
+37
+00:02:34.500 --> 00:02:38.300
+<v Speaker C>point 37 on the hotfix branch needs a quick spike before release</v>
+
+38
+00:02:38.500 --> 00:02:42.300
+<v Speaker A>point 38 on the release notes needs a written plan before release</v>
+
+39
+00:02:42.500 --> 00:02:46.300
+<v Speaker A>point 39 on the policy editor needs a owner before release</v>
+
+40
+00:02:46.500 --> 00:02:50.300
+<v Speaker A>point 40 on the test matrix needs a demo before release</v>
+
+41
+00:02:50.500 --> 00:02:54.300
+<v Speaker B>point 41 on the audit log needs a smoke test before release</v>
+
+42
+00:02:54.500 --> 00:02:58.300
+<v Speaker B>point 42 on the retry rule needs a second review before release</v>
+
+43
+00:02:58.500 --> 00:03:02.300
+<v Speaker B>point 43 on the filter chain needs a quick spike before release</v>
+
+44
+00:03:02.500 --> 00:03:06.300
+<v Speaker C>point 44 on the hotfix branch needs a written plan before release</v>
+
+45
+00:03:06.500 --> 00:03:10.300
+<v Speaker C>point 45 on the release notes needs a owner before release</v>
+
+46
+00:03:10.500 --> 00:03:14.300
+<v Speaker C>point 46 on the policy editor needs a demo before release</v>
+
+47
+00:03:14.500 --> 00:03:18.300
+<v Speaker A>point 47 on the test matrix needs a smoke test before release</v>
+
+48
+00:03:18.500 --> 00:03:22.300
+<v Speaker A>point 48 on the audit log needs a second review before release</v>
+
+49
+00:03:22.500 --> 00:03:26.300
+<v Speaker A>point 49 on the retry rule needs a quick spike before release</v>
+
+50
+00:03:26.500 --> 00:03:30.300
+<v Speaker B>point 50 on the filter chain needs a written plan before release</v>
+
+51
+00:03:30.500 --> 00:03:34.300
+<v Speaker B>point 51 on the hotfix branch needs a owner before release</v>
+
+52
+00:03:34.500 --> 00:03:38.300
+<v Speaker B>point 52 on the release notes needs a demo before release</v>
+
+53
+00:03:38.500 --> 00:03:42.300
+<v Speaker C>point 53 on the policy editor needs a smoke test before release</v>
+
+54
+00:03:42.500 --> 00:03:46.300
+<v Speaker C>point 54 on the test matrix needs a second review before release</v>
+
+55
+00:03:46.500 --> 00:03:50.300
+<v Speaker C>point 55 on the audit log needs a quick spike before release</v>
+
+56
+00:03:50.500 --> 00:03:54.300
+<v Speaker A>point 56 on the retry rule needs a written plan before release</v>
+
+57
+00:03:54.500 --> 00:03:58.300
+<v Speaker A>point 57 on the filter chain needs a owner before release</v>
+
+58
+00:03:58.500 --> 00:04:02.300
+<v Speaker A>point 58 on the hotfix branch needs a demo before release</v>
+
+59
+00:04:02.500 --> 00:04:06.300
+<v Speaker B>point 59 on the release notes needs a smoke test before release</v>
+
+60
+00:04:06.500 --> 00:04:10.300
+<v Speaker B>point 60 on the policy editor needs a second review before release</v>
+
+61
+00:04:10.500 --> 00:04:14.300
+<v Speaker B>point 61 on the test matrix needs a quick spike before release</v>
+
+62
+00:04:14.500 --> 00:04:18.300
+<v Speaker C>point 62 on the audit log needs a written plan before release</v>
+
+63
+00:04:18.500 --> 00:04:22.300
+<v Speaker C>point 63 on the retry rule needs a owner before release</v>
+
+64
+00:04:22.500 --> 00:04:26.300
+<v Speaker C>point 64 on the filter chain needs a demo before release</v>
+
+65
+00:04:26.500 --> 00:04:30.300
+<v Speaker A>point 65 on the hotfix branch needs a smoke test before release</v>
+
+66
+00:04:30.500 --> 00:04:34.300
+<v Speaker A>point 66 on the release notes needs a second review before release</v>
+
+67
+00:04:34.500 --> 00:04:38.300
+<v Speaker A>point 67 on the policy editor needs a quick spike before release</v>
+
+68
+00:04:38.500 --> 00:04:42.300
+<v Speaker B>point 68 on the test matrix needs a written plan before release</v>
+
+69
+00:04:42.500 --> 00:04:46.300
+<v Speaker B>point 69 on the audit log needs a owner before release</v>
+
+70
+00:04:46.500 --> 00:04:50.300
+<v Speaker B>point 70 on the retry rule needs a demo before release</v>
+
+71
+00:04:50.500 --> 00:04:54.300
+<v Speaker C>point 71 on the filter chain needs a smoke test before release</v>
+
+72
+00:04:54.500 --> 00:04:58.300
+<v Speaker C>point 72 on the hotfix branch needs a second review before release</v>
+
+73
+00:04:58.500 --> 00:05:02.300
+<v Speaker C>point 73 on the release notes needs a quick spike before release</v>
+
+74
+00:05:02.500 --> 00:05:06.300
+<v Speaker A>point 74 on the policy editor needs a written plan before release</v>
+
+75
+00:05:06.500 --> 00:05:10.300
+<v Speaker A>point 75 on the test matrix needs a owner before release</v>
+
+76
+00:05:10.500 --> 00:05:14.300
+<v Speaker A>point 76 on the audit log needs a demo before release</v>
+
+77
+00:05:14.500 --> 00:05:18.300
+<v Speaker B>point 77 on the retry rule needs a smoke test before release</v>
+
+78
+00:05:18.500 --> 00:05:22.300
+<v Speaker B>point 78 on the filter chain needs a second review before release</v>
+
+79
+00:05:22.500 --> 00:05:26.300
+<v Speaker B>point 79 on the hotfix branch needs a quick spike before release</v>
+
+80
+00:05:26.500 --> 00:05:30.300
+<v Speaker C>point 80 on the release notes needs a written plan before release</v>
+
+81
+00:05:30.500 --> 00:05:34.300
+<v Speaker C>point 81 on the policy editor needs a owner before release</v>
+
+82
+00:05:34.500 --> 00:05:38.300
+<v Speaker C>point 82 on the test matrix needs a demo before release</v>
+
+83
+00:05:38.500 --> 00:05:42.300
+<v Speaker A>point 83 on the audit log needs a smoke test before release</v>
+
+84
+00:05:42.500 --> 00:05:46.300
+<v Speaker A>point 84 on the retry rule needs a second review before release</v>
+
+85
+00:05:46.500 --> 00:05:50.300
+<v Speaker A>point 85 on the filter chain needs a quick spike before release</v>
+
+86
+00:05:50.500 --> 00:05:54.300
+<v Speaker B>point 86 on the hotfix branch needs a written plan before release</v>
+
+87
+00:05:54.500 --> 00:05:58.300
+<v Speaker B>point 87 on the release notes needs a owner before release</v>
+
+88
+00:05:58.500 --> 00:06:02.300
+<v Speaker B>point 88 on the policy editor needs a demo before release</v>
+
+89
+00:06:02.500 --> 00:06:06.300
+<v Speaker C>point 89 on the test matrix needs a smoke test before release</v>
+
+90
+00:06:06.500 --> 00:06:10.300
+<v Speaker C>point 90 on the audit log needs a second review before release</v>
+
+91
+00:06:10.500 --> 00:06:14.300
+<v Speaker C>point 91 on the retry rule needs a quick spike before release</v>
+
+92
+00:06:14.500 --> 00:06:18.300
+<v Speaker A>point 92 on the filter chain needs a written plan before release</v>
+
+93
+00:06:18.500 --> 00:06:22.300
+<v Speaker A>point 93 on the hotfix branch needs a owner before release</v>
+
+94
+00:06:22.500 --> 00:06:26.300
+<v Speaker A>point 94 on the release notes needs a demo before release</v>
+
+95
+00:06:26.500 --> 00:06:30.300
+<v Speaker B>point 95 on the policy editor needs a smoke test before release</v>
+
+96
+00:06:30.500 --> 00:06:34.300
+<v Speaker B>point 96 on the test matrix needs a second review before release</v>
+
+97
+00:06:34.500 --> 00:06:38.300
+<v Speaker B>point 97 on the audit log needs a quick spike before release</v>
+
+98
+00:06:38.500 --> 00:06:42.300
+<v Speaker C>point 98 on the retry rule needs a written plan before release</v>
+
+99
+00:06:42.500 --> 00:06:46.300
+<v Speaker C>point 99 on the filter chain needs a owner before release</v>
+
+100
+00:06:46.500 --> 00:06:50.300
+<v Speaker C>point 100 on the hotfix branch needs a demo before release</v>
+
+101
+00:06:50.500 --> 00:06:54.300
+<v Speaker A>point 101 on the release notes needs a smoke test before release</v>
+
+102
+00:06:54.500 --> 00:06:58.300
+<v Speaker A>point 102 on the policy editor needs a second review before release</v>
+
+103
+00:06:58.500 --> 00:07:02.300
+<v Speaker A>point 103 on the test matrix needs a quick spike before release</v>
+
+104
+00:07:02.500 --> 00:07:06.300
+<v Speaker B>point 104 on the audit log needs a written plan before release</v>
+
+105
+00:07:06.500 --> 00:07:10.300
+<v Speaker B>point 105 on the retry rule needs a owner before release</v>
+
+106
+00:07:10.500 --> 00:07:14.300
+<v Speaker B>point 106 on the filter chain needs a demo before release</v>
+
+107
+00:07:14.500 --> 00:07:18.300
+<v Speaker C>point 107 on the hotfix branch needs a smoke test before release</v>
+
+108
+00:07:18.500 --> 00:07:22.300
+<v Speaker C>point 108 on the release notes needs a second review before release</v>
+
+109
+00:07:22.500 --> 00:07:26.300
+<v Speaker C>point 109 on the policy editor needs a quick spike before release</v>
+
+110
+00:07:26.500 --> 00:07:30.300
+<v Speaker A>point 110 on the test matrix needs a written plan before release</v>
+
+111
+00:07:30.500 --> 00:07:34.300
+<v Speaker A>point 111 on the audit log needs a owner before release</v>
+
+112
+00:07:34.500 --> 00:07:38.300
+<v Speaker A>point 112 on the retry rule needs a demo before release</v>
+
+113
+00:07:38.500 --> 00:07:42.300
+<v Speaker B>point 113 on the filter chain needs a smoke test before release</v>
+
+114
+00:07:42.500 --> 00:07:46.300
+<v Speaker B>point 114 on the hotfix branch needs a second review before release</v>
+
+115
+00:07:46.500 --> 00:07:50.300
+<v Speaker B>point 115 on the release notes needs a quick spike before release</v>
+
+116
+00:07:50.500 --> 00:07:54.300
+<v Speaker C>point 116 on the policy editor needs a written plan before release</v>
+
+117
+00:07:54.500 --> 00:07:58.300
+<v Speaker C>point 117 on the test matrix needs a owner before release</v>
+
+118
+00:07:58.500 --> 00:08:02.300
+<v Speaker C>point 118 on the audit log needs a demo before release</v>
+
+119
+00:08:02.500 --> 00:08:06.300
+<v Speaker A>point 119 on the retry rule needs a smoke test before release</v>
+
+120
+00:08:06.500 --> 00:08:10.300
+<v Speaker A>point 120 on the filter chain needs a second review before release</v>
+
+121
+00:08:10.500 --> 00:08:14.300
+<v Speaker A>point 121 on the hotfix branch needs a quick spike before release</v>
+
+122
+00:08:14.500 --> 00:08:18.300
+<v Speaker B>point 122 on the release notes needs a written plan before release</v>
+
+123
+00:08:18.500 --> 00:08:22.300
+<v Speaker B>point 123 on the policy editor needs a owner before release</v>
+
+124
+00:08:22.500 --> 00:08:26.300
+<v Speaker B>point 124 on the test matrix needs a demo before release</v>
+
+125
+00:08:26.500 --> 00:08:30.300
+<v Speaker C>point 125 on the audit log needs a smoke test before release</v>
+
+126
+00:08:30.500 --> 00:08:34.300
+<v Speaker C>point 126 on the retry rule needs a second review before release</v>
+
+127
+00:08:34.500 --> 00:08:38.300
+<v Speaker C>point 127 on the filter chain needs a quick spike before release</v>
+
+128
+00:08:38.500 --> 00:08:42.300
+<v Speaker A>point 128 on the hotfix branch needs a written plan before release</v>
+
+129
+00:08:42.500 --> 00:08:46.300
+<v Speaker A>point 129 on the release notes needs a owner before release</v>
+
+130
+00:08:46.500 --> 00:08:50.300
+<v Speaker A>point 130 on the policy editor needs a demo before release</v>
+
+131
+00:08:50.500 --> 00:08:54.300
+<v Speaker B>point 131 on the test matrix needs a smoke test before release</v>
+
+132
+00:08:54.500 --> 00:08:58.300
+<v Speaker B>point 132 on the audit log needs a second review before release</v>
+
+133
+00:08:58.500 --> 00:09:02.300
+<v Speaker B>point 133 on the retry rule needs a quick spike before release</v>
+
+134
+00:09:02.500 --> 00:09:06.300
+<v Speaker C>point 134 on the filter chain needs a written plan before release</v>
+
+135
+00:09:06.500 --> 00:09:10.300
+<v Speaker C>point 135 on the hotfix branch needs a owner before release</v>
+
+136
+00:09:10.500 --> 00:09:14.300
+<v Speaker C>point 136 on the release notes needs a demo before release</v>
+
+137
+00:09:14.500 --> 00:09:18.300
+<v Speaker A>point 137 on the policy editor needs a smoke test before release</v>
+
+138
+00:09:18.500 --> 00:09:22.300
+<v Speaker A>point 138 on the test matrix needs a second review before release</v>
+
+139
+00:09:22.500 --> 00:09:26.300
+<v Speaker A>point 139 on the audit log needs a quick spike before release</v>
+
+140
+00:09:26.500 --> 00:09:30.300
+<v Speaker B>point 140 on the retry rule needs a written plan before release</v>
+
+141
+00:09:30.500 --> 00:09:34.300
+<v Speaker B>point 141 on the filter chain needs a owner before release</v>
+
+142
+00:09:34.500 --> 00:09:38.300
+<v Speaker B>point 142 on the hotfix branch needs a demo before release</v>
+
+143
+00:09:38.500 --> 00:09:42.300
+<v Speaker C>point 143 on the release notes needs a smoke test before release</v>
+
+144
+00:09:42.500 --> 00:09:46.300
+<v Speaker C>point 144 on the policy editor needs a second review before release</v>
+
+145
+00:09:46.500 --> 00:09:50.300
+<v Speaker C>point 145 on the test matrix needs a quick spike before release</v>
+
+146
+00:09:50.500 --> 00:09:54.300
+<v Speaker A>point 146 on the audit log needs a written plan before release</v>
+
+147
+00:09:54.500 --> 00:09:58.300
+<v Speaker A>point 147 on the retry rule needs a owner before release</v>
+
+148
+00:09:58.500 --> 00:10:02.300
+<v Speaker A>point 148 on the filter chain needs a demo before release</v>
+
+149
+00:10:02.500 --> 00:10:06.300
+<v Speaker B>point 149 on the hotfix branch needs a smoke test before release</v>
+
+150
+00:10:06.500 --> 00:10:10.300
+<v Speaker B>point 150 on the release notes needs a second review before release</v>
+
+151
+00:10:10.500 --> 00:10:14.300
+<v Speaker B>point 151 on the policy editor needs a quick spike before release</v>
+
+152
+00:10:14.500 --> 00:10:18.300
+<v Speaker C>point 152 on the test matrix needs a written plan before release</v>
+
+153
+00:10:18.500 --> 00:10:22.300
+<v Speaker C>point 153 on the audit log needs a owner before release</v>
+
+154
+00:10:22.500 --> 00:10:26.300
+<v Speaker C>point 154 on the retry rule needs a demo before release</v>
+
+155
+00:10:26.500 --> 00:10:30.300
+<v Speaker A>point 155 on the filter chain needs a smoke test before release</v>
+
+156
+00:10:30.500 --> 00:10:34.300
+<v Speaker A>point 156 on the hotfix branch needs a second review before release</v>
+
+157
+00:10:34.500 --> 00:10:38.300
+<v Speaker A>point 157 on the release notes needs a quick spike before release</v>
+
+158
+00:10:38.500 --> 00:10:42.300
+<v Speaker B>point 158 on the policy editor needs a written plan before release</v>
+
+159
+00:10:42.500 --> 00:10:46.300
+<v Speaker B>point 159 on the test matrix needs a owner before release</v>
+
+160
+00:10:46.500 --> 00:10:50.300
+<v Speaker B>point 160 on the audit log needs a demo before release</v>
+
+161
+00:10:50.500 --> 00:10:54.300
+<v Speaker C>point 161 on the retry rule needs a smoke test before release</v>
+
+162
+00:10:54.500 --> 00:10:58.300
+<v Speaker C>point 162 on the filter chain needs a second review before release</v>
+
+163
+00:10:58.500 --> 00:11:02.300
+<v Speaker C>point 163 on the hotfix branch needs a quick spike before release</v>
+
+164
+00:11:02.500 --> 00:11:06.300
+<v Speaker A>point 164 on the release notes needs a written plan before release</v>
+
+165
+00:11:06.500 --> 00:11:10.300
+<v Speaker A>point 165 on the policy editor needs a owner before release</v>
+
+166
+00:11:10.500 --> 00:11:14.300
+<v Speaker A>point 166 on the test matrix needs a demo before release</v>
+
+167
+00:11:14.500 --> 00:11:18.300
+<v Speaker B>point 167 on the audit log needs a smoke test before release</v>
+
+168
+00:11:18.500 --> 00:11:22.300
+<v Speaker B>point 168 on the retry rule needs a second review before release</v>
+
+169
+00:11:22.500 --> 00:11:26.300
+<v Speaker B>point 169 on the filter chain needs a quick spike before release</v>
+
+170
+00:11:26.500 --> 00:11:30.300
+<v Speaker C>point 170 on the hotfix branch needs a written plan before release</v>
+
+171
+00:11:30.500 --> 00:11:34.300
+<v Speaker C>point 171 on the release notes needs a owner before release</v>
+
+172
+00:11:34.500 --> 00:11:38.300
+<v Speaker C>point 172 on the policy editor needs a demo before release</v>
+
+173
+00:11:38.500 --> 00:11:42.300
+<v Speaker A>point 173 on the test matrix needs a smoke test before release</v>
+
+174
+00:11:42.500 --> 00:11:46.300
+<v Speaker A>point 174 on the audit log needs a second review before release</v>
+
+175
+00:11:46.500 --> 00:11:50.300
+<v Speaker A>point 175 on the retry rule needs a quick spike before release</v>
+
+176
+00:11:50.500 --> 00:11:54.300
+<v Speaker B>point 176 on the filter chain needs a written plan before release</v>
+
+177
+00:11:54.500 --> 00:11:58.300
+<v Speaker B>point 177 on the hotfix branch needs a owner before release</v>
+
+178
+00:11:58.500 --> 00:12:02.300
+<v Speaker B>point 178 on the release notes needs a demo before release</v>
+
+179
+00:12:02.500 --> 00:12:06.300
+<v Speaker C>point 179 on the policy editor needs a smoke test before release</v>
+
+180
+00:12:06.500 --> 00:12:10.300
+<v Speaker C>point 180 on the test matrix needs a second review before release</v>
+
+181
+00:12:10.500 --> 00:12:14.300
+<v Speaker C>point 181 on the audit log needs a quick spike before release</v>
+
+182
+00:12:14.500 --> 00:12:18.300
+<v Speaker A>point 182 on the retry rule needs a written plan before release</v>
+
+183
+00:12:18.500 --> 00:12:22.300
+<v Speaker A>point 183 on the filter chain needs a owner before release</v>
+
+184
+00:12:22.500 --> 00:12:26.300
+<v Speaker A>point 184 on the hotfix branch needs a demo before release</v>
+
+185
+00:12:26.500 --> 00:12:30.300
+<v Speaker B>point 185 on the release notes needs a smoke test before release</v>
+
+186
+00:12:30.500 --> 00:12:34.300
+<v Speaker B>point 186 on the policy editor needs a second review before release</v>
+
+187
+00:12:34.500 --> 00:12:38.300
+<v Speaker B>point 187 on the test matrix needs a quick spike before release</v>
+
+188
+00:12:38.500 --> 00:12:42.300
+<v Speaker C>point 188 on the audit log needs a written plan before release</v>
+
+189
+00:12:42.500 --> 00:12:46.300
+<v Speaker C>point 189 on the retry rule needs a owner before release</v>
+
+190
+00:12:46.500 --> 00:12:50.300
+<v Speaker C>point 190 on the filter chain needs a demo before release</v>
+
+191
+00:12:50.500 --> 00:12:54.300
+<v Speaker A>point 191 on the hotfix branch needs a smoke test before release</v>
+
+192
+00:12:54.500 --> 00:12:58.300
+<v Speaker A>point 192 on the release notes needs a second review before release</v>
+
+193
+00:12:58.500 --> 00:13:02.300
+<v Speaker A>point 193 on the policy editor needs a quick spike before release</v>
+
+194
+00:13:02.500 --> 00:13:06.300
+<v Speaker B>point 194 on the test matrix needs a written plan before release</v>
+
+195
+00:13:06.500 --> 00:13:10.300
+<v Speaker B>point 195 on the audit log needs a owner before release</v>
+
+196
+00:13:10.500 --> 00:13:14.300
+<v Speaker B>point 196 on the retry rule needs a demo before release</v>
+
+197
+00:13:14.500 --> 00:13:18.300
+<v Speaker C>point 197 on the filter chain needs a smoke test before release</v>
+
+198
+00:13:18.500 --> 00:13:22.300
+<v Speaker C>point 198 on the hotfix branch needs a second review before release</v>
+
+199
+00:13:22.500 --> 00:13:26.300
+<v Speaker C>point 199 on the release notes needs a quick spike before release</v>
+
+200
+00:13:26.500 --> 00:13:30.300
+<v Speaker A>point 200 on the policy editor needs a written plan before release</v>
+
+201
+00:13:30.500 --> 00:13:34.300
+<v Speaker A>point 201 on the test matrix needs a owner before release</v>
+
+202
+00:13:34.500 --> 00:13:38.300
+<v Speaker A>point 202 on the audit log needs a demo before release</v>
+
+203
+00:13:38.500 --> 00:13:42.300
+<v Speaker B>point 203 on the retry rule needs a smoke test before release</v>
+
+204
+00:13:42.500 --> 00:13:46.300
+<v Speaker B>point 204 on the filter chain needs a second review before release</v>
+
+205
+00:13:46.500 --> 00:13:50.300
+<v Speaker B>point 205 on the hotfix branch needs a quick spike before release</v>
+
+206
+00:13:50.500 --> 00:13:54.300
+<v Speaker C>point 206 on the release notes needs a written plan before release</v>
+
+207
+00:13:54.500 --> 00:13:58.300
+<v Speaker C>point 207 on the policy editor needs a owner before release</v>
+
+208
+00:13:58.500 --> 00:14:02.300
+<v Speaker C>point 208 on the test matrix needs a demo before release</v>
+
+209
+00:14:02.500 --> 00:14:06.300
+<v Speaker A>point 209 on the audit log needs a smoke test before release</v>
+
+210
+00:14:06.500 --> 00:14:10.300
+<v Speaker A>point 210 on the retry rule needs a second review before release</v>
+
+211
+00:14:10.500 --> 00:14:14.300
+<v Speaker A>point 211 on the filter chain needs a quick spike before release</v>
+
+212
+00:14:14.500 --> 00:14:18.300
+<v Speaker B>point 212 on the hotfix branch needs a written plan before release</v>
+
+213
+00:14:18.500 --> 00:14:22.300
+<v Speaker B>point 213 on the release notes needs a owner before release</v>
+
+214
+00:14:22.500 --> 00:14:26.300
+<v Speaker B>point 214 on the policy editor needs a demo before release</v>
+
+215
+00:14:26.500 --> 00:14:30.300
+<v Speaker C>point 215 on the test matrix needs a smoke test before release</v>
+
+216
+00:14:30.500 --> 00:14:34.300
+<v Speaker C>point 216 on the audit log needs a second review before release</v>
+
+217
+00:14:34.500 --> 00:14:38.300
+<v Speaker C>point 217 on the retry rule needs a quick spike before release</v>
+
+218
+00:14:38.500 --> 00:14:42.300
+<v Speaker A>point 218 on the filter chain needs a written plan before release</v>
+
+219
+00:14:42.500 --> 00:14:46.300
+<v Speaker A>point 219 on the hotfix branch needs a owner before release</v>
+
+220
+00:14:46.500 --> 00:14:50.300
+<v Speaker A>point 220 on the release notes needs a demo before release</v>
+
+221
+00:14:50.500 --> 00:14:54.300
+<v Speaker B>point 221 on the policy editor needs a smoke test before release</v>
+
+222
+00:14:54.500 --> 00:14:58.300
+<v Speaker B>point 222 on the test matrix needs a second review before release</v>
+
+223
+00:14:58.500 --> 00:15:02.300
+<v Speaker B>point 223 on the audit log needs a quick spike before release</v>
+
+224
+00:15:02.500 --> 00:15:06.300
+<v Speaker C>point 224 on the retry rule needs a written plan before release</v>
+
+225
+00:15:06.500 --> 00:15:10.300
+<v Speaker C>point 225 on the filter chain needs a owner before release</v>
+
+226
+00:15:10.500 --> 00:15:14.300
+<v Speaker C>point 226 on the hotfix branch needs a demo before release</v>
+
+227
+00:15:14.500 --> 00:15:18.300
+<v Speaker A>point 227 on the release notes needs a smoke test before release</v>
+
+228
+00:15:18.500 --> 00:15:22.300
+<v Speaker A>point 228 on the policy editor needs a second review before release</v>
+
+229
+00:15:22.500 --> 00:15:26.300
+<v Speaker A>point 229 on the test matrix needs a quick spike before release</v>
+
+230
+00:15:26.500 --> 00:15:30.300
+<v Speaker B>point 230 on the audit log needs a written plan before release</v>
+
+231
+00:15:30.500 --> 00:15:34.300
+<v Speaker B>point 231 on the retry rule needs a owner before release</v>
+
+232
+00:15:34.500 --> 00:15:38.300
+<v Speaker B>point 232 on the filter chain needs a demo before release</v>
+
+233
+00:15:38.500 --> 00:15:42.300
+<v Speaker C>point 233 on the hotfix branch needs a smoke test before release</v>
+
+234
+00:15:42.500 --> 00:15:46.300
+<v Speaker C>point 234 on the release notes needs a second review before release</v>
+
+235
+00:15:46.500 --> 00:15:50.300
+<v Speaker C>point 235 on the policy editor needs a quick spike before release</v>
+
+236
+00:15:50.500 --> 00:15:54.300
+<v Speaker A>point 236 on the test matrix needs a written plan before release</v>
+
+237
+00:15:54.500 --> 00:15:58.300
+<v Speaker A>point 237 on the audit log needs a owner before release</v>
+
+238
+00:15:58.500 --> 00:16:02.300
+<v Speaker A>point 238 on the retry rule needs a demo before release</v>
+
+239
+00:16:02.500 --> 00:16:06.300
+<v Speaker B>point 239 on the filter chain needs a smoke test before release</v>
+
+240
+00:16:06.500 --> 00:16:10.300
+<v Speaker B>point 240 on the hotfix branch needs a second review before release</v>
+
+241
+00:16:10.500 --> 00:16:14.300
+<v Speaker B>point 241 on the release notes needs a quick spike before release</v>
+
+242
+00:16:14.500 --> 00:16:18.300
+<v Speaker C>point 242 on the policy editor needs a written plan before release</v>
+
+243
+00:16:18.500 --> 00:16:22.300
+<v Speaker C>point 243 on the test matrix needs a owner before release</v>
+
+244
+00:16:22.500 --> 00:16:26.300
+<v Speaker C>point 244 on the audit log needs a demo before release</v>
+
+245
+00:16:26.500 --> 00:16:30.300
+<v Speaker A>point 245 on the retry rule needs a smoke test before release</v>
+
+246
+00:16:30.500 --> 00:16:34.300
+<v Speaker A>point 246 on the filter chain needs a second review before release</v>
+
+247
+00:16:34.500 --> 00:16:38.300
+<v Speaker A>point 247 on the hotfix branch needs a quick spike before release</v>
+
+248
+00:16:38.500 --> 00:16:42.300
+<v Speaker B>point 248 on the release notes needs a written plan before release</v>
+
+249
+00:16:42.500 --> 00:16:46.300
+<v Speaker B>point 249 on the policy editor needs a owner before release</v>
+
+250
+00:16:46.500 --> 00:16:50.300
+<v Speaker B>point 250 on the test matrix needs a demo before release</v>
+
+251
+00:16:50.500 --> 00:16:54.300
+<v Speaker C>point 251 on the audit log needs a smoke test before release</v>
+
+252
+00:16:54.500 --> 00:16:58.300
+<v Speaker C>point 252 on the retry rule needs a second review before release</v>
+
+253
+00:16:58.500 --> 00:17:02.300
+<v Speaker C>point 253 on the filter chain needs a quick spike before release</v>
+
+254
+00:17:02.500 --> 00:17:06.300
+<v Speaker A>point 254 on the hotfix branch needs a written plan before release</v>
+
+255
+00:17:06.500 --> 00:17:10.300
+<v Speaker A>point 255 on the release notes needs a owner before release</v>
+
+256
+00:17:10.500 --> 00:17:14.300
+<v Speaker A>point 256 on the policy editor needs a demo before release</v>
+
+257
+00:17:14.500 --> 00:17:18.300
+<v Speaker B>point 257 on the test matrix needs a smoke test before release</v>
+
+258
+00:17:18.500 --> 00:17:22.300
+<v Speaker B>point 258 on the audit log needs a second review before release</v>
+
+259
+00:17:22.500 --> 00:17:26.300
+<v Speaker B>point 259 on the retry rule needs a quick spike before release</v>
+
+260
+00:17:26.500 --> 00:17:30.300
+<v Speaker C>point 260 on the filter chain needs a written plan before release</v>
+
+261
+00:17:30.500 --> 00:17:34.300
+<v Speaker C>point 261 on the hotfix branch needs a owner before release</v>
+
+262
+00:17:34.500 --> 00:17:38.300
+<v Speaker C>point 262 on the release notes needs a demo before release</v>
+
+263
+00:17:38.500 --> 00:17:42.300
+<v Speaker A>point 263 on the policy editor needs a smoke test before release</v>
+
+264
+00:17:42.500 --> 00:17:46.300
+<v Speaker A>point 264 on the test matrix needs a second review before release</v>
+
+265
+00:17:46.500 --> 00:17:50.300
+<v Speaker A>point 265 on the audit log needs a quick spike before release</v>
+
+266
+00:17:50.500 --> 00:17:54.300
+<v Speaker B>point 266 on the retry rule needs a written plan before release</v>
+
+267
+00:17:54.500 --> 00:17:58.300
+<v Speaker B>point 267 on the filter chain needs a owner before release</v>
+
+268
+00:17:58.500 --> 00:18:02.300
+<v Speaker B>point 268 on the hotfix branch needs a demo before release</v>
+
+269
+00:18:02.500 --> 00:18:06.300
+<v Speaker C>point 269 on the release notes needs a smoke test before release</v>
+
+270
+00:18:06.500 --> 00:18:10.300
+<v Speaker C>point 270 on the policy editor needs a second review before release</v>
+
+271
+00:18:10.500 --> 00:18:14.300
+<v Speaker C>point 271 on the test matrix needs a quick spike before release</v>
+
+272
+00:18:14.500 --> 00:18:18.300
+<v Speaker A>point 272 on the audit log needs a written plan before release</v>
+
+273
+00:18:18.500 --> 00:18:22.300
+<v Speaker A>point 273 on the retry rule needs a owner before release</v>
+
+274
+00:18:22.500 --> 00:18:26.300
+<v Speaker A>point 274 on the filter chain needs a demo before release</v>
+
+275
+00:18:26.500 --> 00:18:30.300
+<v Speaker B>point 275 on the hotfix branch needs a smoke test before release</v>
+
+276
+00:18:30.500 --> 00:18:34.300
+<v Speaker B>point 276 on the release notes needs a second review before release</v>
+
+277
+00:18:34.500 --> 00:18:38.300
+<v Speaker B>point 277 on the policy editor needs a quick spike before release</v>
+
+278
+00:18:38.500 --> 00:18:42.300
+<v Speaker C>point 278 on the test matrix needs a written plan before release</v>
+
+279
+00:18:42.500 --> 00:18:46.300
+<v Speaker C>point 279 on the audit log needs a owner before release</v>
+
+280
+00:18:46.500 --> 00:18:50.300
+<v Speaker C>point 280 on the retry rule needs a demo before release</v>
+
+281
+00:18:50.500 --> 00:18:54.300
+<v Speaker A>point 281 on the filter chain needs a smoke test before release</v>
+
+282
+00:18:54.500 --> 00:18:58.300
+<v Speaker A>point 282 on the hotfix branch needs a second review before release</v>
+
+283
+00:18:58.500 --> 00:19:02.300
+<v Speaker A>point 283 on the release notes needs a quick spike before release</v>
+
+284
+00:19:02.500 --> 00:19:06.300
+<v Speaker B>point 284 on the policy editor needs a written plan before release</v>
+
+285
+00:19:06.500 --> 00:19:10.300
+<v Speaker B>point 285 on the test matrix needs a owner before release</v>
+
+286
+00:19:10.500 --> 00:19:14.300
+<v Speaker B>point 286 on the audit log needs a demo before release</v>
+
+287
+00:19:14.500 --> 00:19:18.300
+<v Speaker C>point 287 on the retry rule needs a smoke test before release</v>
+
+288
+00:19:18.500 --> 00:19:22.300
+<v Speaker C>point 288 on the filter chain needs a second review before release</v>
+
+289
+00:19:22.500 --> 00:19:26.300
+<v Speaker C>point 289 on the hotfix branch needs a quick spike before release</v>
+
+290
+00:19:26.500 --> 00:19:30.300
+<v Speaker A>point 290 on the release notes needs a written plan before release</v>
+
+291
+00:19:30.500 --> 00:19:34.300
+<v Speaker A>point 291 on the policy editor needs a owner before release</v>
+
+292
+00:19:34.500 --> 00:19:38.300
+<v Speaker A>point 292 on the test matrix needs a demo before release</v>
+
+293
+00:19:38.500 --> 00:19:42.300
+<v Speaker B>point 293 on the audit log needs a smoke test before release</v>
+
+294
+00:19:42.500 --> 00:19:46.300
+<v Speaker B>point 294 on the retry rule needs a second review before release</v>
+
+295
+00:19:46.500 --> 00:19:50.300
+<v Speaker B>point 295 on the filter chain needs a quick spike before release</v>
+
+296
+00:19:50.500 --> 00:19:54.300
+<v Speaker C>point 296 on the hotfix branch needs a written plan before release</v>
+
+297
+00:19:54.500 --> 00:19:58.300
+<v Speaker C>point 297 on the release notes needs a owner before release</v>
+
+298
+00:19:58.500 --> 00:20:02.300
+<v Speaker C>point 298 on the policy editor needs a demo before release</v>
+
+299
+00:20:02.500 --> 00:20:06.300
+<v Speaker A>point 299 on the test matrix needs a smoke test before release</v>
+
+300
+00:20:06.500 --> 00:20:10.300
+<v Speaker A>point 300 on the audit log needs a second review before release</v>
+
+301
+00:20:10.500 --> 00:20:14.300
+<v Speaker A>point 301 on the retry rule needs a quick spike before release</v>
+
+302
+00:20:14.500 --> 00:20:18.300
+<v Speaker B>point 302 on the filter chain needs a written plan before release</v>
+
+303
+00:20:18.500 --> 00:20:22.300
+<v Speaker B>point 303 on the hotfix branch needs a owner before release</v>
+
+304
+00:20:22.500 --> 00:20:26.300
+<v Speaker B>point 304 on the release notes needs a demo before release</v>
+
+305
+00:20:26.500 --> 00:20:30.300
+<v Speaker C>point 305 on the policy editor needs a smoke test before release</v>
+
+306
+00:20:30.500 --> 00:20:34.300
+<v Speaker C>point 306 on the test matrix needs a second review before release</v>
+
+307
+00:20:34.500 --> 00:20:38.300
+<v Speaker C>point 307 on the audit log needs a quick spike before release</v>
+
+308
+00:20:38.500 --> 00:20:42.300
+<v Speaker A>point 308 on the retry rule needs a written plan before release</v>
+
+309
+00:20:42.500 --> 00:20:46.300
+<v Speaker A>point 309 on the filter chain needs a owner before release</v>
+
+310
+00:20:46.500 --> 00:20:50.300
+<v Speaker A>point 310 on the hotfix branch needs a demo before release</v>
+
+311
+00:20:50.500 --> 00:20:54.300
+<v Speaker B>point 311 on the release notes needs a smoke test before release</v>
+
+312
+00:20:54.500 --> 00:20:58.300
+<v Speaker B>point 312 on the policy editor needs a second review before release</v>
+
+313
+00:20:58.500 --> 00:21:02.300
+<v Speaker B>point 313 on the test matrix needs a quick spike before release</v>
+
+314
+00:21:02.500 --> 00:21:06.300
+<v Speaker C>point 314 on the audit log needs a written plan before release</v>
+
+315
+00:21:06.500 --> 00:21:10.300
+<v Speaker C>point 315 on the retry rule needs a owner before release</v>
+
+316
+00:21:10.500 --> 00:21:14.300
+<v Speaker C>point 316 on the filter chain needs a demo before release</v>
+
+317
+00:21:14.500 --> 00:21:18.300
+<v Speaker A>point 317 on the hotfix branch needs a smoke test before release</v>
+
+318
+00:21:18.500 --> 00:21:22.300
+<v Speaker A>point 318 on the release notes needs a second review before release</v>
+
+319
+00:21:22.500 --> 00:21:26.300
+<v Speaker A>point 319 on the policy editor needs a quick spike before release</v>
+
+320
+00:21:26.500 --> 00:21:30.300
+<v Speaker B>point 320 on the test matrix needs a written plan before release</v>
+
+321
+00:21:30.500 --> 00:21:34.300
+<v Speaker B>point 321 on the audit log needs a owner before release</v>
+
+322
+00:21:34.500 --> 00:21:38.300
+<v Speaker B>point 322 on the retry rule needs a demo before release</v>
+
+323
+00:21:38.500 --> 00:21:42.300
+<v Speaker C>point 323 on the filter chain needs a smoke test before release</v>
+
+324
+00:21:42.500 --> 00:21:46.300
+<v Speaker C>point 324 on the hotfix branch needs a second review before release</v>
+
+325
+00:21:46.500 --> 00:21:50.300
+<v Speaker C>point 325 on the release notes needs a quick spike before release</v>
+
+326
+00:21:50.500 --> 00:21:54.300
+<v Speaker A>point 326 on the policy editor needs a written plan before release</v>
+
+327
+00:21:54.500 --> 00:21:58.300
+<v Speaker A>point 327 on the test matrix needs a owner before release</v>
+
+328
+00:21:58.500 --> 00:22:02.300
+<v Speaker A>point 328 on the audit log needs a demo before release</v>
+
+329
+00:22:02.500 --> 00:22:06.300
+<v Speaker B>point 329 on the retry rule needs a smoke test before release</v>
+
+330
+00:22:06.500 --> 00:22:10.300
+<v Speaker B>point 330 on the filter chain needs a second review before release</v>
+
+331
+00:22:10.500 --> 00:22:14.300
+<v Speaker B>point 331 on the hotfix branch needs a quick spike before release</v>
+
+332
+00:22:14.500 --> 00:22:18.300
+<v Speaker C>point 332 on the release notes needs a written plan before release</v>
+
+333
+00:22:18.500 --> 00:22:22.300
+<v Speaker C>point 333 on the policy editor needs a owner before release</v>
+
+334
+00:22:22.500 --> 00:22:26.300
+<v Speaker C>point 334 on the test matrix needs a demo before release</v>
+
+335
+00:22:26.500 --> 00:22:30.300
+<v Speaker A>point 335 on the audit log needs a smoke test before release</v>
+
+336
+00:22:30.500 --> 00:22:34.300
+<v Speaker A>point 336 on the retry rule needs a second review before release</v>
+
+337
+00:22:34.500 --> 00:22:38.300
+<v Speaker A>point 337 on the filter chain needs a quick spike before release</v>
+
+338
+00:22:38.500 --> 00:22:42.300
+<v Speaker B>point 338 on the hotfix branch needs a written plan before release</v>
+
+339
+00:22:42.500 --> 00:22:46.300
+<v Speaker B>point 339 on the release notes needs a owner before release</v>
+
+340
+00:22:46.500 --> 00:22:50.300
+<v Speaker B>point 340 on the policy editor needs a demo before release</v>
+
+341
+00:22:50.500 --> 00:22:54.300
+<v Speaker C>point 341 on the test matrix needs a smoke test before release</v>
+
+342
+00:22:54.500 --> 00:22:58.300
+<v Speaker C>point 342 on the audit log needs a second review before release</v>
+
+343
+00:22:58.500 --> 00:23:02.300
+<v Speaker C>point 343 on the retry rule needs a quick spike before release</v>
+
+344
+00:23:02.500 --> 00:23:06.300
+<v Speaker A>point 344 on the filter chain needs a written plan before release</v>
+
+345
+00:23:06.500 --> 00:23:10.300
+<v Speaker A>point 345 on the hotfix branch needs a owner before release</v>
+
+346
+00:23:10.500 --> 00:23:14.300
+<v Speaker A>point 346 on the release notes needs a demo before release</v>
+
+347
+00:23:14.500 --> 00:23:18.300
+<v Speaker B>point 347 on the policy editor needs a smoke test before release</v>
+
+348
+00:23:18.500 --> 00:23:22.300
+<v Speaker B>point 348 on the test matrix needs a second review before release</v>
+
+349
+00:23:22.500 --> 00:23:26.300
+<v Speaker B>point 349 on the audit log needs a quick spike before release</v>
+
+350
+00:23:26.500 --> 00:23:30.300
+<v Speaker C>point 350 on the retry rule needs a written plan before release</v>
+
+351
+00:23:30.500 --> 00:23:34.300
+<v Speaker C>point 351 on the filter chain needs a owner before release</v>
+
+352
+00:23:34.500 --> 00:23:38.300
+<v Speaker C>point 352 on the hotfix branch needs a demo before release</v>
+
+353
+00:23:38.500 --> 00:23:42.300
+<v Speaker A>point 353 on the release notes needs a smoke test before release</v>
+
+354
+00:23:42.500 --> 00:23:46.300
+<v Speaker A>point 354 on the policy editor needs a second review before release</v>
+
+355
+00:23:46.500 --> 00:23:50.300
+<v Speaker A>point 355 on the test matrix needs a quick spike before release</v>
+
+356
+00:23:50.500 --> 00:23:54.300
+<v Speaker B>point 356 on the audit log needs a written plan before release</v>
+
+357
+00:23:54.500 --> 00:23:58.300
+<v Speaker B>point 357 on the retry rule needs a owner before release</v>
+
+358
+00:23:58.500 --> 00:24:02.300
+<v Speaker B>point 358 on the filter chain needs a demo before release</v>
+
+359
+00:24:02.500 --> 00:24:06.300
+<v Speaker C>point 359 on the hotfix branch needs a smoke test before release</v>
+
+360
+00:24:06.500 --> 00:24:10.300
+<v Speaker C>point 360 on the release notes needs a second review before release</v>
+
+361
+00:24:10.500 --> 00:24:14.300
+<v Speaker C>point 361 on the policy editor needs a quick spike before release</v>
+
+362
+00:24:14.500 --> 00:24:18.300
+<v Speaker A>point 362 on the test matrix needs a written plan before release</v>
+
+363
+00:24:18.500 --> 00:24:22.300
+<v Speaker A>point 363 on the audit log needs a owner before release</v>
+
+364
+00:24:22.500 --> 00:24:26.300
+<v Speaker A>point 364 on the retry rule needs a demo before release</v>
+
+365
+00:24:26.500 --> 00:24:30.300
+<v Speaker B>point 365 on the filter chain needs a smoke test before release</v>
+
+366
+00:24:30.500 --> 00:24:34.300
+<v Speaker B>point 366 on the hotfix branch needs a second review before release</v>
+
+367
+00:24:34.500 --> 00:24:38.300
+<v Speaker B>point 367 on the release notes needs a quick spike before release</v>
+
+368
+00:24:38.500 --> 00:24:42.300
+<v Speaker C>point 368 on the policy editor needs a written plan before release</v>
+
+369
+00:24:42.500 --> 00:24:46.300
+<v Speaker C>point 369 on the test matrix needs a owner before release</v>
+
+370
+00:24:46.500 --> 00:24:50.300
+<v Speaker C>point 370 on the audit log needs a demo before release</v>
+
+371
+00:24:50.500 --> 00:24:54.300
+<v Speaker A>point 371 on the retry rule needs a smoke test before release</v>
+
+372
+00:24:54.500 --> 00:24:58.300
+<v Speaker A>point 372 on the filter chain needs a second review before release</v>
+
+373
+00:24:58.500 --> 00:25:02.300
+<v Speaker A>point 373 on the hotfix branch needs a quick spike before release</v>
+
+374
+00:25:02.500 --> 00:25:06.300
+<v Speaker B>point 374 on the release notes needs a written plan before release</v>
+
+375
+00:25:06.500 --> 00:25:10.300
+<v Speaker B>point 375 on the policy editor needs a owner before release</v>
+
+376
+00:25:10.500 --> 00:25:14.300
+<v Speaker B>point 376 on the test matrix needs a demo before release</v>
+
+377
+00:25:14.500 --> 00:25:18.300
+<v Speaker C>point 377 on the audit log needs a smoke test before release</v>
+
+378
+00:25:18.500 --> 00:25:22.300
+<v Speaker C>point 378 on the retry rule needs a second review before release</v>
+
+379
+00:25:22.500 --> 00:25:26.300
+<v Speaker C>point 379 on the filter chain needs a quick spike before release</v>
+
+380
+00:25:26.500 --> 00:25:30.300
+<v Speaker A>point 380 on the hotfix branch needs a written plan before release</v>
+
+381
+00:25:30.500 --> 00:25:34.300
+<v Speaker A>point 381 on the release notes needs a owner before release</v>
+
+382
+00:25:34.500 --> 00:25:38.300
+<v Speaker A>point 382 on the policy editor needs a demo before release</v>
+
+383
+00:25:38.500 --> 00:25:42.300
+<v Speaker B>point 383 on the test matrix needs a smoke test before release</v>
+
+384
+00:25:42.500 --> 00:25:46.300
+<v Speaker B>point 384 on the audit log needs a second review before release</v>
+
+385
+00:25:46.500 --> 00:25:50.300
+<v Speaker B>point 385 on the retry rule needs a quick spike before release</v>
+
+386
+00:25:50.500 --> 00:25:54.300
+<v Speaker C>point 386 on the filter chain needs a written plan before release</v>
+
+387
+00:25:54.500 --> 00:25:58.300
+<v Speaker C>point 387 on the hotfix branch needs a owner before release</v>
+
+388
+00:25:58.500 --> 00:26:02.300
+<v Speaker C>point 388 on the release notes needs a demo before release</v>
+
+389
+00:26:02.500 --> 00:26:06.300
+<v Speaker A>point 389 on the policy editor needs a smoke test before release</v>
+
+390
+00:26:06.500 --> 00:26:10.300
+<v Speaker A>point 390 on the test matrix needs a second review before release</v>
+
+391
+00:26:10.500 --> 00:26:14.300
+<v Speaker A>point 391 on the audit log needs a quick spike before release</v>
+
+392
+00:26:14.500 --> 00:26:18.300
+<v Speaker B>point 392 on the retry rule needs a written plan before release</v>
+
+393
+00:26:18.500 --> 00:26:22.300
+<v Speaker B>point 393 on the filter chain needs a owner before release</v>
+
+394
+00:26:22.500 --> 00:26:26.300
+<v Speaker B>point 394 on the hotfix branch needs a demo before release</v>
+
+395
+00:26:26.500 --> 00:26:30.300
+<v Speaker C>point 395 on the release notes needs a smoke test before release</v>
+
+396
+00:26:30.500 --> 00:26:34.300
+<v Speaker C>point 396 on the policy editor needs a second review before release</v>
+
+397
+00:26:34.500 --> 00:26:38.300
+<v Speaker C>point 397 on the test matrix needs a quick spike before release</v>
+
+398
+00:26:38.500 --> 00:26:42.300
+<v Speaker A>point 398 on the audit log needs a written plan before release</v>
+
+399
+00:26:42.500 --> 00:26:46.300
+<v Speaker A>point 399 on the retry rule needs a owner before release</v>
+
+400
+00:26:46.500 --> 00:26:50.300
+<v Speaker A>point 400 on the filter chain needs a demo before release</v>
+
+401
+00:26:50.500 --> 00:26:54.300
+<v Speaker B>point 401 on the hotfix branch needs a smoke test before release</v>
+
+402
+00:26:54.500 --> 00:26:58.300
+<v Speaker B>point 402 on the release notes needs a second review before release</v>
+
+403
+00:26:58.500 --> 00:27:02.300
+<v Speaker B>point 403 on the policy editor needs a quick spike before release</v>
+
+404
+00:27:02.500 --> 00:27:06.300
+<v Speaker C>point 404 on the test matrix needs a written plan before release</v>
+
+405
+00:27:06.500 --> 00:27:10.300
+<v Speaker C>point 405 on the audit log needs a owner before release</v>
+
+406
+00:27:10.500 --> 00:27:14.300
+<v Speaker C>point 406 on the retry rule needs a demo before release</v>
+
+407
+00:27:14.500 --> 00:27:18.300
+<v Speaker A>point 407 on the filter chain needs a smoke test before release</v>
+
+408
+00:27:18.500 --> 00:27:22.300
+<v Speaker A>point 408 on the hotfix branch needs a second review before release</v>
+
+409
+00:27:22.500 --> 00:27:26.300
+<v Speaker A>point 409 on the release notes needs a quick spike before release</v>
+
+410
+00:27:26.500 --> 00:27:30.300
+<v Speaker B>point 410 on the policy editor needs a written plan before release</v>
+
+411
+00:27:30.500 --> 00:27:34.300
+<v Speaker B>point 411 on the test matrix needs a owner before release</v>
+
+412
+00:27:34.500 --> 00:27:38.300
+<v Speaker B>point 412 on the audit log needs a demo before release</v>
+
+413
+00:27:38.500 --> 00:27:42.300
+<v Speaker C>point 413 on the retry rule needs a smoke test before release</v>
+
+414
+00:27:42.500 --> 00:27:46.300
+<v Speaker C>point 414 on the filter chain needs a second review before release</v>
+
+415
+00:27:46.500 --> 00:27:50.300
+<v Speaker C>point 415 on the hotfix branch needs a quick spike before release</v>
+
+416
+00:27:50.500 --> 00:27:54.300
+<v Speaker A>point 416 on the release notes needs a written plan before release</v>
+
+417
+00:27:54.500 --> 00:27:58.300
+<v Speaker A>point 417 on the policy editor needs a owner before release</v>
+
+418
+00:27:58.500 --> 00:28:02.300
+<v Speaker A>point 418 on the test matrix needs a demo before release</v>
+
+419
+00:28:02.500 --> 00:28:06.300
+<v Speaker B>point 419 on the audit log needs a smoke test before release</v>
+
+420
+00:28:06.500 --> 00:28:10.300
+<v Speaker B>point 420 on the retry rule needs a second review before release</v>
+
+421
+00:28:10.500 --> 00:28:14.300
+<v Speaker B>point 421 on the filter chain needs a quick spike before release</v>
+
+422
+00:28:14.500 --> 00:28:18.300
+<v Speaker C>point 422 on the hotfix branch needs a written plan before release</v>
+
+423
+00:28:18.500 --> 00:28:22.300
+<v Speaker C>point 423 on the release notes needs a owner before release</v>
+
+424
+00:28:22.500 --> 00:28:26.300
+<v Speaker C>point 424 on the policy editor needs a demo before release</v>
+
+425
+00:28:26.500 --> 00:28:30.300
+<v Speaker A>point 425 on the test matrix needs a smoke test before release</v>
+
+426
+00:28:30.500 --> 00:28:34.300
+<v Speaker A>point 426 on the audit log needs a second review before release</v>
+
+427
+00:28:34.500 --> 00:28:38.300
+<v Speaker A>point 427 on the retry rule needs a quick spike before release</v>
+
+428
+00:28:38.500 --> 00:28:42.300
+<v Speaker B>point 428 on the filter chain needs a written plan before release</v>
+
+429
+00:28:42.500 --> 00:28:46.300
+<v Speaker B>point 429 on the hotfix branch needs a owner before release</v>
+
+430
+00:28:46.500 --> 00:28:50.300
+<v Speaker B>point 430 on the release notes needs a demo before release</v>
+
+431
+00:28:50.500 --> 00:28:54.300
+<v Speaker C>point 431 on the policy editor needs a smoke test before release</v>
+
+432
+00:28:54.500 --> 00:28:58.300
+<v Speaker C>point 432 on the test matrix needs a second review before release</v>
+
+433
+00:28:58.500 --> 00:29:02.300
+<v Speaker C>point 433 on the audit log needs a quick spike before release</v>
+
+434
+00:29:02.500 --> 00:29:06.300
+<v Speaker A>point 434 on the retry rule needs a written plan before release</v>
+
+435
+00:29:06.500 --> 00:29:10.300
+<v Speaker A>point 435 on the filter chain needs a owner before release</v>
+
+436
+00:29:10.500 --> 00:29:14.300
+<v Speaker A>point 436 on the hotfix branch needs a demo before release</v>
+
+437
+00:29:14.500 --> 00:29:18.300
+<v Speaker B>point 437 on the release notes needs a smoke test before release</v>
+
+438
+00:29:18.500 --> 00:29:22.300
+<v Speaker B>point 438 on the policy editor needs a second review before release</v>
+
+439
+00:29:22.500 --> 00:29:26.300
+<v Speaker B>point 439 on the test matrix needs a quick spike before release</v>
+
+440
+00:29:26.500 --> 00:29:30.300
+<v Speaker C>point 440 on the audit log needs a written plan before release</v>
+
+441
+00:29:30.500 --> 00:29:34.300
+<v Speaker C>point 441 on the retry rule needs a owner before release</v>
+
+442
+00:29:34.500 --> 00:29:38.300
+<v Speaker C>point 442 on the filter chain needs a demo before release</v>
+
+443
+00:29:38.500 --> 00:29:42.300
+<v Speaker A>point 443 on the hotfix branch needs a smoke test before release</v>
+
+444
+00:29:42.500 --> 00:29:46.300
+<v Speaker A>point 444 on the release notes needs a second review before release</v>
+
+445
+00:29:46.500 --> 00:29:50.300
+<v Speaker A>point 445 on the policy editor needs a quick spike before release</v>
+
+446
+00:29:50.500 --> 00:29:54.300
+<v Speaker B>point 446 on the test matrix needs a written plan before release</v>
+
+447
+00:29:54.500 --> 00:29:58.300
+<v Speaker B>point 447 on the audit log needs a owner before release</v>
+
+448
+00:29:58.500 --> 00:30:02.300
+<v Speaker B>point 448 on the retry rule needs a demo before release</v>
+
+449
+00:30:02.500 --> 00:30:06.300
+<v Speaker C>point 449 on the filter chain needs a smoke test before release</v>
+
+450
+00:30:06.500 --> 00:30:10.300
+<v Speaker C>point 450 on the hotfix branch needs a second review before release</v>
+
+451
+00:30:10.500 --> 00:30:14.300
+<v Speaker C>point 451 on the release notes needs a quick spike before release</v>
+
+452
+00:30:14.500 --> 00:30:18.300
+<v Speaker A>point 452 on the policy editor needs a written plan before release</v>
+
+453
+00:30:18.500 --> 00:30:22.300
+<v Speaker A>point 453 on the test matrix needs a owner before release</v>
+
+454
+00:30:22.500 --> 00:30:26.300
+<v Speaker A>point 454 on the audit log needs a demo before release</v>
+
+455
+00:30:26.500 --> 00:30:30.300
+<v Speaker B>point 455 on the retry rule needs a smoke test before release</v>
+
+456
+00:30:30.500 --> 00:30:34.300
+<v Speaker B>point 456 on the filter chain needs a second review before release</v>
+
+457
+00:30:34.500 --> 00:30:38.300
+<v Speaker B>point 457 on the hotfix branch needs a quick spike before release</v>
+
+458
+00:30:38.500 --> 00:30:42.300
+<v Speaker C>point 458 on the release notes needs a written plan before release</v>
+
+459
+00:30:42.500 --> 00:30:46.300
+<v Speaker C>point 459 on the policy editor needs a owner before release</v>
+
+460
+00:30:46.500 --> 00:30:50.300
+<v Speaker C>point 460 on the test matrix needs a demo before release</v>
+
+461
+00:30:50.500 --> 00:30:54.300
+<v Speaker A>point 461 on the audit log needs a smoke test before release</v>
+
+462
+00:30:54.500 --> 00:30:58.300
+<v Speaker A>point 462 on the retry rule needs a second review before release</v>
+
+463
+00:30:58.500 --> 00:31:02.300
+<v Speaker A>point 463 on the filter chain needs a quick spike before release</v>
+
+464
+00:31:02.500 --> 00:31:06.300
+<v Speaker B>point 464 on the hotfix branch needs a written plan before release</v>
+
+465
+00:31:06.500 --> 00:31:10.300
+<v Speaker B>point 465 on the release notes needs a owner before release</v>
+
+466
+00:31:10.500 --> 00:31:14.300
+<v Speaker B>point 466 on the policy editor needs a demo before release</v>
+
+467
+00:31:14.500 --> 00:31:18.300
+<v Speaker C>point 467 on the test matrix needs a smoke test before release</v>
+
+468
+00:31:18.500 --> 00:31:22.300
+<v Speaker C>point 468 on the audit log needs a second review before release</v>
+
+469
+00:31:22.500 --> 00:31:26.300
+<v Speaker C>point 469 on the retry rule needs a quick spike before release</v>
+
+470
+00:31:26.500 --> 00:31:30.300
+<v Speaker A>point 470 on the filter chain needs a written plan before release</v>
+
+471
+00:31:30.500 --> 00:31:34.300
+<v Speaker A>point 471 on the hotfix branch needs a owner before release</v>
+
+472
+00:31:34.500 --> 00:31:38.300
+<v Speaker A>point 472 on the release notes needs a demo before release</v>
+
+473
+00:31:38.500 --> 00:31:42.300
+<v Speaker B>point 473 on the policy editor needs a smoke test before release</v>
+
+474
+00:31:42.500 --> 00:31:46.300
+<v Speaker B>point 474 on the test matrix needs a second review before release</v>
+
+475
+00:31:46.500 --> 00:31:50.300
+<v Speaker B>point 475 on the audit log needs a quick spike before release</v>
+
+476
+00:31:50.500 --> 00:31:54.300
+<v Speaker C>point 476 on the retry rule needs a written plan before release</v>
+
+477
+00:31:54.500 --> 00:31:58.300
+<v Speaker C>point 477 on the filter chain needs a owner before release</v>
+
+478
+00:31:58.500 --> 00:32:02.300
+<v Speaker C>point 478 on the hotfix branch needs a demo before release</v>
+
+479
+00:32:02.500 --> 00:32:06.300
+<v Speaker A>point 479 on the release notes needs a smoke test before release</v>
+
+480
+00:32:06.500 --> 00:32:10.300
+<v Speaker A>point 480 on the policy editor needs a second review before release</v>
+
+481
+00:32:10.500 --> 00:32:14.300
+<v Speaker A>point 481 on the test matrix needs a quick spike before release</v>
+
+482
+00:32:14.500 --> 00:32:18.300
+<v Speaker B>point 482 on the audit log needs a written plan before release</v>
+
+483
+00:32:18.500 --> 00:32:22.300
+<v Speaker B>point 483 on the retry rule needs a owner before release</v>
+
+484
+00:32:22.500 --> 00:32:26.300
+<v Speaker B>point 484 on the filter chain needs a demo before release</v>
+
+485
+00:32:26.500 --> 00:32:30.300
+<v Speaker C>point 485 on the hotfix branch needs a smoke test before release</v>
+
+486
+00:32:30.500 --> 00:32:34.300
+<v Speaker C>point 486 on the release notes needs a second review before release</v>
+
+487
+00:32:34.500 --> 00:32:38.300
+<v Speaker C>point 487 on the policy editor needs a quick spike before release</v>
+
+488
+00:32:38.500 --> 00:32:42.300
+<v Speaker A>point 488 on the test matrix needs a written plan before release</v>
+
+489
+00:32:42.500 --> 00:32:46.300
+<v Speaker A>point 489 on the audit log needs a owner before release</v>
+
+490
+00:32:46.500 --> 00:32:50.300
+<v Speaker A>point 490 on the retry rule needs a demo before release</v>
+
+491
+00:32:50.500 --> 00:32:54.300
+<v Speaker B>point 491 on the filter chain needs a smoke test before release</v>
+
+492
+00:32:54.500 --> 00:32:58.300
+<v Speaker B>point 492 on the hotfix branch needs a second review before release</v>
+
+493
+00:32:58.500 --> 00:33:02.300
+<v Speaker B>point 493 on the release notes needs a quick spike before release</v>
+
+494
+00:33:02.500 --> 00:33:06.300
+<v Speaker C>point 494 on the policy editor needs a written plan before release</v>
+
+495
+00:33:06.500 --> 00:33:10.300
+<v Speaker C>point 495 on the test matrix needs a owner before release</v>
+
+496
+00:33:10.500 --> 00:33:14.300
+<v Speaker C>point 496 on the audit log needs a demo before release</v>
+
+497
+00:33:14.500 --> 00:33:18.300
+<v Speaker A>point 497 on the retry rule needs a smoke test before release</v>
+
+498
+00:33:18.500 --> 00:33:22.300
+<v Speaker A>point 498 on the filter chain needs a second review before release</v>
+
+499
+00:33:22.500 --> 00:33:26.300
+<v Speaker A>point 499 on the hotfix branch needs a quick spike before release</v>
+
+500
+00:33:26.500 --> 00:33:30.300
+<v Speaker B>point 500 on the release notes needs a written plan before release</v>
+
+501
+00:33:30.500 --> 00:33:34.300
+<v Speaker B>point 501 on the policy editor needs a owner before release</v>
+
+502
+00:33:34.500 --> 00:33:38.300
+<v Speaker B>point 502 on the test matrix needs a demo before release</v>
+
+503
+00:33:38.500 --> 00:33:42.300
+<v Speaker C>point 503 on the audit log needs a smoke test before release</v>
+
+504
+00:33:42.500 --> 00:33:46.300
+<v Speaker C>point 504 on the retry rule needs a second review before release</v>
+
+505
+00:33:46.500 --> 00:33:50.300
+<v Speaker C>point 505 on the filter chain needs a quick spike before release</v>
+
+506
+00:33:50.500 --> 00:33:54.300
+<v Speaker A>point 506 on the hotfix branch needs a written plan before release</v>
+
+507
+00:33:54.500 --> 00:33:58.300
+<v Speaker A>point 507 on the release notes needs a owner before release</v>
+
+508
+00:33:58.500 --> 00:34:02.300
+<v Speaker A>point 508 on the policy editor needs a demo before release</v>
+
+509
+00:34:02.500 --> 00:34:06.300
+<v Speaker B>point 509 on the test matrix needs a smoke test before release</v>
+
+510
+00:34:06.500 --> 00:34:10.300
+<v Speaker B>point 510 on the audit log needs a second review before release</v>
+
+511
+00:34:10.500 --> 00:34:14.300
+<v Speaker B>point 511 on the retry rule needs a quick spike before release</v>
+
+512
+00:34:14.500 --> 00:34:18.300
+<v Speaker C>point 512 on the filter chain needs a written plan before release</v>
+
+513
+00:34:18.500 --> 00:34:22.300
+<v Speaker C>point 513 on the hotfix branch needs a owner before release</v>
+
+514
+00:34:22.500 --> 00:34:26.300
+<v Speaker C>point 514 on the release notes needs a demo before release</v>
+
+515
+00:34:26.500 --> 00:34:30.300
+<v Speaker A>point 515 on the policy editor needs a smoke test before release</v>
+
+516
+00:34:30.500 --> 00:34:34.300
+<v Speaker A>point 516 on the test matrix needs a second review before release</v>
+
+517
+00:34:34.500 --> 00:34:38.300
+<v Speaker A>point 517 on the audit log needs a quick spike before release</v>
+
+518
+00:34:38.500 --> 00:34:42.300
+<v Speaker B>point 518 on the retry rule needs a written plan before release</v>
+
+519
+00:34:42.500 --> 00:34:46.300
+<v Speaker B>point 519 on the filter chain needs a owner before release</v>
+
+520
+00:34:46.500 --> 00:34:50.300
+<v Speaker B>point 520 on the hotfix branch needs a demo before release</v>
+
+521
+00:34:50.500 --> 00:34:54.300
+<v Speaker C>point 521 on the release notes needs a smoke test before release</v>
+
+522
+00:34:54.500 --> 00:34:58.300
+<v Speaker C>point 522 on the policy editor needs a second review before release</v>
+
+523
+00:34:58.500 --> 00:35:02.300
+<v Speaker C>point 523 on the test matrix needs a quick spike before release</v>
+
+524
+00:35:02.500 --> 00:35:06.300
+<v Speaker A>point 524 on the audit log needs a written plan before release</v>
+
+525
+00:35:06.500 --> 00:35:10.300
+<v Speaker A>point 525 on the retry rule needs a owner before release</v>
+
+526
+00:35:10.500 --> 00:35:14.300
+<v Speaker A>point 526 on the filter chain needs a demo before release</v>
+
+527
+00:35:14.500 --> 00:35:18.300
+<v Speaker B>point 527 on the hotfix branch needs a smoke test before release</v>
+
+528
+00:35:18.500 --> 00:35:22.300
+<v Speaker B>point 528 on the release notes needs a second review before release</v>
+
+529
+00:35:22.500 --> 00:35:26.300
+<v Speaker B>point 529 on the policy editor needs a quick spike before release</v>
+
+530
+00:35:26.500 --> 00:35:30.300
+<v Speaker C>point 530 on the test matrix needs a written plan before release</v>
+
+531
+00:35:30.500 --> 00:35:34.300
+<v Speaker C>point 531 on the audit log needs a owner before release</v>
+
+532
+00:35:34.500 --> 00:35:38.300
+<v Speaker C>point 532 on the retry rule needs a demo before release</v>
+
+533
+00:35:38.500 --> 00:35:42.300
+<v Speaker A>point 533 on the filter chain needs a smoke test before release</v>
+
+534
+00:35:42.500 --> 00:35:46.300
+<v Speaker A>point 534 on the hotfix branch needs a second review before release</v>
+
+535
+00:35:46.500 --> 00:35:50.300
+<v Speaker A>point 535 on the release notes needs a quick spike before release</v>
+
+536
+00:35:50.500 --> 00:35:54.300
+<v Speaker B>point 536 on the policy editor needs a written plan before release</v>
+
+537
+00:35:54.500 --> 00:35:58.300
+<v Speaker B>point 537 on the test matrix needs a owner before release</v>
+
+538
+00:35:58.500 --> 00:36:02.300
+<v Speaker B>point 538 on the audit log needs a demo before release</v>
+
+539
+00:36:02.500 --> 00:36:06.300
+<v Speaker C>point 539 on the retry rule needs a smoke test before release</v>
+
+540
+00:36:06.500 --> 00:36:10.300
+<v Speaker C>point 540 on the filter chain needs a second review before release</v>
+
+541
+00:36:10.500 --> 00:36:14.300
+<v Speaker C>point 541 on the hotfix branch needs a quick spike before release</v>
+
+542
+00:36:14.500 --> 00:36:18.300
+<v Speaker A>point 542 on the release notes needs a written plan before release</v>
+
+543
+00:36:18.500 --> 00:36:22.300
+<v Speaker A>point 543 on the policy editor needs a owner before release</v>
+
+544
+00:36:22.500 --> 00:36:26.300
+<v Speaker A>point 544 on the test matrix needs a demo before release</v>
+
+545
+00:36:26.500 --> 00:36:30.300
+<v Speaker B>point 545 on the audit log needs a smoke test before release</v>
+
+546
+00:36:30.500 --> 00:36:34.300
+<v Speaker B>point 546 on the retry rule needs a second review before release</v>
+
+547
+00:36:34.500 --> 00:36:38.300
+<v Speaker B>point 547 on the filter chain needs a quick spike before release</v>
+
+548
+00:36:38.500 --> 00:36:42.300
+<v Speaker C>point 548 on the hotfix branch needs a written plan before release</v>
+
+549
+00:36:42.500 --> 00:36:46.300
+<v Speaker C>point 549 on the release notes needs a owner before release</v>
+
+550
+00:36:46.500 --> 00:36:50.300
+<v Speaker C>point 550 on the policy editor needs a demo before release</v>
+
+551
+00:36:50.500 --> 00:36:54.300
+<v Speaker A>point 551 on the test matrix needs a smoke test before release and that closes the review ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok o</v>

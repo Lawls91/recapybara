@@ -9,6 +9,9 @@ use std::{
 
 pub const META: &str = "meeting.json";
 pub const VTT: &str = "transcript.vtt";
+pub const SUMMARY_MD: &str = "summary.md";
+/// Claude's structured output as returned, kept so the app can redraw chips and peeks (D43).
+pub const SUMMARY_JSON: &str = "summary.json";
 
 /// Meeting states (D26), as stored in `meeting.json`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
@@ -118,7 +121,7 @@ fn read_checked(src: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn save(dir: &Path, m: &Meeting) -> io::Result<()> {
+pub fn save(dir: &Path, m: &Meeting) -> io::Result<()> {
     write_atomic(&dir.join(META), &serde_json::to_vec_pretty(m)?)
 }
 
@@ -182,7 +185,7 @@ pub fn list(library: &Path) -> Vec<Listed> {
             Some(Listed {
                 id: e.file_name().to_string_lossy().into_owned(),
                 has_transcript: dir.join(VTT).exists(),
-                has_summary: dir.join("summary.md").exists(),
+                has_summary: dir.join(SUMMARY_MD).exists(),
                 meeting,
             })
         })
@@ -207,14 +210,47 @@ pub struct Transcript {
     pub minutes: u32,
 }
 
-/// `hh:mm:ss.ttt` or `mm:ss.ttt` to whole seconds.
-fn seconds(t: &str) -> Option<u32> {
-    let whole = t.trim().split('.').next()?;
-    whole.split(':').try_fold(0u32, |acc, p| Some(acc * 60 + p.parse::<u32>().ok()?))
+/// `hh:mm:ss.ttt`, `mm:ss.ttt` or `hh:mm:ss` to milliseconds.
+pub fn millis(t: &str) -> Option<u32> {
+    let (whole, frac) = t.trim().split_once('.').unwrap_or((t.trim(), "0"));
+    let s = whole.split(':').try_fold(0u32, |acc, p| Some(acc * 60 + p.parse::<u32>().ok()?))?;
+    let ms: u32 = format!("{frac:0<3}")[..3].parse().ok()?;
+    Some(s * 1000 + ms)
 }
 
-fn hms(s: u32) -> String {
+pub fn hms(ms: u32) -> String {
+    let s = ms / 1000;
     format!("{:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+}
+
+/// One VTT cue: raw text as Teams heard it (D20 checks against this, never corrected text).
+#[derive(Debug, PartialEq)]
+pub struct Cue {
+    pub start: u32,
+    pub end: u32,
+    pub speaker: String,
+    pub text: String,
+    /// Index of the speaker turn (D22) holding this cue.
+    pub turn: usize,
+}
+
+pub fn cues(vtt: &str) -> Vec<Cue> {
+    let mut out: Vec<Cue> = vec![];
+    let mut lines = vtt.lines();
+    while let Some(line) = lines.next() {
+        let Some((from, to)) = line.split_once("-->") else { continue };
+        let (Some(start), Some(end)) = (millis(from), to.split_whitespace().next().and_then(millis)) else { continue };
+        let cue: Vec<&str> = lines.by_ref().take_while(|l| !l.trim().is_empty()).collect();
+        let (speaker, text) = voice(&cue.join(" "));
+        let speaker = speaker.unwrap_or_default();
+        let turn = match out.last() {
+            Some(prev) if prev.speaker == speaker => prev.turn,
+            Some(prev) => prev.turn + 1,
+            None => 0,
+        };
+        out.push(Cue { start, end, speaker, text, turn });
+    }
+    out
 }
 
 /// `<v Speaker A>text</v>` to (speaker, text); other tags dropped.
@@ -236,20 +272,14 @@ fn voice(line: &str) -> (Option<String>, String) {
 pub fn transcript(vtt: &str) -> Transcript {
     let mut turns: Vec<Turn> = vec![];
     let mut end = 0;
-    let mut lines = vtt.lines();
-    while let Some(line) = lines.next() {
-        let Some((from, to)) = line.split_once("-->") else { continue };
-        let (Some(at), Some(until)) = (seconds(from), to.split_whitespace().next().and_then(seconds)) else { continue };
-        end = end.max(until);
-        let cue: Vec<&str> = lines.by_ref().take_while(|l| !l.trim().is_empty()).collect();
-        let (speaker, text) = voice(&cue.join(" "));
-        let speaker = speaker.unwrap_or_default();
-        match turns.last_mut() {
-            Some(t) if t.speaker == speaker => {
+    for c in cues(vtt) {
+        end = end.max(c.end / 1000);
+        match turns.get_mut(c.turn) {
+            Some(t) => {
                 t.text.push(' ');
-                t.text.push_str(&text);
+                t.text.push_str(&c.text);
             }
-            _ => turns.push(Turn { at: hms(at), speaker, text }),
+            None => turns.push(Turn { at: hms(c.start), speaker: c.speaker, text: c.text }),
         }
     }
     Transcript { turns, minutes: end.div_ceil(60) }

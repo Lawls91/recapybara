@@ -9,8 +9,11 @@ use std::{
 
 pub struct ClaudeRun {
     pub prompt: String,
-    pub model: &'static str,
+    pub model: String,
+    /// Empty: no tool is pre-approved, so `dontAsk` denies every tool.
     pub allowed_tools: &'static [&'static str],
+    /// Run-specific flags, e.g. `--json-schema` (D18).
+    pub args: Vec<String>,
     pub stdin: String,
 }
 
@@ -38,13 +41,16 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
         .args(["--setting-sources", "project"])
         .arg("--no-session-persistence")
         .args(["--output-format", "json"])
-        .args(["--model", run.model])
-        .args(["--allowedTools", &run.allowed_tools.join(",")])
+        .args(["--model", &run.model])
+        .args(&run.args)
         .current_dir(runs_dir)
         .env_remove("ANTHROPIC_API_KEY")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if !run.allowed_tools.is_empty() {
+        cmd.args(["--allowedTools", &run.allowed_tools.join(",")]);
+    }
     crate::platform::no_console(&mut cmd);
     let result = cmd.spawn().and_then(|mut child| {
         // Feed stdin on its own thread while stdout/stderr drain, so a large transcript can't deadlock.
@@ -78,7 +84,8 @@ pub fn calendar_refresh(now: chrono::DateTime<chrono::Utc>) -> ClaudeRun {
             fmt(now - chrono::Duration::hours(2)),
             fmt(now + chrono::Duration::hours(24)),
         ),
-        model: "haiku",
+        model: "haiku".into(),
+        args: vec![],
         allowed_tools: &[
             "mcp__claude_ai_Microsoft_365__outlook_calendar_search",
             "mcp__claude_ai_Microsoft_365__read_resource",
