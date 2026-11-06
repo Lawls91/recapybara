@@ -199,9 +199,13 @@ fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
 /// transcript" during the run (a manual import) is left as it is.
 fn attempt(dir: &Path, m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>, version: &impl Fn() -> Option<String>) -> io::Result<Meeting> {
     let url = m.transcript_url.clone().unwrap_or_default();
-    let (start, end) = (m.start.map(Into::into).unwrap_or(now), m.end.map(Into::into).unwrap_or(now));
+    // No end, no schedule to keep: fail closed rather than retry forever.
+    let end: DateTime<Utc> = m.end.map(Into::into).unwrap_or(now);
+    let start = m.start.map(Into::into).unwrap_or(end);
     let ver = version();
-    let outcome = if url.is_empty() {
+    let outcome = if m.end.is_none() {
+        Attempt::Invalid("meeting.json has no end".into())
+    } else if url.is_empty() {
         Attempt::Missed("the event has no meetingTranscriptUrl".into())
     } else {
         match run(&run_for(&url)) {
@@ -537,6 +541,14 @@ mod tests {
         };
         tick(&lib, &[e], end(), import, none, |_, _| {});
         assert_eq!((only(&lib).state, only(&lib).attempts), (State::TranscriptReady, 0));
+    }
+
+    #[test]
+    fn a_meeting_with_no_end_is_capture_failed_without_a_run() {
+        let lib = temp("noend");
+        library::create(&lib, &Meeting { state: State::AwaitingTranscript, next_attempt: Some(end().fixed_offset()), transcript_url: Some(URL.into()), ..Meeting::default() }).unwrap();
+        tick(&lib, &[], end(), |_| panic!("no run"), none, |_, _| {});
+        assert_eq!((only(&lib).state, only(&lib).next_attempt), (State::CaptureFailed, None));
     }
 
     #[test]

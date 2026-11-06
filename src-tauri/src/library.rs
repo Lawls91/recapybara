@@ -110,7 +110,7 @@ pub fn validate(name: &str, bytes: &[u8]) -> Result<(), String> {
 pub fn folder_name(start: DateTime<FixedOffset>, subject: &str) -> String {
     let safe: String = subject.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { '-' } else { c }).collect();
     // Windows drops trailing dots and spaces from folder names.
-    format!("{} {}", start.format("%Y-%m-%d %H%M"), safe.trim_end_matches(['.', ' ']))
+    format!("{} {}", start.format("%Y-%m-%d %H%M"), safe.trim_end_matches(['.', ' '])).trim_end().to_string()
 }
 
 /// The name itself, or the first free ` (n)` variant.
@@ -507,6 +507,7 @@ mod tests {
         let (src, lib) = (temp("src3"), temp("lib3"));
         let start = Local.with_ymd_and_hms(2026, 11, 5, 14, 30, 0).unwrap().fixed_offset();
         assert_eq!(folder_name(start, "Q&A: Orbit / filter?"), "2026-11-05 1430 Q&A- Orbit - filter-");
+        assert_eq!(folder_name(start, ""), "2026-11-05 1430", "no trailing space when there's no subject");
         let a = import_new(&lib, &source(&src, "Sprint review.vtt", FIXTURE.as_bytes())).unwrap();
         let b = import_new(&lib, &source(&src, "Sprint review.vtt", FIXTURE.as_bytes())).unwrap();
         assert_eq!((a.as_str(), b.as_str()), ("2026-11-05 1430 Sprint review", "2026-11-05 1430 Sprint review (2)"));
