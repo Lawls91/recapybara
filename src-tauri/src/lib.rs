@@ -213,6 +213,45 @@ fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
     }
 }
 
+/// Fetches every meeting that is due (D12): a folder for each cached event that just ended, then each due attempt,
+/// one at a time. A capture starts its summary (D15); a capture failure raises its toast (D29, D47).
+fn fetch_due(app: &AppHandle) {
+    let Ok(lib) = library_path(app) else { return };
+    let state = app.state::<AppState>();
+    let (runs, home, events) = (state.data_dir.join("runs"), state.home.clone(), state.calendar.events());
+    let program = claude::program();
+    let tick = std::panic::AssertUnwindSafe(|| {
+        fetch::tick(
+            &lib,
+            &events,
+            chrono::Utc::now(),
+            |r| claude::run(&program, &runs, &home, r),
+            || claude::version(&program),
+            |id| {
+                let _ = app.emit("meeting-changed", id);
+            },
+        )
+    });
+    let done = std::panic::catch_unwind(tick).unwrap_or_else(|_| {
+        eprintln!("fetch: the tick panicked");
+        vec![]
+    });
+    for (id, m) in done {
+        match m.state {
+            library::State::TranscriptReady => {
+                if let Err(e) = start_summary(app, &id) {
+                    eprintln!("summary not started for {id}: {e}");
+                }
+            }
+            library::State::CaptureFailed => {
+                let (click_app, click_id) = (app.clone(), id.clone());
+                platform::toast(&summary::toast_title(&m), fetch::CAPTURE_FAILED_BODY, move || open_from_toast(&click_app, click_id.clone()));
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The list's refresh button and the tray's Refresh calendar now (D47). Returns when the refresh has ended, or at
 /// once when one is already going.
 #[tauri::command]
@@ -320,10 +359,11 @@ pub fn run() {
             }
             let item = build_tray(app.handle(), logon)?;
             *app.state::<AppState>().logon_item.lock().unwrap() = Some(item);
-            // The calendar at start, then every 30 minutes (D9).
+            // The calendar at start, then every 30 minutes (D9); the fetches it makes due, and every retry (D12).
             let handle = app.handle().clone();
             std::thread::spawn(move || loop {
                 refresh_calendar_now(&handle, true);
+                fetch_due(&handle);
                 std::thread::sleep(calendar::TICK);
             });
             if first {

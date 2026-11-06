@@ -1,44 +1,8 @@
 import { $, $$, browser, expect } from "@wdio/globals";
-import { claudeRecords, invoke, refreshCalendar, scenario } from "../helpers.mjs";
+import { calendar, claudeRecords, event, hourFromNow, hhmm, invoke, M365, refreshCalendar, scenario } from "../helpers.mjs";
 
 // Ticket 07: the calendar refresh (D9). Synthetic events in the connector's shape (Research, Calendar data shape):
 // the search answers concatenated event objects plus a paging object, times as {dateTime, timeZone}.
-const M365 = "mcp__claude_ai_Microsoft_365__";
-const hourFromNow = (h) => {
-  const d = new Date(Date.now() + h * 3600e3);
-  d.setUTCMinutes(0, 0, 0);
-  return d;
-};
-const wall = (d) => ({ dateTime: `${d.toISOString().slice(0, 19)}.0000000`, timeZone: "UTC" });
-const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-const event = (n, subject, start) => ({
-  uri: `calendar:///events/E2E-SYNTH-${n}`,
-  id: `E2E-SYNTH-${n}`,
-  subject,
-  organizer: "robin.sample@example.com",
-  organizerName: "Robin Sample",
-  namedAttendees: [{ name: "Speaker A", address: "speaker.a@example.com" }],
-  start: wall(start),
-  end: wall(new Date(start.getTime() + 3600e3)),
-  isAllDay: false,
-  isCancelled: false,
-  recurrence: null,
-});
-const search = (events) => ({
-  tool_name: `${M365}outlook_calendar_search`,
-  tool_input: { query: "*", limit: 25 },
-  tool_response: [{ type: "text", text: events.map((e) => JSON.stringify(e)).join("") + JSON.stringify({ moreResults: false, totalResultCount: events.length }) }],
-});
-const read = (e, joinUrl) => ({
-  tool_name: `${M365}read_resource`,
-  tool_input: { uri: e.uri },
-  tool_response: [{ type: "text", text: JSON.stringify({ ...e, body: "<p>Synthetic</p>", onlineMeeting: joinUrl ? { joinUrl } : null }) }],
-});
-const calendar = (events, joinUrls, extra = {}) => ({
-  result: { type: "result", subtype: "success", is_error: false, result: "DONE" },
-  hooks: [search(events), ...events.map((e, i) => read(e, joinUrls[i]))],
-  ...extra,
-});
 const row = (e) => $(`.row[data-id="${e.uri}"]`);
 const argAfter = (argv, flag) => argv[argv.indexOf(flag) + 1];
 

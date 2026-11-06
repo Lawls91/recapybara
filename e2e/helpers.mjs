@@ -94,3 +94,46 @@ export const refreshCalendar = async () => {
   await browser.waitUntil(async () => !(await invoke("calendar_status")).refreshing, { timeout: 15000 });
   await invoke("refresh_calendar");
 };
+
+// Calendar refresh scenarios (D9): synthetic events in the connector's shape (Research, Calendar data shape): the
+// search answers concatenated event objects plus a paging object, times as {dateTime, timeZone}.
+export const M365 = "mcp__claude_ai_Microsoft_365__";
+export const hourFromNow = (h) => {
+  const d = new Date(Date.now() + h * 3600e3);
+  d.setUTCMinutes(0, 0, 0);
+  return d;
+};
+export const wall = (d) => ({ dateTime: `${d.toISOString().slice(0, 19)}.0000000`, timeZone: "UTC" });
+export const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/** Event `n`, an hour long unless `end` is given. */
+export const event = (n, subject, start, end = new Date(start.getTime() + 3600e3)) => ({
+  uri: `calendar:///events/E2E-SYNTH-${n}`,
+  id: `E2E-SYNTH-${n}`,
+  subject,
+  organizer: "robin.sample@example.com",
+  organizerName: "Robin Sample",
+  namedAttendees: [{ name: "Speaker A", address: "speaker.a@example.com" }],
+  start: wall(start),
+  end: wall(end),
+  isAllDay: false,
+  isCancelled: false,
+  recurrence: null,
+});
+/** The event's meetingTranscriptUrl, in the connector's shape. */
+export const transcriptUrl = (e) =>
+  `meeting-transcript:///events/${Buffer.from(`https://teams.example/j/${e.id}`).toString("base64url")}?start=${e.start.dateTime}Z&end=${e.end.dateTime}Z`;
+const search = (events) => ({
+  tool_name: `${M365}outlook_calendar_search`,
+  tool_input: { query: "*", limit: 25 },
+  tool_response: [{ type: "text", text: events.map((e) => JSON.stringify(e)).join("") + JSON.stringify({ moreResults: false, totalResultCount: events.length }) }],
+});
+const read = (e, joinUrl) => ({
+  tool_name: `${M365}read_resource`,
+  tool_input: { uri: e.uri },
+  tool_response: [{ type: "text", text: JSON.stringify({ ...e, body: "<p>Synthetic</p>", onlineMeeting: joinUrl ? { joinUrl } : null, meetingTranscriptUrl: transcriptUrl(e) }) }],
+});
+export const calendar = (events, joinUrls, extra = {}) => ({
+  result: { type: "result", subtype: "success", is_error: false, result: "DONE" },
+  hooks: [search(events), ...events.map((e, i) => read(e, joinUrls[i]))],
+  ...extra,
+});
