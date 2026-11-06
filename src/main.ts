@@ -223,10 +223,18 @@ $("import-button").onclick = () => chooseFile(null);
 $("import-error-close").onclick = () => ($("import-error").hidden = true);
 
 listen<string>("meeting-changed", () => loadMeetings());
-listen<string>("open-meeting", (e) => {
+// A clicked toast parks its meeting in the backend; take it on the event and on any later focus, since a
+// minimised window's page may miss the event.
+async function openPending() {
+  const id = await invoke<string | null>("take_pending_meeting");
+  if (!id) return;
   show("list");
-  open(e.payload);
-});
+  await loadMeetings();
+  await open(id);
+}
+listen("open-meeting", openPending);
+window.addEventListener("focus", openPending);
+document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && openPending());
 listen<string>("library-changed", async (e) => {
   if (selected !== e.payload) tab = "summary"; // a newly imported meeting opens like a clicked one
   selected = e.payload;

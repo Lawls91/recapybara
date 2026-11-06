@@ -26,6 +26,8 @@ struct AppState {
     home: PathBuf,
     settings: Mutex<Settings>,
     logon_item: Mutex<Option<CheckMenuItem<Wry>>>,
+    /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
+    pending_open: Mutex<Option<String>>,
 }
 
 /// Env override, else the real folder (D37).
@@ -35,10 +37,26 @@ pub fn dir_from_env(var: &str, real: PathBuf) -> PathBuf {
 
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
         let _ = w.show();
+        let _ = w.unminimize();
         let _ = w.set_focus();
     }
+}
+
+/// A toast click (D29): runs on a WinRT thread, so the window work goes to the main thread. The meeting id is
+/// parked for the page, which takes it on this event or whenever it next gains focus.
+fn open_from_toast(app: &AppHandle, id: String) {
+    *app.state::<AppState>().pending_open.lock().unwrap() = Some(id);
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        show_main(&handle);
+        let _ = handle.emit("open-meeting", ());
+    });
+}
+
+#[tauri::command]
+fn take_pending_meeting(state: State<AppState>) -> Option<String> {
+    state.pending_open.lock().unwrap().take()
 }
 
 fn apply_settings(app: &AppHandle, new: Settings) -> Result<(), String> {
@@ -137,10 +155,7 @@ fn start_summary(app: &AppHandle, id: &str) -> Result<(), String> {
         };
         let _ = app.emit("meeting-changed", &id);
         let (click_app, click_id) = (app.clone(), id.clone());
-        platform::toast(&summary::toast_title(&m), &body, move || {
-            show_main(&click_app);
-            let _ = click_app.emit("open-meeting", &click_id);
-        });
+        platform::toast(&summary::toast_title(&m), &body, move || open_from_toast(&click_app, click_id.clone()));
     });
     Ok(())
 }
@@ -257,7 +272,7 @@ pub fn run() {
                 library::recover(std::path::Path::new(lib));
             }
             let logon = s.start_at_logon;
-            app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None) });
+            app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None) });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&app.package_info().name)?;
@@ -292,7 +307,8 @@ pub fn run() {
             import_transcript,
             open_folder,
             summarise,
-            get_summary
+            get_summary,
+            take_pending_meeting
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
