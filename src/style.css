@@ -1,0 +1,40 @@
+body {
+  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  margin: 0;
+  padding: 16px 24px;
+  background: #f4f5f8;
+  color: #1b1d22;
+}
+.list-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.list-header h2,
+.list-header h1 {
+  flex: 1;
+  margin: 0;
+}
+.banner {
+  background: #e9e4fb;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+section {
+  margin: 16px 0;
+}
+section > label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid #4556c4;
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Meeting capture</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main id="list-view">
+      <header class="list-header">
+        <h2>Meetings</h2>
+        <button id="settings-button" title="Settings" aria-label="Settings">&#x2699;</button>
+      </header>
+      <p class="empty">No meetings yet.</p>
+    </main>
+
+    <main id="settings-view" hidden>
+      <header class="list-header">
+        <button id="settings-back" aria-label="Back">&larr;</button>
+        <h1>Settings</h1>
+      </header>
+      <p id="data-banner" class="banner">Meeting data is stored in your library folder and sent only to Claude, through your own claude.ai account.</p>
+      <section>
+        <label>Library folder</label>
+        <div class="row">
+          <span id="library-path"></span>
+          <button id="change-folder">Change folder</button>
+        </div>
+      </section>
+      <section>
+        <label for="summary-model">Summary model</label>
+        <select id="summary-model">
+          <option value="opus">opus</option>
+          <option value="sonnet">sonnet</option>
+          <option value="haiku">haiku</option>
+        </select>
+      </section>
+      <section>
+        <label><input type="checkbox" id="start-at-logon" /> Start at logon</label>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
