@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo llvm-cov:*)",
+      "Bash(npm install:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx wdio:*)",
+      "Bash(npx tauri:*)",
+      "Bash(npm run tauri:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git fetch:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)",
+      "PowerShell(cargo build:*)",
+      "PowerShell(cargo test:*)",
+      "PowerShell(cargo clippy:*)",
+      "PowerShell(cargo fmt:*)",
+      "PowerShell(cargo llvm-cov:*)",
+      "PowerShell(npm install:*)",
+      "PowerShell(npm ci:*)",
+      "PowerShell(npm run:*)",
+      "PowerShell(npm test:*)",
+      "PowerShell(npx vitest:*)",
+      "PowerShell(npx wdio:*)",
+      "PowerShell(npx tauri:*)"
+    ]
+  }
+}
