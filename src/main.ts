@@ -341,7 +341,8 @@ function openPeek(chip: HTMLElement) {
   const c = citeIndex[Number(chip.dataset.cite)];
   const turn = c.turn !== null ? shown.transcript?.turns[c.turn] : undefined;
   const reason = peekReason(c);
-  const head = `Transcript at ${turn?.at ?? c.at}`;
+  // A verified quote shows its whole turn; an unverified one shows the cue it was checked against.
+  const head = `Transcript at ${(!reason && turn?.at) || c.cueAt || c.at}`;
   const line = (at: string, who: string, html: string) =>
     `<p class="turn"><span class="th"><span class="tm">[${at}]</span> <b class="sp">${esc(who)}</b></span><span class="tx">${html}</span></p>`;
   const body =

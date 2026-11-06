@@ -154,6 +154,7 @@ describe("summarise with checked citations", () => {
     await chip("? 00:31:12").click();
     await expect($("#peek-claim")).toHaveText(expect.stringContaining("ship it on Friday"));
     await expect($("#peek-reason")).toHaveText("Quoted words not found in this cue");
+    await expect($("#peek-title")).toHaveText("Transcript at 00:31:10"); // the cue it was checked against
     await expect($("#peek-body .tx")).toHaveText("point 466 on the policy editor needs a demo before release");
     await $("#peek-close").click(); // the sheet covers the lower chips
     await chip("? 00:45:00").click();
