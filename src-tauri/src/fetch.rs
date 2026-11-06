@@ -62,17 +62,28 @@ fn utc(s: &str) -> Option<DateTime<Utc>> {
         .or_else(|| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f").ok().map(|n| n.and_utc()))
 }
 
-/// `code` standing alone in `text`, not inside a longer number such as "1,403".
-fn has_code(text: &str, code: &str) -> bool {
-    let b = text.as_bytes();
-    text.match_indices(code).any(|(i, _)| {
-        let around = |j: Option<usize>| j.and_then(|j| b.get(j)).is_some_and(|c| c.is_ascii_digit() || *c == b',');
-        !around(i.checked_sub(1)) && !around(Some(i + code.len()))
-    })
-}
+/// A 403 or 3003 in one of these forms, as whole words. Anything else is not "not reachable", so it retries (fail
+/// safe): "403ms", "1.403 s" or "a403b" never end the retries.
+const FORBIDDEN: &[&str] = &[
+    "status code 403",
+    "status 403",
+    "http 403",
+    "403 forbidden",
+    r#""code":"forbidden""#,
+    r#""code": "forbidden""#,
+    "mcp error 3003",
+    "error 3003",
+];
 
 fn forbidden(text: &str) -> bool {
-    has_code(text, "403") || has_code(text, "3003") || text.to_ascii_lowercase().contains("forbidden")
+    let t = text.to_ascii_lowercase();
+    let wordy = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric());
+    FORBIDDEN.iter().any(|f| t.match_indices(f).any(|(i, _)| !wordy(t[..i].chars().next_back()) && !wordy(t[i + f.len()..].chars().next())))
+}
+
+/// A value as text: a string as itself, anything else as JSON.
+fn text(v: &Value) -> String {
+    v.as_str().map(Into::into).unwrap_or_else(|| v.to_string())
 }
 
 /// The attempt's verdict from the run's captured payloads (D13, D14). Only a read whose `tool_input.uri` equals
@@ -83,7 +94,7 @@ pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<
         return Attempt::Missed("no read of the transcript URL was captured".into());
     };
     if p["hook_event_name"] == "PostToolUseFailure" {
-        return if forbidden(&p["error"].to_string()) { Attempt::Unreachable } else { Attempt::Missed(format!("the read failed: {}", p["error"])) };
+        return if forbidden(&text(&p["error"])) { Attempt::Unreachable } else { Attempt::Missed(format!("the read failed: {}", p["error"])) };
     }
     let raw = p["tool_response"].to_string();
     if raw.contains("exceeds maximum allowed tokens") {
@@ -92,7 +103,8 @@ pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<
     let answers = summary::answers(&p["tool_response"]);
     // Anything but the transcript body: a 403 or 3003 named anywhere in it is "not reachable", whatever its shape.
     let Some(body) = answers.iter().find(|a| a["meeting"].is_object() && a["transcripts"].is_array()) else {
-        return if forbidden(&raw) {
+        return if forbidden(&answers.iter().map(text).collect::<Vec<_>>().join("
+")) {
             Attempt::Unreachable
         } else if answers.iter().any(summary::is_error) {
             Attempt::Missed("the read answered an error".into())
@@ -333,6 +345,13 @@ mod tests {
         assert_eq!(judged(&[failure("HTTP 403")]), Attempt::Unreachable);
         assert!(matches!(judged(&[failure("MCP error -32001: timed out after 1,403 ms")]), Attempt::Missed(_)));
         assert!(matches!(judged(&[read(URL, blocks("Error: synthetic transient failure"))]), Attempt::Missed(_)));
+        assert_eq!(judged(&[read(URL, blocks("Error: 403 Forbidden"))]), Attempt::Unreachable);
+        assert_eq!(judged(&[read(URL, json!(r#"{"error":{"code": "Forbidden"}}"#))]), Attempt::Unreachable, "plain-string shape");
+        // Numbers that merely contain 403 or 3003 retry.
+        for near in ["Error: timed out after 403ms", "Error: took 1.403 s", "Error: id a403b", "Error: status 4030", "Error: code 3003"] {
+            assert!(matches!(judged(&[read(URL, blocks(near))]), Attempt::Missed(_)), "{near}");
+            assert!(matches!(judged(&[failure(near)]), Attempt::Missed(_)), "{near} via the failure hook");
+        }
     }
 
     #[test]
