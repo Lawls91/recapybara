@@ -38,6 +38,14 @@ per-user MSI with the WiX 5.0.2 dotnet global tool, which it installs from NuGet
   (`%APPDATA%\com.lawls91.meetingcapture`) and the library stay.
 - The frozen values in `installer/wix/Package.wxs` (D50) are pinned by a test in `src-tauri/src/lib.rs`.
 
+## Known limitations
+
+- Clicking a "Summary ready" or "Summary failed" toast opens its meeting only while the window is visible or
+  hidden to the tray. With the window minimised, or from Notification Center after the banner has gone, the
+  click does nothing useful: that needs protocol (or COM) activation, a separate follow-up.
+- A stale Run value: turn start at logon off, upgrade, turn it back on, then uninstall, and a dead
+  `com.lawls91.meetingcapture` Run value is left behind (slice 01b).
+
 ## Test
 
 `npm run check` runs everything and exits non-zero on any failure: `cargo llvm-cov` over the workspace
