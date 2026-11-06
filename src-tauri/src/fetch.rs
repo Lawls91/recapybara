@@ -73,6 +73,13 @@ const FORBIDDEN: &[&str] = &[
     r#""code": "forbidden""#,
     "mcp error 3003",
     "error 3003",
+    // The one real 403 on record (Research, Transcript access by meeting type: a shared-mailbox organiser):
+    // "403 3003: User does not have access to lookup meeting".
+    "403 3003",
+    "3003:",
+    "user does not have access",
+    r#""code":"3003""#,
+    r#""code": "3003""#,
 ];
 
 fn forbidden(text: &str) -> bool {
@@ -350,6 +357,12 @@ mod tests {
         assert!(matches!(judged(&[failure("MCP error -32001: timed out after 1,403 ms")]), Attempt::Missed(_)));
         assert!(matches!(judged(&[read(URL, blocks("Error: synthetic transient failure"))]), Attempt::Missed(_)));
         assert_eq!(judged(&[read(URL, blocks("Error: 403 Forbidden"))]), Attempt::Unreachable);
+        // Recorded verbatim in Research (a shared mailbox), through either hook.
+        const RECORDED: &str = "403 3003: User does not have access to lookup meeting";
+        assert_eq!(judged(&[read(URL, blocks(RECORDED))]), Attempt::Unreachable);
+        assert_eq!(judged(&[failure(RECORDED)]), Attempt::Unreachable);
+        assert_eq!(judged(&[read(URL, blocks(r#"{"error":{"code":"3003","message":"synthetic"}}"#))]), Attempt::Unreachable);
+        assert_eq!(judged(&[failure(r#"{"code": "3003"}"#)]), Attempt::Unreachable);
         assert_eq!(judged(&[read(URL, json!(r#"{"error":{"code": "Forbidden"}}"#))]), Attempt::Unreachable, "plain-string shape");
         // Numbers that merely contain 403 or 3003 retry.
         for near in ["Error: timed out after 403ms", "Error: took 1.403 s", "Error: id a403b", "Error: status 4030", "Error: code 3003"] {
