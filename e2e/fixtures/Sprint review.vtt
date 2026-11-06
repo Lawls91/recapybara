@@ -1,0 +1,13 @@
+WEBVTT
+
+1
+00:00:03.000 --> 00:00:08.500
+<v Speaker A>We could ship the retry rule first.</v>
+
+2
+00:00:09.000 --> 00:00:14.000
+<v Speaker A>Then the filter chain stays as it is.</v>
+
+3
+00:00:15.000 --> 00:00:21.000
+<v Speaker B>Agreed, and we revisit the hotfix next sprint.</v>

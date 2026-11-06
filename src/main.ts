@@ -1,16 +1,47 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { libraryLabel, type Settings } from "./settings";
+import {
+  dayGroups,
+  menuFor,
+  needsTranscript,
+  STATE_CARDS,
+  STATES,
+  summaryAction,
+  type Meeting,
+} from "./meetings";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 let current: Settings;
+let meetings: Meeting[] = [];
+let selected: string | null = null;
+let tab: "summary" | "transcript" | "notes" = "summary";
+let refusals: string[] = [];
+let menuMeeting: Meeting | null = null;
 
-async function load() {
+// ---------- settings and appearance (D46) ----------
+
+function applyTheme(appearance: string) {
+  const root = document.documentElement;
+  if (appearance === "light" || appearance === "dark") root.dataset.theme = appearance;
+  else delete root.dataset.theme;
+  // Native title bar follows too; null hands it back to Windows.
+  getCurrentWindow()
+    .setTheme(appearance === "light" || appearance === "dark" ? appearance : null)
+    .catch(() => {});
+}
+
+async function loadSettings() {
   current = await invoke<Settings>("get_settings");
+  applyTheme(current.appearance);
   $("library-path").textContent = libraryLabel(current.libraryPath);
   $<HTMLSelectElement>("summary-model").value = current.summaryModel;
   $<HTMLInputElement>("start-at-logon").checked = current.startAtLogon;
+  $<HTMLSelectElement>("appearance").value = current.appearance;
 }
 
 async function save(change: Partial<Settings>) {
@@ -22,17 +53,305 @@ function show(view: "list" | "settings") {
   $("settings-view").hidden = view !== "settings";
 }
 
+// ---------- list (D40, D41) ----------
+
+const time = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+const span = (m: Meeting) => [time(m.start), time(m.end)].filter(Boolean).join("–");
+
+function mark(m: Meeting) {
+  const { family, label } = STATES[m.state];
+  return `<span class="mark f-${family}"><i class="dot b-${family}${family === "up" ? " ring" : ""}${family === "live" ? " pulse" : ""}"></i><span class="lbl">${label}</span></span>`;
+}
+
+async function loadMeetings() {
+  meetings = current.libraryPath ? await invoke<Meeting[]>("list_meetings") : [];
+  if (selected && !meetings.some((m) => m.id === selected)) selected = null;
+  renderList();
+  await renderDetail();
+}
+
+function renderList() {
+  const list = $("meeting-list");
+  if (!meetings.length) {
+    list.innerHTML = `<div class="empty"><div class="emt">No meetings yet</div><p class="ems">Import a Teams transcript, and meetings from your calendar will show here as they happen.</p></div>`;
+    return;
+  }
+  list.innerHTML = dayGroups(meetings, new Date())
+    .map(
+      (g) =>
+        `<div class="gh">${esc(g.label)}${g.date ? ` <span>${esc(g.date)}</span>` : ""}</div>` +
+        g.items
+          .map((m) => {
+            const second = [span(m), m.source === "import" ? "imported" : (m.organiser ?? "")].filter(Boolean).map(esc).join(" · ");
+            return `<div class="row f-${STATES[m.state].family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
+              <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
+              ${mark(m)}
+              <button class="kebab" tabindex="-1" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button>
+            </div>`;
+          })
+          .join(""),
+    )
+    .join("");
+  if (!selected) list.querySelector<HTMLElement>(".row")?.setAttribute("tabindex", "0");
+}
+
+const byId = (id: string | undefined) => meetings.find((m) => m.id === id);
+const rowOf = (e: Event) => (e.target as HTMLElement).closest<HTMLElement>(".row");
+
+async function open(id: string) {
+  if (selected !== id) tab = "summary";
+  selected = id;
+  refusals = [];
+  renderList();
+  await renderDetail();
+}
+
+$("meeting-list").addEventListener("click", (e) => {
+  const row = rowOf(e);
+  if (!row) return;
+  if ((e.target as HTMLElement).closest(".kebab")) {
+    const r = (e.target as HTMLElement).closest(".kebab")!.getBoundingClientRect();
+    openMenu(byId(row.dataset.id)!, r.right - 210, r.bottom + 4);
+  } else open(row.dataset.id!);
+});
+$("meeting-list").addEventListener("contextmenu", (e) => {
+  const row = rowOf(e);
+  if (!row) return;
+  e.preventDefault();
+  openMenu(byId(row.dataset.id)!, e.clientX, e.clientY);
+});
+// Keys act on the keyboard-cursor row only, so they do nothing when no row has focus (D42).
+$("meeting-list").addEventListener("keydown", (e) => {
+  const row = rowOf(e);
+  if (!row) return;
+  const m = byId(row.dataset.id)!;
+  if (e.key === "Enter") open(m.id);
+  else if (e.key === "Delete") askDelete(m);
+  else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")];
+    const next = rows[rows.indexOf(row) + (e.key === "ArrowDown" ? 1 : -1)];
+    if (next) {
+      row.tabIndex = -1;
+      next.tabIndex = 0;
+      next.focus();
+    }
+  } else return;
+  e.preventDefault();
+});
+
+// ---------- row menu (D42, D49) ----------
+
+function openMenu(m: Meeting, x: number, y: number) {
+  menuMeeting = m;
+  const menu = $("row-menu");
+  menu.innerHTML = menuFor(m)
+    .map(
+      (i) =>
+        (i.sep ? `<div class="msep"></div>` : "") +
+        `<button class="mi${i.bold ? " pri" : ""}${i.danger ? " dng" : ""}${i.later ? " dis" : ""}" id="menu-${i.id}" role="menuitem"${i.later ? " disabled" : ""}>
+          <i class="ic">${i.icon}</i><span>${i.label}</span><span class="k">${i.later ? "Later" : (i.key ?? "")}</span></button>`,
+    )
+    .join("");
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
+  menu.querySelector<HTMLElement>(".mi")?.focus();
+}
+
+function closeMenu() {
+  $("row-menu").hidden = true;
+}
+
+$("row-menu").addEventListener("click", async (e) => {
+  const item = (e.target as HTMLElement).closest<HTMLButtonElement>(".mi");
+  const m = menuMeeting;
+  if (!item || !m) return;
+  closeMenu();
+  const action = item.id.replace("menu-", "");
+  if (action === "open") await open(m.id);
+  else if (action === "import" || action === "replace") await chooseFile(m.id);
+  else if (action === "folder") await invoke("open_folder", { id: m.id });
+  else if (action === "delete") askDelete(m);
+  // ponytail: Skip, Exclude series, Show all in this series are ticket 10; Run summary is ticket 04.
+});
+document.addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement).closest("#row-menu, .kebab")) closeMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMenu();
+});
+
+function askDelete(m: Meeting) {
+  closeMenu();
+  $("confirm-title").textContent = `Delete “${m.subject || m.id}”?`;
+  $<HTMLDialogElement>("confirm").showModal();
+}
+$("confirm-cancel").onclick = () => $<HTMLDialogElement>("confirm").close();
+// ponytail: deleting the folder is ticket 17; until then confirming only closes the prompt.
+$("confirm-delete").onclick = () => $<HTMLDialogElement>("confirm").close();
+
+// ---------- import (D15, D44) ----------
+
+async function chooseFile(id: string | null) {
+  const path = await invoke<string | null>("pick_transcript_file");
+  if (path) await importFiles([path], id);
+}
+
+async function importFiles(paths: string[], id: string | null) {
+  refusals = [];
+  $("import-error").hidden = true;
+  // Outcomes arrive as library-changed / import-refused events, which also cover a bypassed dialog.
+  for (const path of paths) await invoke("import_transcript", { path, id }).catch(() => {});
+}
+
+$("import-button").onclick = () => chooseFile(null);
+
+listen<string>("library-changed", async (e) => {
+  selected = e.payload;
+  refusals = [];
+  await loadMeetings();
+});
+listen<{ id: string | null; message: string }>("import-refused", (e) => {
+  if (e.payload.id) {
+    refusals.push(e.payload.message);
+    if (e.payload.id === selected) renderDetail();
+  } else {
+    $("import-error").textContent = e.payload.message;
+    $("import-error").hidden = false;
+  }
+});
+
+// OS drag-drop: only the attach strip is a drop target; the list is not (D15).
+function overStrip(p: { x: number; y: number }) {
+  const strip = document.getElementById("attach-strip");
+  if (!strip) return false;
+  const r = strip.getBoundingClientRect();
+  const [x, y] = [p.x / devicePixelRatio, p.y / devicePixelRatio];
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+getCurrentWebview().onDragDropEvent((e) => {
+  const strip = document.getElementById("attach-strip");
+  const p = e.payload;
+  if (p.type === "over") strip?.classList.toggle("drag", overStrip(p.position));
+  else if (p.type === "drop") {
+    strip?.classList.remove("drag");
+    if (selected && overStrip(p.position)) importFiles(p.paths, selected);
+  } else strip?.classList.remove("drag");
+});
+
+// ---------- detail pane (D42, D44, D49) ----------
+
+interface Transcript {
+  turns: { at: string; speaker: string; text: string }[];
+  minutes: number;
+}
+
+function attachStrip() {
+  if (!refusals.length) {
+    return `<div id="attach-strip" class="strip"><i class="ic big">&#xE896;</i>
+      <div class="st"><b>Attach the transcript</b><span>Download the .vtt from this meeting's Teams recap and drop it here.</span></div>
+      <button id="attach-choose" class="btn">Choose file</button></div>`;
+  }
+  const n = refusals.length;
+  return `<div id="attach-strip" class="strip err"><i class="ic big">&#xE7BA;</i>
+    <div class="st"><b>${n === 1 ? "The file wasn’t attached" : `${n} files weren’t attached`}</b>
+    ${refusals.map((r) => `<span class="refusal">${esc(r)}</span>`).join("")}</div>
+    <button id="attach-choose" class="btn">Choose file</button></div>`;
+}
+
+function summaryBody(m: Meeting) {
+  if (needsTranscript(m.state)) return attachStrip();
+  if (m.state === "summarising")
+    return `<div class="card"><h5><i class="spin"></i>Summarising</h5><p>Claude is writing the summary. It shows here when it’s checked.</p></div>`;
+  if (m.state === "summaryFailed")
+    return `<div class="card err"><h5>Summary failed</h5><p>Claude returned no valid summary.</p><button class="btn pri" id="summary-action">${summaryAction(m)}</button></div>`;
+  return `<div class="card"><h5>No summary yet</h5><p>The transcript is ready. Run a summary to get decisions, actions and open questions with checked citations.</p><button class="btn pri" id="summary-action">${summaryAction(m)}</button></div>`;
+}
+
+function transcriptBody(t: Transcript | null) {
+  if (!t) return `<p class="muted">No transcript yet.</p>`;
+  return `<div id="transcript" class="transcript">${t.turns
+    .map(
+      (u) =>
+        `<p class="turn"><span class="th"><span class="tm">[${u.at}]</span> <b class="sp">${esc(u.speaker)}</b></span><span class="tx">${esc(u.text)}</span></p>`,
+    )
+    .join("")}</div>`;
+}
+
+async function renderDetail() {
+  const det = $("detail");
+  const m = byId(selected ?? undefined);
+  if (!m) {
+    det.innerHTML = `<div class="detempty">${meetings.length ? "Choose a meeting to see it here." : "Summaries you capture appear here."}</div>`;
+    return;
+  }
+  const t = m.hasTranscript ? await invoke<Transcript>("get_transcript", { id: m.id }) : null;
+  const d = m.start ? new Date(m.start) : null;
+  const when = d
+    ? `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).replace(",", "")}, ${span(m)}`
+    : "";
+  const meta = [when, t ? `${t.minutes} min transcript` : "", mark(m)].filter(Boolean).join(`<span class="sep">·</span>`);
+  const people = [m.organiser ? `${m.organiser} (organiser)` : "", ...m.attendees].filter(Boolean).map(esc).join(", ");
+  const head = `<div class="ttlrow"><h2 id="detail-title" class="ttl">${esc(m.subject || m.id)}</h2>
+      <button id="detail-menu" class="kebab" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button></div>
+    <div class="dmeta" id="detail-meta">${meta}</div>${people ? `<div class="att">${people}</div>` : ""}`;
+
+  const card = STATE_CARDS[m.state];
+  if (card) {
+    det.innerHTML = `${head}<div id="state-card" class="card state">
+      <h5>${mark(m)}</h5><p id="state-sentence">${card}</p>
+      ${m.state === "skipped" ? `<button id="unskip" class="btn">Unskip</button>` : ""}</div>`;
+  } else {
+    const sumStatus =
+      m.state === "summarising" ? `<i class="spin"></i>` : m.state === "summaryFailed" ? `<span class="tq err">Failed</span>` : m.hasSummary ? "" : `<span class="tq">Not run</span>`;
+    const tabs = [
+      ["summary", "Summary", sumStatus],
+      ["transcript", "Transcript", `<span class="tq">${t ? `${t.minutes} min` : "None"}</span>`],
+      ["notes", "My notes", ""],
+    ]
+      .map(([id, label, st]) => `<button class="tab${tab === id ? " on" : ""}" id="tab-${id}" data-tab="${id}" role="tab">${label}${st}</button>`)
+      .join("");
+    const body = tab === "summary" ? summaryBody(m) : tab === "transcript" ? transcriptBody(t) : `<p class="muted">No notes yet.</p>`;
+    det.innerHTML = `${head}<div class="tabs" role="tablist">${tabs}</div><div class="body" id="tab-body">${body}</div>`;
+  }
+  det.querySelectorAll<HTMLElement>(".tab").forEach(
+    (b) =>
+      (b.onclick = () => {
+        tab = b.dataset.tab as typeof tab;
+        renderDetail();
+      }),
+  );
+  const choose = document.getElementById("attach-choose");
+  if (choose) choose.onclick = () => chooseFile(m.id);
+  $("detail-menu").onclick = (e) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    openMenu(m, r.right - 210, r.bottom + 4);
+  };
+}
+
+// ---------- wiring ----------
+
 $("settings-button").onclick = () => show("settings");
 $("settings-back").onclick = () => show("list");
 $("change-folder").onclick = async () => {
   const picked = await invoke<string | null>("pick_library_folder");
   if (picked) await save({ libraryPath: picked });
 };
-$<HTMLSelectElement>("summary-model").onchange = (e) =>
-  save({ summaryModel: (e.target as HTMLSelectElement).value });
-$<HTMLInputElement>("start-at-logon").onchange = (e) =>
-  save({ startAtLogon: (e.target as HTMLInputElement).checked });
+$<HTMLSelectElement>("summary-model").onchange = (e) => save({ summaryModel: (e.target as HTMLSelectElement).value });
+$<HTMLInputElement>("start-at-logon").onchange = (e) => save({ startAtLogon: (e.target as HTMLInputElement).checked });
+$<HTMLSelectElement>("appearance").onchange = (e) => save({ appearance: (e.target as HTMLSelectElement).value });
+$("refresh-button").onclick = async () => {
+  $("calendar-status").textContent = "Refreshing calendar…";
+  await invoke("refresh_calendar").catch(() => {});
+  // ponytail: the calendar cache and its status wording are ticket 07.
+  $("calendar-status").textContent = "Calendar not loaded";
+};
 
-listen("settings-changed", load);
+listen("settings-changed", async () => {
+  await loadSettings();
+  await loadMeetings();
+});
 listen("open-settings", () => show("settings"));
-load();
+loadSettings().then(loadMeetings);

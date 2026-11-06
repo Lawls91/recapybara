@@ -11,6 +11,8 @@ pub struct Settings {
     pub summary_model: String,
     pub start_at_logon: bool,
     pub excluded_series: Vec<String>,
+    /// `system`, `light` or `dark` (D46).
+    pub appearance: String,
 }
 
 impl Default for Settings {
@@ -20,6 +22,7 @@ impl Default for Settings {
             summary_model: "opus".into(),
             start_at_logon: true,
             excluded_series: vec![],
+            appearance: "system".into(),
         }
     }
 }

@@ -9,6 +9,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
 
 pub mod claude;
+pub mod library;
 mod platform;
 pub mod settings;
 
@@ -66,6 +67,50 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
 #[tauri::command]
 async fn pick_library_folder(app: AppHandle) -> Option<String> {
     app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
+}
+
+fn library_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let lib = app.state::<AppState>().settings.lock().unwrap().library_path.clone();
+    lib.map(PathBuf::from).ok_or_else(|| "Choose a library folder in Settings first.".into())
+}
+
+#[tauri::command]
+fn list_meetings(app: AppHandle) -> Result<Vec<library::Listed>, String> {
+    Ok(library::list(&library_path(&app)?))
+}
+
+#[tauri::command]
+fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, String> {
+    let dir = library::meeting_dir(&library_path(&app)?, &id)?;
+    let vtt = std::fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
+    Ok(library::transcript(&vtt))
+}
+
+#[tauri::command]
+async fn pick_transcript_file(app: AppHandle) -> Option<String> {
+    app.dialog().file().add_filter("Teams transcript", &["vtt"]).blocking_pick_file().map(|p| p.to_string())
+}
+
+/// Import (`id` none: the list's Import transcript) or attach (`id`: that meeting's strip).
+/// The page learns the outcome from events, so a bypassed dialog renders the same as a real one.
+#[tauri::command]
+fn import_transcript(app: AppHandle, path: String, id: Option<String>) -> Result<String, String> {
+    let result = library_path(&app).and_then(|lib| match &id {
+        Some(id) => library::attach(&lib, id, std::path::Path::new(&path)).map(|_| id.clone()),
+        None => library::import_new(&lib, std::path::Path::new(&path)),
+    });
+    match &result {
+        Ok(done) => app.emit("library-changed", done),
+        Err(message) => app.emit("import-refused", serde_json::json!({ "id": id, "message": message })),
+    }
+    .map_err(|e| e.to_string())?;
+    result
+}
+
+#[tauri::command]
+fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
+    let dir = library::meeting_dir(&library_path(&app)?, &id)?;
+    std::process::Command::new("explorer").arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -183,7 +228,17 @@ pub fn run() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_settings, save_settings, pick_library_folder, refresh_calendar])
+        .invoke_handler(tauri::generate_handler![
+            get_settings,
+            save_settings,
+            pick_library_folder,
+            refresh_calendar,
+            list_meetings,
+            get_transcript,
+            pick_transcript_file,
+            import_transcript,
+            open_folder
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

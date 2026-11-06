@@ -3,6 +3,7 @@ export interface Settings {
   summaryModel: string;
   startAtLogon: boolean;
   excludedSeries: string[];
+  appearance: string;
 }
 
 export function libraryLabel(path: string | null): string {

@@ -2,42 +2,90 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/tokens.css" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main id="list-view">
-      <header class="list-header">
-        <h2>Meetings</h2>
-        <button id="settings-button" title="Settings" aria-label="Settings">&#x2699;</button>
-      </header>
-      <p class="empty">No meetings yet.</p>
-    </main>
-
-    <main id="settings-view" hidden>
-      <header class="list-header">
-        <button id="settings-back" aria-label="Back">&larr;</button>
-        <h1>Settings</h1>
-      </header>
-      <p id="data-banner" class="banner">Meeting data is stored in your library folder and sent only to Claude, through your own claude.ai account.</p>
-      <section>
-        <label>Library folder</label>
-        <div class="row">
-          <span id="library-path"></span>
-          <button id="change-folder">Change folder</button>
+    <div id="list-view" class="frame">
+      <aside class="col">
+        <div class="colhd">
+          <label class="search">
+            <i class="ic">&#xE721;</i>
+            <input id="search" placeholder="Search meetings" aria-label="Search meetings" />
+          </label>
+          <button id="import-button" class="ib" title="Import transcript" aria-label="Import transcript"><i class="ic">&#xE896;</i></button>
+          <button id="settings-button" class="ib" title="Settings" aria-label="Settings"><i class="ic">&#xE713;</i></button>
         </div>
-      </section>
-      <section>
-        <label for="summary-model">Summary model</label>
-        <select id="summary-model">
-          <option value="opus">opus</option>
-          <option value="sonnet">sonnet</option>
-          <option value="haiku">haiku</option>
-        </select>
-      </section>
-      <section>
-        <label><input type="checkbox" id="start-at-logon" /> Start at logon</label>
-      </section>
-    </main>
+        <div class="status">
+          <span id="calendar-status">Calendar not loaded</span>
+          <button id="refresh-button" class="ib sm" title="Refresh calendar" aria-label="Refresh calendar"><i class="ic">&#xE72C;</i></button>
+        </div>
+        <p id="import-error" class="import-error" hidden></p>
+        <div id="meeting-list" class="list" role="listbox" aria-label="Meetings"></div>
+      </aside>
+      <div class="detwrap">
+        <section id="detail" class="det"></section>
+      </div>
+    </div>
+
+    <div id="settings-view" class="frame settings" hidden>
+      <div class="det">
+        <div class="set">
+          <button id="settings-back" class="lnk"><i class="ic">&#xE72B;</i> Meetings</button>
+          <h1>Settings</h1>
+          <p class="banner" id="data-banner-row"><i class="ic">&#xE72E;</i><span id="data-banner">Meeting data is stored in your library folder and sent only to Claude, through your own claude.ai account.</span></p>
+          <section>
+            <h3>Library folder</h3>
+            <p class="desc">Meetings are saved here as files.</p>
+            <div class="fieldrow">
+              <span id="library-path" class="field"></span>
+              <button id="change-folder" class="btn">Change folder</button>
+            </div>
+          </section>
+          <section>
+            <h3><label for="summary-model">Summary model</label></h3>
+            <p class="desc">Claude writes each summary with this model.</p>
+            <select id="summary-model">
+              <option value="opus">Opus (default)</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
+            </select>
+          </section>
+          <section class="inline">
+            <div>
+              <h3><label for="start-at-logon">Start at logon</label></h3>
+              <p class="desc">Opens in the tray when you sign in to Windows.</p>
+            </div>
+            <input type="checkbox" id="start-at-logon" class="switch" />
+          </section>
+          <section>
+            <h3><label for="appearance">Appearance</label></h3>
+            <p class="desc">Follows your Windows app theme unless you choose Light or Dark.</p>
+            <select id="appearance">
+              <option value="system">System (default)</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </section>
+          <section>
+            <h3>Excluded series</h3>
+            <p class="desc">Meetings in these series are never captured.</p>
+            <p id="excluded-series" class="desc">No series excluded.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="row-menu" class="menu" role="menu" hidden></div>
+
+    <dialog id="confirm" class="confirm">
+      <h3 id="confirm-title"></h3>
+      <p>Its folder moves to the Recycle Bin.</p>
+      <div class="acts">
+        <button id="confirm-cancel" class="btn">Cancel</button>
+        <button id="confirm-delete" class="btn danger">Delete</button>
+      </div>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 {
   "identifier": "default",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-minimize"]
+  "permissions": ["core:default", "core:window:allow-minimize", "core:window:allow-set-theme"]
 }
