@@ -338,8 +338,8 @@ function itemHtml(it: Item, owners: boolean) {
     })
     .join("");
   const markers =
-    (it.inferred ? `<span class="chip inf">Inferred</span>` : "") + (it.citations.length ? "" : `<span class="chip bad">No citation</span>`);
-  // ponytail: "Key not found" joins the markers with the Jira lookups, ticket 06.
+    (it.inferred ? `<span class="chip inf">Inferred</span>` : "") + (it.citations.length ? "" : `<span class="chip bad">No citation</span>`) +
+    (it.missingKeys.length ? `<span class="chip bad" title="Not found in Jira: ${esc(it.missingKeys.join(", "))}">Key not found</span>` : "");
   const owner = owners ? `<b class="own">${esc(it.owner ?? "Unassigned")}:</b> ` : "";
   return `<li>${owner}${esc(it.text)}${chips}${markers}</li>`;
 }

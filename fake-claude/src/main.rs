@@ -3,6 +3,7 @@
 //! Scenario file (FAKE_CLAUDE_SCENARIO), all fields optional:
 //!   { "result": <json printed on stdout>, "exitCode": 0, "version": "2.1.318 (Claude Code)",
 //!     "hook": { "event": "PostToolUse", "tool_name": "...", "tool_input": {...}, "tool_response": ... },
+//!     "hooks": [ <hook>, ... ],   // several, fired in order after "hook"; a "PostToolUseFailure" one carries "error"
 //!     "structuredOutput": {...},  // printed inside the real --output-format json shape (Research, Headless Claude Code)
 //!     "stdout": "raw text",       // printed as is, e.g. malformed JSON
 //!     "delayMs": 0 }              // sleep before answering, so a test can see "summarising"
@@ -101,17 +102,28 @@ fn main() {
         fs::write(project.join("fake-session").join("tool-results").join("toolu_fake.json"), "{}").unwrap();
         record["projectDir"] = json!(project);
 
-        if let (Some(hook), Some(i)) = (scenario.get("hook"), argv.iter().position(|a| a == "--settings")) {
-            let payload = json!({
-                "session_id": "fake-session",
-                "transcript_path": project.join("fake-session.jsonl"),
-                "cwd": cwd,
-                "hook_event_name": hook["event"].as_str().unwrap_or("PostToolUse"),
-                "tool_name": hook["tool_name"],
-                "tool_input": hook["tool_input"],
-                "tool_response": hook["tool_response"],
-            });
-            record["hooks"] = json!(run_hooks(&argv[i + 1], hook, &payload));
+        let hooks: Vec<&Value> = scenario.get("hook").into_iter().chain(scenario["hooks"].as_array().into_iter().flatten()).collect();
+        if let Some(i) = argv.iter().position(|a| a == "--settings") {
+            let mut ran = vec![];
+            for hook in hooks {
+                let event = hook["event"].as_str().unwrap_or("PostToolUse");
+                let mut payload = json!({
+                    "session_id": "fake-session",
+                    "transcript_path": project.join("fake-session.jsonl"),
+                    "cwd": cwd,
+                    "hook_event_name": event,
+                    "tool_name": hook["tool_name"],
+                    "tool_input": hook["tool_input"],
+                });
+                // The failure hook carries `error` in place of `tool_response`.
+                if event == "PostToolUseFailure" {
+                    payload["error"] = hook["error"].clone();
+                } else {
+                    payload["tool_response"] = hook["tool_response"].clone();
+                }
+                ran.extend(run_hooks(&argv[i + 1], hook, &payload));
+            }
+            record["hooks"] = json!(ran);
         }
         if let Some(ms) = scenario["delayMs"].as_u64() {
             std::thread::sleep(std::time::Duration::from_millis(ms));

@@ -1,6 +1,6 @@
 //! The summary run (D18), the citation check (D20), `summary.md` (D21) and re-run (D24).
 use crate::{
-    claude::ClaudeRun,
+    claude::{ClaudeRun, Output},
     library::{self, Correction, Cue, Meeting, State},
 };
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,9 @@ pub struct Item {
     /// Every citation verified, and at least one (D20).
     #[serde(skip_deserializing)]
     pub verified: bool,
+    /// `ticket_keys` the run's Jira lookups didn't find (D20): "Key not found" (D43), `(unverified key)` (D21).
+    #[serde(skip_deserializing)]
+    pub missing_keys: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -139,6 +142,75 @@ pub fn check(s: &mut Summary, vtt: &str) {
     }
 }
 
+/// The summary run's only tools (D18): the Atlassian connector's Jira reads, plus the site lookup that gives
+/// them their cloudId. Never a write.
+pub const JIRA_READ_TOOLS: &[&str] = &[
+    "mcp__claude_ai_Atlassian__getAccessibleAtlassianResources",
+    "mcp__claude_ai_Atlassian__getJiraIssue",
+    "mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql",
+    "mcp__claude_ai_Atlassian__listJiraIssueComments",
+];
+
+/// The parts of a hook's `tool_response` that are whole answers: each text block parsed as JSON where it is JSON.
+fn answers(resp: &Value) -> Vec<Value> {
+    let parse = |t: &str| serde_json::from_str(t).unwrap_or_else(|_| Value::String(t.into()));
+    let block = |b: &Value| b["text"].as_str().map(parse).unwrap_or_else(|| b.clone());
+    match resp {
+        Value::String(t) => vec![parse(t)],
+        Value::Array(blocks) => blocks.iter().map(block).collect(),
+        Value::Object(o) => std::iter::once(resp.clone())
+            .chain(o.get("content").and_then(Value::as_array).into_iter().flatten().map(block))
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// An answer that says it failed: text starting "Error", or `error`/`isError` true, or a non-empty
+/// `errorMessages`/`errors` (Jira's REST shape).
+fn is_error(a: &Value) -> bool {
+    let set = |v: &Value| v == &json!(true) || v.as_array().is_some_and(|x| !x.is_empty()) || v.as_object().is_some_and(|x| !x.is_empty());
+    match a {
+        Value::String(t) => t.trim_start().get(..5).is_some_and(|w| w.eq_ignore_ascii_case("error")),
+        Value::Object(o) => ["error", "isError", "is_error", "errorMessages", "errors"].iter().any(|k| o.get(*k).is_some_and(set)),
+        _ => false,
+    }
+}
+
+/// Every `"key"` string anywhere in `v`: how a Jira issue names itself.
+fn named_keys(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Object(o) => o.iter().for_each(|(k, x)| match x {
+            Value::String(s) if k == "key" => out.push(s.to_ascii_uppercase()),
+            _ => named_keys(x, out),
+        }),
+        Value::Array(a) => a.iter().for_each(|x| named_keys(x, out)),
+        _ => {}
+    }
+}
+
+/// Ticket keys the run's Jira lookups found (D20): from PostToolUse payloads of the Jira read tools whose response
+/// is not an error, each issue `"key"` they name. The response shape is undocumented, so anything else finds nothing.
+pub fn found_keys(captured: &[Value]) -> Vec<String> {
+    let mut found = vec![];
+    for p in captured {
+        let jira = p["tool_name"].as_str().is_some_and(|t| JIRA_READ_TOOLS.contains(&t));
+        let answers = answers(&p["tool_response"]);
+        if p["hook_event_name"] == "PostToolUse" && jira && !answers.iter().any(is_error) {
+            answers.iter().for_each(|a| named_keys(a, &mut found));
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// Marks each item's ticket keys that `found` lacks (D20). Items are never dropped.
+pub fn check_keys(s: &mut Summary, found: &[String]) {
+    for item in s.items_mut() {
+        item.missing_keys = item.ticket_keys.iter().filter(|k| !found.contains(&k.trim().to_ascii_uppercase())).cloned().collect();
+    }
+}
+
 /// The summary from a `--output-format json` result: its `structured_output` (D18), kept as returned.
 pub fn parse_result(stdout: &str) -> Result<(Summary, Value), String> {
     // Each message is short and carries no result text, so it can sit on the card (meeting.json).
@@ -173,7 +245,9 @@ fn item_line(it: &Item, owner: bool) -> String {
     if !it.verified {
         l += " (unverified citation)";
     }
-    // ponytail: (unverified key) arrives with the Jira lookups, ticket 06.
+    if !it.missing_keys.is_empty() {
+        l += " (unverified key)";
+    }
     l + "\n"
 }
 
@@ -243,13 +317,13 @@ decisions, actions (owner: an attendee's name, or null when nobody took it), que
 Every item cites the transcript: citations[].at is the hh:mm:ss start of a cue it relies on, and quote is at least \
 3 consecutive words copied exactly as they appear in that cue, misheard words included (write \"felter\" if the cue says \
 \"felter\"). Set inferred to true for anything nobody said outright. ticketKeys: ticket keys the item mentions, such as \
-PROJ-123. corrections: words Teams misheard (names from the attendee list, terms from the glossary, ticket keys, \
+PROJ-123. Look up every ticket key you mention in Jira with getJiraIssue (getAccessibleAtlassianResources gives \
+its cloudId), and never guess a key. corrections: words Teams misheard (names from the attendee list, terms from the glossary, ticket keys, \
 jargon), as whole words, each with a short reason. Never invent attendees, owners or tickets.";
 
 /// The summary run (D18): the summary model, `--json-schema`, attendees, glossary and transcript on stdin (D19).
 pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun {
     let people: Vec<&str> = m.organiser.iter().map(String::as_str).chain(m.attendees.iter().map(String::as_str)).collect();
-    // ponytail: the Jira read tools join in ticket 06.
     let stdin = format!(
         "Attendees:\n{}\n\nGlossary (one entry per line):\n{}\n\nTranscript (WebVTT):\n{vtt}",
         if people.is_empty() { "(none listed)".into() } else { people.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n") },
@@ -258,7 +332,8 @@ pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun
     ClaudeRun {
         prompt: PROMPT.into(),
         model: model.into(),
-        allowed_tools: &[],
+        allowed_tools: JIRA_READ_TOOLS,
+        capture: JIRA_READ_TOOLS,
         args: vec!["--json-schema".into(), schema().to_string()],
         stdin,
     }
@@ -268,20 +343,25 @@ pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun
 pub fn load(dir: &Path) -> Option<Summary> {
     let mut s: Summary = serde_json::from_slice(&fs::read(dir.join(library::SUMMARY_JSON)).ok()?).ok()?;
     check(&mut s, &fs::read_to_string(dir.join(library::VTT)).unwrap_or_default());
+    check_keys(&mut s, &library::load(dir).map(|m| m.found_keys).unwrap_or_default());
     Some(s)
 }
 
 /// Runs the summary for the meeting in `dir` and writes `summary.json`, `summary.md` and `transcript.md`, replacing
 /// any earlier ones and nothing else (D24). `glossary.md` comes from the library, the meeting folder's parent (D23). Failure keeps an earlier summary and marks the meeting "summary failed",
 /// on every exit, a panic included.
-pub fn summarise(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Result<String>) -> Result<Summary, String> {
+pub fn summarise<R: Into<Output>>(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Result<R>) -> Result<Summary, String> {
     let first = library::load(dir);
+    let mut found = vec![];
     let attempt = std::panic::AssertUnwindSafe(|| -> Result<Summary, String> {
         let m = first.as_ref().map_err(|e| e.to_string())?;
         let vtt = fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
         let glossary = dir.parent().and_then(|lib| fs::read_to_string(lib.join(library::GLOSSARY)).ok()).unwrap_or_default();
-        let (mut s, raw) = parse_result(&run(&run_for(m, &vtt, &glossary, model)).map_err(|e| run_failure(&e))?)?;
+        let out: Output = run(&run_for(m, &vtt, &glossary, model)).map_err(|e| run_failure(&e))?.into();
+        let (mut s, raw) = parse_result(&out.stdout)?;
         check(&mut s, &vtt);
+        found = found_keys(&out.captured);
+        check_keys(&mut s, &found);
         let cleaned = library::transcript_md(&library::transcript(&vtt, &s.corrections));
         library::write_atomic(&dir.join(library::SUMMARY_JSON), &serde_json::to_vec_pretty(&raw).unwrap())
             .and_then(|_| library::write_atomic(&dir.join(library::SUMMARY_MD), render(m, &s).as_bytes()))
@@ -294,6 +374,9 @@ pub fn summarise(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Re
     let mut m = library::load(dir).or(first).map_err(|e| e.to_string())?;
     m.state = if outcome.is_ok() { State::Done } else { State::SummaryFailed };
     m.summary_error = outcome.as_ref().err().cloned();
+    if outcome.is_ok() {
+        m.found_keys = found; // a failed run keeps the earlier summary, so its keys too
+    }
     m.last_summary = Some(chrono::Local::now().fixed_offset());
     library::save(dir, &m).map_err(|e| e.to_string())?;
     outcome
@@ -484,7 +567,7 @@ mod tests {
         assert_eq!(load(&dir).unwrap().overview, "Second run");
 
         // A failed run keeps the earlier summary and marks the meeting.
-        assert!(summarise(&dir, "opus", |_| Ok("{not json".into())).is_err());
+        assert!(summarise(&dir, "opus", |_| Ok("{not json".to_string())).is_err());
         assert!(fs::read_to_string(dir.join(library::SUMMARY_MD)).unwrap().contains("Second run"));
         assert_eq!(library::load(&dir).unwrap().state, State::SummaryFailed);
         fs::remove_dir_all(dir).unwrap();
@@ -534,7 +617,7 @@ mod tests {
         assert!(begin(&dir).unwrap_err().contains("already running"));
 
         // A panic in the run still ends "summary failed".
-        let panicked = summarise(&dir, "opus", |_| panic!("synthetic panic"));
+        let panicked = summarise(&dir, "opus", |_| -> io::Result<String> { panic!("synthetic panic") });
         assert!(panicked.is_err());
         assert_eq!(library::load(&dir).unwrap().state, State::SummaryFailed);
         fs::remove_dir_all(dir).unwrap();
@@ -592,6 +675,97 @@ mod tests {
         let g = run_for(&m, CUE, "felter -> filter\r\n", "sonnet");
         assert!(g.stdin.contains("\n\nGlossary (one entry per line):\nfelter -> filter\n\nTranscript"));
         assert!(!r.prompt.contains("retry limit field"));
+    }
+
+    /// A PostToolUse payload as the capture hook hands it over; the text block is the shape the Atlassian
+    /// connector answered with on Jack's machine (synthetic values).
+    fn lookup(tool: &str, text: &str) -> Value {
+        json!({ "hook_event_name": "PostToolUse", "transcript_path": "x", "tool_name": format!("mcp__claude_ai_Atlassian__{tool}"),
+                "tool_input": { "issueIdOrKey": "PROJ-123" }, "tool_response": [{ "type": "text", "text": text }] })
+    }
+
+    /// Runs the summary of one decision citing `keys` with the hook having captured `captured`; returns the
+    /// decision as the Summary tab loads it, and its summary.md line.
+    fn keyed(name: &str, keys: &[&str], captured: Vec<Value>) -> (Item, String) {
+        let dir = temp(name);
+        library::save(&dir, &Meeting { subject: "Keys".into(), ..Meeting::default() }).unwrap();
+        fs::write(dir.join(library::VTT), CUE).unwrap();
+        let out = json!({ "is_error": false, "structured_output": { "overview": "x", "decisions": [
+            { "text": "Track it.", "citations": [{ "at": "00:00:10", "quote": "the approach of adding" }], "inferred": false, "ticketKeys": keys }] } });
+        summarise(&dir, "opus", |_| Ok(Output { stdout: out.to_string(), captured })).unwrap();
+        let item = load(&dir).unwrap().decisions.remove(0);
+        let md = fs::read_to_string(dir.join(library::SUMMARY_MD)).unwrap();
+        let line = md.lines().find(|l| l.starts_with("- Track it.")).unwrap().to_string();
+        fs::remove_dir_all(dir).unwrap();
+        (item, line)
+    }
+
+    const FOUND: &str = r#"{"key":"PROJ-123","fields":{"status":{"name":"Done","statusCategory":{"key":"done"}}},"webUrl":"https://example.atlassian.net/browse/PROJ-123"}"#;
+
+    #[test]
+    fn a_key_the_hook_recorded_a_successful_lookup_of_carries_no_marker() {
+        let (item, line) = keyed("keyok", &["PROJ-123"], vec![lookup("getJiraIssue", FOUND)]);
+        assert!(item.missing_keys.is_empty(), "{:?}", item.missing_keys);
+        assert_eq!(line, "- Track it. [00:00:10]");
+        // A search result naming it counts too.
+        let search = format!(r#"{{"issues":{{"nodes":[{FOUND}]}},"pageInfo":{{"hasNextPage":false}}}}"#);
+        assert!(keyed("keysearch", &["PROJ-123"], vec![lookup("searchJiraIssuesUsingJql", &search)]).0.missing_keys.is_empty());
+    }
+
+    #[test]
+    fn a_lookup_whose_response_is_an_error_does_not_count() {
+        // The connector's not-found answer names the key, in its message.
+        let err = r#"{"error":true,"message":"Issue \"PROJ-123\" not found","statusCode":404,"key":"PROJ-123"}"#;
+        let (item, line) = keyed("keyerr", &["PROJ-123"], vec![lookup("getJiraIssue", err)]);
+        assert_eq!(item.missing_keys, ["PROJ-123"]);
+        assert_eq!(line, "- Track it. [00:00:10] (unverified key)");
+    }
+
+    #[test]
+    fn a_key_with_no_matching_lookup_is_marked_unverified() {
+        let (item, line) = keyed("keynone", &["PROJ-707"], vec![lookup("getJiraIssue", FOUND)]);
+        assert_eq!(item.missing_keys, ["PROJ-707"]);
+        assert_eq!(line, "- Track it. [00:00:10] (unverified key)");
+        assert_eq!(keyed("keyempty", &["PROJ-707"], vec![]).0.missing_keys, ["PROJ-707"], "no lookup at all");
+    }
+
+    #[test]
+    fn only_a_clean_jira_read_naming_the_issue_key_counts_and_anything_unexpected_fails_closed() {
+        let found = |p: Value| found_keys(&[p]);
+        assert!(found(lookup("getJiraIssue", FOUND)).contains(&"PROJ-123".to_string()));
+        for (why, p) in [
+            ("a longer key is another issue", lookup("getJiraIssue", r#"{"key":"PROJ-1234"}"#)),
+            ("named only in a URL or JQL echo", lookup("searchJiraIssuesUsingJql", r#"{"issues":{"nodes":[]},"jql":"key = PROJ-123","webUrl":"/browse/PROJ-123"}"#)),
+            ("Jira's REST error shape", lookup("getJiraIssue", r#"{"key":"PROJ-123","errorMessages":["Issue does not exist"]}"#)),
+            ("an MCP error result", json!({ "hook_event_name": "PostToolUse", "tool_name": "mcp__claude_ai_Atlassian__getJiraIssue",
+                "tool_response": { "isError": true, "content": [{ "type": "text", "text": FOUND }] } })),
+            ("an Error text", lookup("getJiraIssue", "Error: PROJ-123 lookup failed {\"key\":\"PROJ-123\"}")),
+            ("plain text, no JSON", lookup("getJiraIssue", "PROJ-123 Done")),
+            ("not a Jira read", json!({ "hook_event_name": "PostToolUse", "tool_name": "mcp__claude_ai_Atlassian__editJiraIssue",
+                "tool_response": [{ "type": "text", "text": FOUND }] })),
+            ("the failure hook", json!({ "hook_event_name": "PostToolUseFailure", "tool_name": "mcp__claude_ai_Atlassian__getJiraIssue",
+                "tool_response": [{ "type": "text", "text": FOUND }], "error": "x" })),
+        ] {
+            assert!(!found(p).contains(&"PROJ-123".to_string()), "{why}");
+        }
+        // One error elsewhere in the run doesn't undo a clean lookup.
+        assert_eq!(found_keys(&[lookup("getJiraIssue", r#"{"error":true}"#), lookup("getJiraIssue", r#"{"key":"PROJ-123"}"#)]), ["PROJ-123"]);
+    }
+
+    #[test]
+    fn the_summary_run_allows_only_jira_read_tools_and_captures_them() {
+        let r = run_for(&Meeting::default(), CUE, "", "opus");
+        assert_eq!(
+            r.allowed_tools,
+            [
+                "mcp__claude_ai_Atlassian__getAccessibleAtlassianResources",
+                "mcp__claude_ai_Atlassian__getJiraIssue",
+                "mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql",
+                "mcp__claude_ai_Atlassian__listJiraIssueComments",
+            ]
+        );
+        assert_eq!(r.capture, r.allowed_tools);
+        assert!(r.prompt.contains("Look up every ticket key you mention in Jira"));
     }
 
     #[test]

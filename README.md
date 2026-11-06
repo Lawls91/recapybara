@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary (Outline tickets 01, 03, 04, 05). v1 is single-user.
+Status: import, summarise, corrections and glossary, Jira key check (Outline tickets 01, 03, 04, 05, 06). v1 is single-user.
 
 ## Build and run
 
@@ -73,6 +73,12 @@ Fake claude scenarios (the file is read on every run, so it can be rewritten bet
                                                // a valid summary, printed in the real result shape
   "delayMs": 3000 }                            // optional: answer late, so "Summarising" can be seen
 // Item = { "text": "…", "citations": [{ "at": "00:00:10", "quote": "three or more words" }], "inferred": false, "ticketKeys": [] }
+{ "structuredOutput": {…}, "hooks": [           // each fired through the run's --settings capture hook, in order
+    { "tool_name": "mcp__claude_ai_Atlassian__getJiraIssue", "tool_input": { "issueIdOrKey": "PROJ-123" },
+      "tool_response": [{ "type": "text", "text": "{\"key\":\"PROJ-123\"}" }] },        // a lookup that found PROJ-123
+    { "tool_name": "mcp__claude_ai_Atlassian__getJiraIssue", "tool_input": { "issueIdOrKey": "PROJ-404" },
+      "tool_response": [{ "type": "text", "text": "{\"error\":true,\"message\":\"not found\"}" }] },  // an error: doesn't count
+    { "event": "PostToolUseFailure", "tool_name": "…", "tool_input": {…}, "error": "…" } ] }  // the failure hook
 { "stdout": "{not json" }                      // a malformed result: the summary fails
 { "exitCode": 1 }                              // claude fails: the summary fails
 ```
@@ -87,7 +93,12 @@ cue text and speaker labels as whole, exact words, then the list of corrections 
 are always checked against the raw `transcript.vtt`, never the corrected text (D20). Each run replaces `summary.*` and
 `transcript.md`, never `transcript.vtt` or `notes.md`. The library root holds `glossary.md` (D23), one entry per line,
 yours to edit: it goes to every summary run on stdin, and the Transcript tab's Add to glossary appends `from -> to`.
-Importing or attaching a transcript starts its summary. A failed run leaves its short reason in `meeting.json` (`summaryError`), shown on the Summary failed card.
+Importing or attaching a transcript starts its summary. The summary run may use only the Atlassian connector's
+Jira reads (`getAccessibleAtlassianResources`, `getJiraIssue`, `searchJiraIssuesUsingJql`, `listJiraIssueComments`) and is
+told to look up every ticket key it mentions. Its capture hook (per-run `--settings`, PostToolUse and PostToolUseFailure)
+has Git Bash write each raw payload to its own file under `runs\hooks-<pid>-<n>\`, which the app reads and deletes when the
+run ends (D7, D13). A key counts as found when a clean Jira read's response names it as an issue `"key"`; the found keys go in
+`meeting.json` (`foundKeys`), and an item whose key isn't among them gets `(unverified key)` and a "Key not found" chip. A failed run leaves its short reason in `meeting.json` (`summaryError`), shown on the Summary failed card.
 Without `MEETING_CAPTURE_CLAUDE`, the app runs the first `claude.exe` (or `claude.cmd` shim) on PATH. The list reads every folder with a `meeting.json`; every field
 defaults, so a test or a QA run can seed a state by hand:
 

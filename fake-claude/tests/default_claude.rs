@@ -26,7 +26,7 @@ fn the_default_claude_is_found_as_claude_exe_on_path() {
 
     let run = claude::ClaudeRun { ..claude::calendar_refresh(chrono::Utc::now()) };
     let out = claude::run(&claude::program(), &dir.join("data").join("runs"), &dir.join("home"), &run);
-    let out: Value = serde_json::from_str(&out.expect("the claude.exe on PATH ran")).unwrap();
+    let out: Value = serde_json::from_str(&out.expect("the claude.exe on PATH ran").stdout).unwrap();
     assert_eq!(out["structured_output"]["overview"], "from PATH");
     assert!(PathBuf::from(format!("{}.record.jsonl", scenario.display())).exists());
     fs::remove_dir_all(&dir).unwrap();

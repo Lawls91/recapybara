@@ -51,6 +51,9 @@ pub struct Meeting {
     pub last_summary: Option<DateTime<FixedOffset>>,
     /// Why the last summary run failed, shown on its Summary failed card. Never transcript text.
     pub summary_error: Option<String>,
+    /// Ticket keys the last good summary run's Jira lookups found (D20). Keys only, never a response.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub found_keys: Vec<String>,
 }
 
 /// A meeting as the list sees it: its folder name is its id.

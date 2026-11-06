@@ -17,6 +17,8 @@ export interface Item {
   citations: Citation[];
   inferred: boolean;
   ticketKeys: string[];
+  /** Ticket keys the run's Jira lookups didn't find (D20). */
+  missingKeys: string[];
   owner: string | null;
   verified: boolean;
 }
