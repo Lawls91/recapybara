@@ -281,6 +281,7 @@ pub fn run() {
             let data_dir = dir_from_env("MEETING_CAPTURE_DATA_DIR", app.path().app_data_dir()?);
             let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
             let s = settings::load(&data_dir);
+            claude::sweep_captures(&data_dir.join("runs"));
             let first = s.library_path.is_none();
             if let Some(lib) = &s.library_path {
                 library::recover(std::path::Path::new(lib));

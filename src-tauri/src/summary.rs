@@ -343,7 +343,9 @@ pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun
 pub fn load(dir: &Path) -> Option<Summary> {
     let mut s: Summary = serde_json::from_slice(&fs::read(dir.join(library::SUMMARY_JSON)).ok()?).ok()?;
     check(&mut s, &fs::read_to_string(dir.join(library::VTT)).unwrap_or_default());
-    check_keys(&mut s, &library::load(dir).map(|m| m.found_keys).unwrap_or_default());
+    if let Some(found) = library::load(dir).ok().and_then(|m| m.found_keys) {
+        check_keys(&mut s, &found);
+    }
     Some(s)
 }
 
@@ -375,7 +377,7 @@ pub fn summarise<R: Into<Output>>(dir: &Path, model: &str, run: impl FnOnce(&Cla
     m.state = if outcome.is_ok() { State::Done } else { State::SummaryFailed };
     m.summary_error = outcome.as_ref().err().cloned();
     if outcome.is_ok() {
-        m.found_keys = found; // a failed run keeps the earlier summary, so its keys too
+        m.found_keys = Some(found); // a failed run keeps the earlier summary, so its keys too
     }
     m.last_summary = Some(chrono::Local::now().fixed_offset());
     library::save(dir, &m).map_err(|e| e.to_string())?;
@@ -750,6 +752,19 @@ mod tests {
         }
         // One error elsewhere in the run doesn't undo a clean lookup.
         assert_eq!(found_keys(&[lookup("getJiraIssue", r#"{"error":true}"#), lookup("getJiraIssue", r#"{"key":"PROJ-123"}"#)]), ["PROJ-123"]);
+    }
+
+    #[test]
+    fn a_summary_from_before_keys_were_checked_marks_no_key_until_a_re_run() {
+        let dir = temp("prekeys");
+        let decision = json!({ "overview": "x", "decisions": [{ "text": "Track it.", "citations": [], "inferred": false, "ticketKeys": ["PROJ-123"] }] });
+        fs::write(dir.join(library::VTT), CUE).unwrap();
+        fs::write(dir.join(library::SUMMARY_JSON), decision.to_string()).unwrap();
+        fs::write(dir.join(library::META), r#"{"subject":"Old","state":"done"}"#).unwrap(); // no foundKeys
+        assert!(load(&dir).unwrap().decisions[0].missing_keys.is_empty(), "not checked, so not marked");
+        fs::write(dir.join(library::META), r#"{"subject":"Old","state":"done","foundKeys":[]}"#).unwrap();
+        assert_eq!(load(&dir).unwrap().decisions[0].missing_keys, ["PROJ-123"], "checked and not found");
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

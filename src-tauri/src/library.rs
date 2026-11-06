@@ -52,8 +52,9 @@ pub struct Meeting {
     /// Why the last summary run failed, shown on its Summary failed card. Never transcript text.
     pub summary_error: Option<String>,
     /// Ticket keys the last good summary run's Jira lookups found (D20). Keys only, never a response.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub found_keys: Vec<String>,
+    /// None: summarised before keys were checked, so no key is marked until a re-run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub found_keys: Option<Vec<String>>,
 }
 
 /// A meeting as the list sees it: its folder name is its id.

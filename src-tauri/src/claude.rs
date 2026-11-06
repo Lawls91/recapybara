@@ -115,6 +115,15 @@ pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<Pat
 
 static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
 
+/// At startup: deletes every `hooks-*` capture folder a killed run left in `runs_dir` (D7). No run is going yet.
+pub fn sweep_captures(runs_dir: &Path) {
+    for e in fs::read_dir(runs_dir).into_iter().flatten().flatten() {
+        if e.file_name().to_string_lossy().starts_with("hooks-") && e.path().is_dir() {
+            let _ = fs::remove_dir_all(e.path());
+        }
+    }
+}
+
 /// Runs isolated in `runs_dir`, then deletes Claude Code's copies under `home` (D7),
 /// whether the run succeeded or not. Returns stdout and the captured hook payloads.
 pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) -> io::Result<Output> {
@@ -251,6 +260,21 @@ mod tests {
         got.sort();
         assert_eq!(got, [1, 2]);
         assert!(!dir.exists(), "payloads are deleted with the run");
+    }
+
+    #[test]
+    fn startup_sweeps_capture_folders_a_killed_run_left_and_nothing_else() {
+        let runs = temp("sweep");
+        for d in ["hooks-12-0", "hooks-99-3", "keep"] {
+            fs::create_dir_all(runs.join(d)).unwrap();
+            fs::write(runs.join(d).join("XXXXabcd"), "{}").unwrap();
+        }
+        fs::write(runs.join("hooks-file.txt"), "a file, not a capture folder").unwrap();
+        sweep_captures(&runs);
+        let mut left: Vec<String> = fs::read_dir(&runs).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, ["hooks-file.txt", "keep"]);
+        sweep_captures(&runs.join("missing")); // no runs folder yet: nothing to do
     }
 
     #[test]
