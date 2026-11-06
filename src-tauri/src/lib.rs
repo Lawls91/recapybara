@@ -100,11 +100,25 @@ fn list_meetings(app: AppHandle) -> Result<Vec<library::Listed>, String> {
     Ok(library::list(&library_path(&app)?))
 }
 
+/// The Transcript tab: turns with the last summary run's corrections applied, the same ones `transcript.md` holds (D22).
 #[tauri::command]
 fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, String> {
-    let dir = library::meeting_dir(&library_path(&app)?, &id)?;
+    let lib = library_path(&app)?;
+    let dir = library::meeting_dir(&lib, &id)?;
     let vtt = std::fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
-    Ok(library::transcript(&vtt))
+    let fixes = summary::load(&dir).map(|s| s.corrections).unwrap_or_default();
+    let mut t = library::transcript(&vtt, &fixes);
+    let glossary = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
+    for a in &mut t.corrections {
+        a.in_glossary = library::in_glossary(&glossary, &a.correction);
+    }
+    Ok(t)
+}
+
+/// Add to glossary on an applied correction (D23).
+#[tauri::command]
+fn add_to_glossary(app: AppHandle, from: String, to: String) -> Result<(), String> {
+    library::add_to_glossary(&library_path(&app)?, &library::Correction { from, to, reason: String::new() })
 }
 
 #[tauri::command]
@@ -303,6 +317,7 @@ pub fn run() {
             refresh_calendar,
             list_meetings,
             get_transcript,
+            add_to_glossary,
             pick_transcript_file,
             import_transcript,
             open_folder,

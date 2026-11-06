@@ -1,7 +1,7 @@
 //! The summary run (D18), the citation check (D20), `summary.md` (D21) and re-run (D24).
 use crate::{
     claude::ClaudeRun,
-    library::{self, Cue, Meeting, State},
+    library::{self, Correction, Cue, Meeting, State},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -59,14 +59,6 @@ pub struct Section {
     pub points: Vec<Item>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(default)]
-pub struct Correction {
-    pub from: String,
-    pub to: String,
-    pub reason: String,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Summary {
     pub overview: String,
@@ -78,7 +70,7 @@ pub struct Summary {
     pub actions: Vec<Item>,
     #[serde(default)]
     pub questions: Vec<Item>,
-    /// Applied by ticket 05 (D22).
+    /// Applied to `transcript.md` and the Transcript tab, never to the citation check (D20, D22).
     #[serde(default)]
     pub corrections: Vec<Correction>,
 }
@@ -245,22 +237,23 @@ pub fn schema() -> Value {
     })
 }
 
-const PROMPT: &str = "Summarise the Microsoft Teams meeting whose attendees and WebVTT transcript are on stdin. \
+const PROMPT: &str = "Summarise the Microsoft Teams meeting whose attendees, glossary and WebVTT transcript are on stdin. \
 Return the JSON the schema asks for. overview: a short paragraph. sections: the main topics, each with its points. \
 decisions, actions (owner: an attendee's name, or null when nobody took it), questions: what was left open. \
 Every item cites the transcript: citations[].at is the hh:mm:ss start of a cue it relies on, and quote is at least \
 3 consecutive words copied exactly as they appear in that cue, misheard words included (write \"felter\" if the cue says \
 \"felter\"). Set inferred to true for anything nobody said outright. ticketKeys: ticket keys the item mentions, such as \
-PROJ-123. corrections: words Teams misheard (names from the attendee list, ticket keys, jargon), as whole words, \
-each with a short reason. Never invent attendees, owners or tickets.";
+PROJ-123. corrections: words Teams misheard (names from the attendee list, terms from the glossary, ticket keys, \
+jargon), as whole words, each with a short reason. Never invent attendees, owners or tickets.";
 
-/// The summary run (D18): the summary model, `--json-schema`, attendees and transcript on stdin.
-pub fn run_for(m: &Meeting, vtt: &str, model: &str) -> ClaudeRun {
+/// The summary run (D18): the summary model, `--json-schema`, attendees, glossary and transcript on stdin (D19).
+pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun {
     let people: Vec<&str> = m.organiser.iter().map(String::as_str).chain(m.attendees.iter().map(String::as_str)).collect();
-    // ponytail: glossary.md joins stdin in ticket 05, the Jira read tools in ticket 06.
+    // ponytail: the Jira read tools join in ticket 06.
     let stdin = format!(
-        "Attendees:\n{}\n\nTranscript (WebVTT):\n{vtt}",
-        if people.is_empty() { "(none listed)".into() } else { people.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n") }
+        "Attendees:\n{}\n\nGlossary (one entry per line):\n{}\n\nTranscript (WebVTT):\n{vtt}",
+        if people.is_empty() { "(none listed)".into() } else { people.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n") },
+        if glossary.trim().is_empty() { "(empty)" } else { glossary.trim_end() }
     );
     ClaudeRun {
         prompt: PROMPT.into(),
@@ -278,18 +271,21 @@ pub fn load(dir: &Path) -> Option<Summary> {
     Some(s)
 }
 
-/// Runs the summary for the meeting in `dir` and writes `summary.json` and `summary.md`, replacing any
-/// earlier ones and nothing else (D24). Failure keeps an earlier summary and marks the meeting "summary failed",
+/// Runs the summary for the meeting in `dir` and writes `summary.json`, `summary.md` and `transcript.md`, replacing
+/// any earlier ones and nothing else (D24). `glossary.md` comes from the library, the meeting folder's parent (D23). Failure keeps an earlier summary and marks the meeting "summary failed",
 /// on every exit, a panic included.
 pub fn summarise(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Result<String>) -> Result<Summary, String> {
     let first = library::load(dir);
     let attempt = std::panic::AssertUnwindSafe(|| -> Result<Summary, String> {
         let m = first.as_ref().map_err(|e| e.to_string())?;
         let vtt = fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
-        let (mut s, raw) = parse_result(&run(&run_for(m, &vtt, model)).map_err(|e| run_failure(&e))?)?;
+        let glossary = dir.parent().and_then(|lib| fs::read_to_string(lib.join(library::GLOSSARY)).ok()).unwrap_or_default();
+        let (mut s, raw) = parse_result(&run(&run_for(m, &vtt, &glossary, model)).map_err(|e| run_failure(&e))?)?;
         check(&mut s, &vtt);
+        let cleaned = library::transcript_md(&library::transcript(&vtt, &s.corrections));
         library::write_atomic(&dir.join(library::SUMMARY_JSON), &serde_json::to_vec_pretty(&raw).unwrap())
             .and_then(|_| library::write_atomic(&dir.join(library::SUMMARY_MD), render(m, &s).as_bytes()))
+            .and_then(|_| library::write_atomic(&dir.join(library::TRANSCRIPT_MD), cleaned.as_bytes()))
             .map_err(|e| e.to_string())?;
         Ok(s)
     });
@@ -495,6 +491,39 @@ mod tests {
     }
 
     #[test]
+    fn corrections_reach_transcript_md_only_while_citations_check_the_raw_cue_and_transcript_vtt_is_untouched() {
+        let lib = temp("corr");
+        let dir = lib.join("Felter");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(lib.join(library::GLOSSARY), "felter -> filter\n").unwrap();
+        library::save(&dir, &Meeting { subject: "Felter".into(), ..Meeting::default() }).unwrap();
+        let vtt = "WEBVTT\r\n\r\n00:00:03.000 --> 00:00:08.000\r\n<v Katia>we keep the felter rule as it is</v>\r\n";
+        fs::write(dir.join(library::VTT), vtt).unwrap();
+        let decision = |quote: &str| json!({ "text": "Keep it.", "citations": [{ "at": "00:00:03", "quote": quote }], "inferred": false, "ticketKeys": [] });
+        let out = json!({ "is_error": false, "structured_output": { "overview": "x",
+            "decisions": [decision("the filter rule"), decision("the felter rule")],
+            "corrections": [{ "from": "felter", "to": "filter", "reason": "domain term" }] } });
+        let mut stdin = String::new();
+        let s = summarise(&dir, "opus", |r| {
+            stdin = r.stdin.clone();
+            Ok(out.to_string())
+        })
+        .unwrap();
+        assert_eq!((s.decisions[0].verified, s.decisions[1].verified), (false, true), "the corrected quote fails, the raw one passes");
+        let reloaded = load(&dir).unwrap();
+        assert_eq!((reloaded.decisions[0].verified, reloaded.decisions[1].verified), (false, true));
+        assert!(stdin.contains("Glossary (one entry per line):\nfelter -> filter\n"), "{stdin}");
+        assert_eq!(fs::read(dir.join(library::VTT)).unwrap(), vtt.as_bytes());
+        let md = fs::read_to_string(dir.join(library::TRANSCRIPT_MD)).unwrap();
+        assert!(md.starts_with("**[00:00:03] Katia:** we keep the filter rule as it is\n"), "{md}");
+
+        // A re-run replaces transcript.md (D24).
+        summarise(&dir, "opus", |_| Ok(json!({ "is_error": false, "structured_output": { "overview": "y" } }).to_string())).unwrap();
+        assert_eq!(fs::read_to_string(dir.join(library::TRANSCRIPT_MD)).unwrap(), "**[00:00:03] Katia:** we keep the felter rule as it is\n");
+        fs::remove_dir_all(lib).unwrap();
+    }
+
+    #[test]
     fn a_second_run_is_refused_while_one_is_running_and_every_exit_marks_the_meeting() {
         let dir = temp("guard");
         library::save(&dir, &Meeting { subject: "Guard".into(), ..Meeting::default() }).unwrap();
@@ -555,11 +584,13 @@ mod tests {
     #[test]
     fn the_run_uses_the_model_schema_and_puts_attendees_and_transcript_on_stdin() {
         let m = Meeting { organiser: Some("Robin Sample".into()), attendees: vec!["Speaker A".into()], ..Meeting::default() };
-        let r = run_for(&m, CUE, "sonnet");
+        let r = run_for(&m, CUE, "", "sonnet");
         assert_eq!(r.model, "sonnet");
         assert_eq!(r.args[0], "--json-schema");
         assert_eq!(serde_json::from_str::<Value>(&r.args[1]).unwrap()["required"][0], "overview");
-        assert!(r.stdin.starts_with("Attendees:\n- Robin Sample\n- Speaker A\n\nTranscript (WebVTT):\nWEBVTT"));
+        assert!(r.stdin.starts_with("Attendees:\n- Robin Sample\n- Speaker A\n\nGlossary (one entry per line):\n(empty)\n\nTranscript (WebVTT):\nWEBVTT"));
+        let g = run_for(&m, CUE, "felter -> filter\r\n", "sonnet");
+        assert!(g.stdin.contains("\n\nGlossary (one entry per line):\nfelter -> filter\n\nTranscript"));
         assert!(!r.prompt.contains("retry limit field"));
     }
 

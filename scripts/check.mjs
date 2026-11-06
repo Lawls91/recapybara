@@ -1,5 +1,6 @@
 // `npm run check`: every suite, the local verdict until CI (Outline ticket 18).
 // Stops at the first failure and exits non-zero.
+//   0. tsc --noEmit
 //   1. cargo test under cargo-llvm-cov, failing under 80% Rust line coverage
 //   2. Vitest
 //   3. tauri build --debug --no-bundle (app + fake claude; the MSI is `npm run msi`, not part of check)
@@ -29,6 +30,7 @@ if (!has("cargo", ["llvm-cov", "--version"])) {
 
 // lib.rs (Tauri shell: window, tray, plugins) and main.rs are driven by the E2E suite, not cargo test;
 // the gate measures the Rust core.
+step("typecheck", "npx", ["tsc", "--noEmit"]);
 step("cargo test + coverage", "cargo", [
   "llvm-cov",
   "--workspace",

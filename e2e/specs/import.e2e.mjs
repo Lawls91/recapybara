@@ -33,10 +33,12 @@ describe("import a transcript", () => {
     const turns = await $$("#transcript .turn");
     await expect(turns).toBeElementsArrayOfSize(2);
     const first = await turns[0].getText();
-    expect(first.startsWith("[00:00:03] Speaker A")).toBe(true);
+    // D22's turn: one paragraph starting **[00:00:03] Speaker A:**
+    expect(first.startsWith("[00:00:03] Speaker A:")).toBe(true);
     expect(first).toContain("We could ship the retry rule first. Then the filter chain stays as it is.");
-    await expect(turns[0].$("b")).toHaveText("Speaker A");
-    expect((await turns[1].getText()).startsWith("[00:00:15] Speaker B")).toBe(true);
+    await expect(turns[0].$(".th")).toHaveText("[00:00:03] Speaker A:");
+    expect(await browser.execute(() => getComputedStyle(document.querySelector("#turn-0 .tm")).fontWeight)).toBe("600");
+    expect((await turns[1].getText()).startsWith("[00:00:15] Speaker B:")).toBe(true);
   });
 
   it("a refused file shows its message inside the attach strip, which then accepts a valid file", async () => {

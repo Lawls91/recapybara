@@ -207,12 +207,42 @@ pub fn recover(library: &Path) {
     }
 }
 
-/// One speaker turn: consecutive cues from the same speaker merged (D22).
+/// A word Teams misheard and what it should read (D18, D22).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct Correction {
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+}
+
+/// A run of turn text; `was` holds what Teams heard where a correction replaced it (D45).
 #[derive(Serialize, Debug, PartialEq)]
+pub struct Part {
+    pub text: String,
+    pub was: Option<String>,
+}
+
+/// One speaker turn: consecutive cues from the same speaker merged (D22). `speaker` and `text` are raw,
+/// as Teams heard them (the peek shows what the citation check read, D20); the parts are corrected.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Turn {
     pub at: String,
     pub speaker: String,
     pub text: String,
+    pub speaker_parts: Vec<Part>,
+    pub parts: Vec<Part>,
+}
+
+/// A correction that changed at least one word, with how many places (D22, D45).
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Applied {
+    #[serde(flatten)]
+    pub correction: Correction,
+    pub count: usize,
+    pub in_glossary: bool,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -221,6 +251,7 @@ pub struct Transcript {
     pub turns: Vec<Turn>,
     /// Length from the last cue's end, in whole minutes (D44 "40 min").
     pub minutes: u32,
+    pub corrections: Vec<Applied>,
 }
 
 /// `hh:mm:ss.ttt`, `mm:ss.ttt` or `hh:mm:ss` to milliseconds.
@@ -282,20 +313,124 @@ fn voice(line: &str) -> (Option<String>, String) {
     (speaker, text.trim().to_string())
 }
 
-pub fn transcript(vtt: &str) -> Transcript {
+fn plain(text: impl Into<String>) -> Part {
+    Part { text: text.into(), was: None }
+}
+
+/// `text` with each correction's `from` replaced by its `to`, matching whole words exactly (D22). One pass
+/// over the raw text, so a correction's output is never corrected again. Adds each one's uses to `used`.
+fn correct(text: &str, fixes: &[Correction], used: &mut [usize]) -> Vec<Part> {
+    let wordy = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    let (mut parts, mut run, mut i) = (vec![], String::new(), 0);
+    while let Some(c) = text[i..].chars().next() {
+        let rest = &text[i..];
+        let hit = if wordy(text[..i].chars().next_back()) {
+            None
+        } else {
+            fixes.iter().position(|f| !f.from.is_empty() && rest.starts_with(&f.from) && !wordy(rest[f.from.len()..].chars().next()))
+        };
+        match hit {
+            Some(k) => {
+                if !run.is_empty() {
+                    parts.push(plain(std::mem::take(&mut run)));
+                }
+                parts.push(Part { text: fixes[k].to.clone(), was: Some(fixes[k].from.clone()) });
+                used[k] += 1;
+                i += fixes[k].from.len();
+            }
+            None => {
+                run.push(c);
+                i += c.len_utf8();
+            }
+        }
+    }
+    if !run.is_empty() {
+        parts.push(plain(run));
+    }
+    parts
+}
+
+/// The turns of `vtt` with `fixes` applied to cue text and speaker labels (D22). Cue times come from the
+/// timing lines and are never corrected.
+pub fn transcript(vtt: &str, fixes: &[Correction]) -> Transcript {
+    let mut used = vec![0; fixes.len()];
     let mut turns: Vec<Turn> = vec![];
     let mut end = 0;
     for c in cues(vtt) {
         end = end.max(c.end / 1000);
+        let parts = correct(&c.text, fixes, &mut used);
         match turns.get_mut(c.turn) {
             Some(t) => {
                 t.text.push(' ');
                 t.text.push_str(&c.text);
+                t.parts.push(plain(" "));
+                t.parts.extend(parts);
             }
-            None => turns.push(Turn { at: hms(c.start), speaker: c.speaker, text: c.text }),
+            None => {
+                let speaker_parts = correct(&c.speaker, fixes, &mut used);
+                turns.push(Turn { at: hms(c.start), speaker: c.speaker, text: c.text, speaker_parts, parts });
+            }
         }
     }
-    Transcript { turns, minutes: end.div_ceil(60) }
+    let corrections = fixes
+        .iter()
+        .zip(used)
+        .filter(|(_, n)| *n > 0)
+        .map(|(f, count)| Applied { correction: f.clone(), count, in_glossary: false })
+        .collect();
+    Transcript { turns, minutes: end.div_ceil(60), corrections }
+}
+
+fn joined(parts: &[Part]) -> String {
+    parts.iter().map(|p| p.text.as_str()).collect()
+}
+
+pub const TRANSCRIPT_MD: &str = "transcript.md";
+
+/// `transcript.md` (D22): one paragraph per turn, `**[hh:mm:ss] Speaker:**` first, then the corrections
+/// applied with their reasons. Left out when none applied.
+pub fn transcript_md(t: &Transcript) -> String {
+    let mut md: Vec<String> = t.turns.iter().map(|u| format!("**[{}] {}:** {}", u.at, joined(&u.speaker_parts), joined(&u.parts))).collect();
+    if !t.corrections.is_empty() {
+        let list = t.corrections.iter().map(|a| format!("- {} → {}: {}", a.correction.from, a.correction.to, a.correction.reason));
+        md.push(format!("## Corrections applied\n\n{}", list.collect::<Vec<_>>().join("\n")));
+    }
+    md.join("\n\n") + "\n"
+}
+
+/// `glossary.md` at the library root, one entry per line, edited by the user (D23).
+pub const GLOSSARY: &str = "glossary.md";
+
+fn glossary_line(c: &Correction) -> String {
+    format!("{} -> {}", c.from, c.to)
+}
+
+pub fn in_glossary(glossary: &str, c: &Correction) -> bool {
+    let line = glossary_line(c);
+    glossary.lines().any(|l| l.trim() == line)
+}
+
+/// Add to glossary (D23): appends the correction as one line, once. A glossary that can't be read is left alone.
+pub fn add_to_glossary(library: &Path, c: &Correction) -> Result<(), String> {
+    if [&c.from, &c.to].iter().any(|s| s.trim().is_empty() || s.contains(['\r', '\n'])) {
+        return Err("A glossary entry is one line.".into());
+    }
+    let path = library.join(GLOSSARY);
+    let mut text = match fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("{GLOSSARY} couldn't be read ({e}).")),
+    };
+    if in_glossary(&text, c) {
+        return Ok(());
+    }
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    if !text.is_empty() && !text.ends_with('\n') {
+        text += nl;
+    }
+    text += &glossary_line(c);
+    text += nl;
+    write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -404,13 +539,84 @@ mod tests {
 
     #[test]
     fn consecutive_cues_from_one_speaker_merge_into_one_turn() {
-        let t = transcript(FIXTURE);
+        let t = transcript(FIXTURE, &[]);
         assert_eq!(t.turns[0].at, "00:00:03");
         assert_eq!(t.turns[0].speaker, "Speaker A");
         assert_eq!(t.turns[0].text, "We could ship the retry rule first. Then the filter chain stays as it is.");
         assert_eq!((t.turns[1].at.as_str(), t.turns[1].speaker.as_str()), ("00:00:15", "Speaker B"));
         assert_eq!(t.turns.len(), 2);
         assert_eq!(t.minutes, 1);
+    }
+
+    const FELTER: &str = include_str!("../../e2e/fixtures/Felter review.vtt");
+
+    fn fix(from: &str, to: &str, reason: &str) -> Correction {
+        Correction { from: from.into(), to: to.into(), reason: reason.into() }
+    }
+
+    fn fixes() -> Vec<Correction> {
+        vec![fix("felter", "filter", "domain term"), fix("Katia", "Katya", "attendee name")]
+    }
+
+    #[test]
+    fn a_correction_replaces_the_whole_word_only() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v A>the felter rule, and felters, and Felter</v>\n";
+        let t = transcript(vtt, &[fix("felter", "filter", "domain term")]);
+        assert_eq!(joined(&t.turns[0].parts), "the filter rule, and felters, and Felter");
+        assert_eq!(t.turns[0].parts[1], Part { text: "filter".into(), was: Some("felter".into()) });
+        assert_eq!(t.turns[0].text, "the felter rule, and felters, and Felter", "raw text kept for the peek");
+        assert_eq!(t.corrections[0].count, 1);
+    }
+
+    #[test]
+    fn a_correction_changes_the_speaker_label_as_well_as_cue_text() {
+        let t = transcript(FELTER, &fixes());
+        assert_eq!(t.turns[0].speaker_parts, [Part { text: "Katya".into(), was: Some("Katia".into()) }]);
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Katia>Katia here, as Katia's notes say</v>\n";
+        let t = transcript(vtt, &fixes());
+        assert_eq!((joined(&t.turns[0].speaker_parts), joined(&t.turns[0].parts)), ("Katya".into(), "Katya here, as Katya's notes say".into()));
+        assert_eq!(t.turns[0].speaker, "Katia", "raw label kept for the peek");
+    }
+
+    #[test]
+    fn no_correction_alters_a_timing_line() {
+        // One cue per turn, so every cue time appears in transcript.md; the fixes target the timing text itself.
+        let vtt = "WEBVTT\n\n00:00:03.000 --> 00:00:04.000\n<v A>at 00 03 we start</v>\n\n\
+                   00:01:00.500 --> 00:01:02.000\n<v B>then --> next</v>\n\n\
+                   01:02:03.000 --> 01:02:05.000\n<v A>00:00:03 again</v>\n";
+        let wild = [fix("00", "11", "x"), fix("03", "99", "x"), fix("00:00:03", "zz", "x"), fix("-->", "<--", "x")];
+        let md = transcript_md(&transcript(vtt, &wild));
+        let in_md: Vec<&str> = md.lines().filter_map(|l| l.strip_prefix("**[")).map(|l| &l[..8]).collect();
+        let in_vtt: Vec<&str> = vtt.lines().filter(|l| l.contains("-->") && l.starts_with(|c: char| c.is_ascii_digit())).map(|l| &l[..8]).collect();
+        assert_eq!(in_md, in_vtt);
+        assert_eq!(in_md, ["00:00:03", "00:01:00", "01:02:03"]);
+    }
+
+    #[test]
+    fn transcript_md_matches_the_golden_file() {
+        let md = transcript_md(&transcript(FELTER, &[fixes(), vec![fix("never said", "x", "unused")]].concat()));
+        assert_eq!(md, include_str!("../tests/golden/transcript.md").replace("\r\n", "\n"));
+        // No correction applied: turns only.
+        assert!(!transcript_md(&transcript(FELTER, &[])).contains("Corrections"));
+    }
+
+    #[test]
+    fn add_to_glossary_appends_one_line_once() {
+        let lib = temp("glossary");
+        let c = fix("felter", "filter", "domain term");
+        add_to_glossary(&lib, &c).unwrap();
+        add_to_glossary(&lib, &c).unwrap();
+        assert_eq!(fs::read_to_string(lib.join(GLOSSARY)).unwrap(), "felter -> filter\n");
+        // A hand-edited file without a final newline, in CRLF, keeps its style.
+        fs::write(lib.join(GLOSSARY), "Orbit\r\nPROJ").unwrap();
+        add_to_glossary(&lib, &c).unwrap();
+        assert_eq!(fs::read_to_string(lib.join(GLOSSARY)).unwrap(), "Orbit\r\nPROJ\r\nfelter -> filter\r\n");
+        assert!(in_glossary(&fs::read_to_string(lib.join(GLOSSARY)).unwrap(), &c));
+        assert!(add_to_glossary(&lib, &fix("a\nb", "c", "")).is_err());
+        assert!(add_to_glossary(&lib, &fix("", "c", "")).is_err());
+        fs::write(lib.join(GLOSSARY), b"caf\xe9").unwrap();
+        assert!(add_to_glossary(&lib, &c).is_err(), "an unreadable glossary is not overwritten");
+        assert_eq!(fs::read(lib.join(GLOSSARY)).unwrap(), b"caf\xe9");
     }
 
     #[test]

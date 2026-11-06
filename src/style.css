@@ -634,16 +634,63 @@ button {
   display: flex;
   flex-direction: column;
 }
+/* D22's head, **[hh:mm:ss] Speaker:**, bold throughout */
 .turn .th {
   font-size: 12.5px;
   line-height: 18px;
+  font-weight: 600;
 }
 .turn .tm {
   color: var(--mc-txt3);
   font-variant-numeric: tabular-nums;
 }
-.turn .sp {
+/* a corrected word (D45) */
+.cx {
+  text-decoration: underline dotted var(--mc-acc);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+.corr {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mc-stroke);
+}
+.corr .clh {
+  font-size: 13px;
   font-weight: 600;
+  margin-bottom: 6px;
+}
+.corr .clh .n {
+  font-weight: 400;
+  color: var(--mc-txt3);
+}
+.corr .crow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  padding: 4px 0;
+  min-width: 0;
+}
+.corr .crow .w {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.corr .crow .r {
+  flex: 1;
+  min-width: 0;
+  color: var(--mc-txt2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.corr .lnk {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.corr .lnk:disabled {
+  color: var(--mc-txt3);
+  font-weight: 400;
 }
 .turn .tx {
   font-size: 14px;

@@ -272,10 +272,24 @@ getCurrentWebview().onDragDropEvent((e) => {
 
 // ---------- detail pane (D42, D44, D49) ----------
 
-interface Transcript {
-  turns: { at: string; speaker: string; text: string }[];
-  minutes: number;
+/** `was` is what Teams heard where a correction replaced it (D45). */
+interface Part {
+  text: string;
+  was: string | null;
 }
+
+interface Transcript {
+  /** `speaker` and `text` raw, as the citation check read them (D20); the parts corrected (D22). */
+  turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
+  minutes: number;
+  corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean }[];
+}
+
+// A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45).
+const partsHtml = (ps: Part[]) =>
+  ps.map((p) => (p.was === null ? esc(p.text) : `<span class="cx" title="Was: ${esc(p.was)}">${esc(p.text)}</span>`)).join("");
+// D22's turn head, **[hh:mm:ss] Speaker:**, in the Transcript tab and the peek alike.
+const turnHead = (at: string, who: string) => `<b class="th"><span class="tm">[${esc(at)}]</span> <span class="sp">${who}</span>:</b>`;
 
 function attachStrip() {
   if (!refusals.length) {
@@ -350,8 +364,7 @@ function openPeek(chip: HTMLElement) {
   const reason = peekReason(c);
   // A verified quote shows its whole turn; an unverified one shows the cue it was checked against.
   const head = `Transcript at ${(!reason && turn?.at) || c.cueAt || c.at}`;
-  const line = (at: string, who: string, html: string) =>
-    `<p class="turn"><span class="th"><span class="tm">[${esc(at)}]</span> <b class="sp">${esc(who)}</b></span><span class="tx">${html}</span></p>`;
+  const line = (at: string, who: string, html: string) => `<p class="turn">${turnHead(at, esc(who))}<span class="tx">${html}</span></p>`;
   const body =
     !reason && turn
       ? line(turn.at, turn.speaker, markQuote(turn.text, c.quote))
@@ -388,12 +401,23 @@ function openPeek(chip: HTMLElement) {
 
 function transcriptBody(t: Transcript | null) {
   if (!t) return `<p class="muted">No transcript yet.</p>`;
-  return `<div id="transcript" class="transcript">${t.turns
+  const turns = t.turns
     .map(
       (u, i) =>
-        `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}"><span class="th"><span class="tm">[${u.at}]</span> <b class="sp">${esc(u.speaker)}</b></span><span class="tx">${esc(u.text)}</span></p>`,
+        `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}">${turnHead(u.at, partsHtml(u.speakerParts))}<span class="tx">${partsHtml(u.parts)}</span></p>`,
     )
-    .join("")}</div>`;
+    .join("");
+  // The corrections applied, after the last turn, each with Add to glossary (D22, D23, D45).
+  const fixes = t.corrections.length
+    ? `<div id="corrections" class="corr"><div class="clh">Corrections applied <span class="n">${t.corrections.length}</span></div>${t.corrections
+        .map(
+          (c, i) =>
+            `<div class="crow" id="corr-${i}"><span class="w">${esc(c.from)} → <b>${esc(c.to)}</b></span><span class="r">${esc(c.reason)}, ${c.count} ${c.count === 1 ? "place" : "places"}</span>` +
+            `<button class="lnk" id="glossary-${i}" data-corr="${i}"${c.inGlossary ? " disabled" : ""}>${c.inGlossary ? "In glossary" : "Add to glossary"}</button></div>`,
+        )
+        .join("")}</div>`
+    : "";
+  return `<div id="transcript" class="transcript">${turns}${fixes}</div>`;
 }
 
 async function renderDetail() {
@@ -449,6 +473,18 @@ async function renderDetail() {
   const action = document.getElementById("summary-action");
   if (action) action.onclick = () => runSummary(m.id);
   det.querySelectorAll<HTMLElement>(".chip[data-cite]").forEach((b) => (b.onclick = () => openPeek(b)));
+  det.querySelectorAll<HTMLButtonElement>("[data-corr]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const c = t!.corrections[Number(b.dataset.corr)];
+        b.disabled = true;
+        await invoke("add_to_glossary", { from: c.from, to: c.to }).catch((e) => {
+          $("import-error-text").textContent = String(e);
+          $("import-error").hidden = false;
+        });
+        await renderDetail();
+      }),
+  );
   if (tab === "transcript" && scrollToTurn !== null) {
     document.getElementById(`turn-${scrollToTurn}`)?.scrollIntoView({ block: "start" });
     scrollToTurn = null;
