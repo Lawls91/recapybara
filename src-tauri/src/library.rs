@@ -194,6 +194,14 @@ pub fn list(library: &Path) -> Vec<Listed> {
     out
 }
 
+/// A summary can't still be running at start (the app quit mid-run), so "summarising" becomes
+/// "summary failed", whose card offers the re-run (D49).
+pub fn recover(library: &Path) {
+    for l in list(library).into_iter().filter(|l| l.meeting.state == State::Summarising) {
+        let _ = save(&library.join(&l.id), &Meeting { state: State::SummaryFailed, ..l.meeting });
+    }
+}
+
 /// One speaker turn: consecutive cues from the same speaker merged (D22).
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Turn {
@@ -412,5 +420,17 @@ mod tests {
         fs::create_dir_all(lib.join("stray")).unwrap();
         let ids: Vec<String> = list(&lib).into_iter().map(|l| l.id).collect();
         assert_eq!(ids, ["new", "old"]);
+    }
+
+    #[test]
+    fn a_summary_left_running_at_start_becomes_summary_failed() {
+        let lib = temp("recover");
+        for (name, state) in [("running", State::Summarising), ("ready", State::TranscriptReady)] {
+            fs::create_dir_all(lib.join(name)).unwrap();
+            save(&lib.join(name), &Meeting { subject: name.into(), state, ..Meeting::default() }).unwrap();
+        }
+        recover(&lib);
+        assert_eq!(load(&lib.join("running")).unwrap().state, State::SummaryFailed);
+        assert_eq!(load(&lib.join("ready")).unwrap().state, State::TranscriptReady);
     }
 }

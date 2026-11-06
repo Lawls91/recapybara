@@ -12,6 +12,7 @@ import {
   summaryAction,
   type Meeting,
 } from "./meetings";
+import { chipLabel, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 // Stable element ids from the folder name (WebView2 exposes ids as UIA AutomationIds).
@@ -24,6 +25,9 @@ let selected: string | null = null;
 let tab: "summary" | "transcript" | "notes" = "summary";
 let refusals: string[] = [];
 let menuMeeting: Meeting | null = null;
+let renders = 0;
+let shown: { transcript: Transcript | null; summary: Summary | null } = { transcript: null, summary: null };
+let scrollToTurn: number | null = null;
 
 // ---------- settings and appearance (D46) ----------
 
@@ -180,13 +184,17 @@ $("row-menu").addEventListener("click", async (e) => {
   else if (action === "import" || action === "replace") await chooseFile(m.id);
   else if (action === "folder") await invoke("open_folder", { id: m.id });
   else if (action === "delete") askDelete(m);
-  // ponytail: Skip, Exclude series, Show all in this series are ticket 10; Run summary is ticket 04.
+  else if (action === "summarise") await runSummary(m.id);
+  // ponytail: Skip, Exclude series, Show all in this series are ticket 10.
 });
 document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#row-menu, .kebab")) closeMenu();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeMenu();
+  if (e.key === "Escape") {
+    closeMenu();
+    closePeek();
+  }
 });
 
 function askDelete(m: Meeting) {
@@ -215,13 +223,20 @@ async function importFiles(paths: string[], id: string | null) {
 $("import-button").onclick = () => chooseFile(null);
 $("import-error-close").onclick = () => ($("import-error").hidden = true);
 
+listen<string>("meeting-changed", () => loadMeetings());
+listen<string>("open-meeting", (e) => {
+  show("list");
+  open(e.payload);
+});
 listen<string>("library-changed", async (e) => {
+  if (selected !== e.payload) tab = "summary"; // a newly imported meeting opens like a clicked one
   selected = e.payload;
   refusals = [];
   await loadMeetings();
 });
 listen<{ id: string | null; message: string }>("import-refused", (e) => {
-  if (e.payload.id) {
+  // A meeting with a transcript shows no attach strip, so its Replace transcript… refusal goes to the banner.
+  if (e.payload.id && !byId(e.payload.id)?.hasTranscript) {
     refusals.push(e.payload.message);
     if (e.payload.id === selected) renderDetail();
   } else {
@@ -279,15 +294,96 @@ function summaryBody(m: Meeting) {
     return `<div class="card"><h5><i class="spin"></i>Summarising</h5><p>Claude is writing the summary. It shows here when it’s checked.</p></div>`;
   if (m.state === "summaryFailed")
     return `<div class="card err"><h5>Summary failed</h5><p>Claude returned no valid summary.</p><button class="btn pri" id="summary-action">${summaryAction(m)}</button></div>`;
+  if (shown.summary) return summaryView(shown.summary);
   return `<div class="card"><h5>No summary yet</h5><p>The transcript is ready. Run a summary to get decisions, actions and open questions with checked citations.</p><button class="btn pri" id="summary-action">${summaryAction(m)}</button></div>`;
+}
+
+async function runSummary(id: string) {
+  await invoke("summarise", { id }).catch((e) => {
+    $("import-error-text").textContent = String(e);
+    $("import-error").hidden = false;
+  });
+}
+
+// ---------- summary tab: items, trust chips and the peek sheet (D21, D43) ----------
+
+let citeIndex: Citation[] = [];
+
+function itemHtml(it: Item, owners: boolean) {
+  const chips = it.citations
+    .map((c) => {
+      const n = citeIndex.push(c) - 1;
+      return `<button class="chip ${c.check === "verified" ? "ok" : "bad"}" id="cite-${n}" data-cite="${n}">${chipLabel(c)}</button>`;
+    })
+    .join("");
+  const markers =
+    (it.inferred ? `<span class="chip inf">Inferred</span>` : "") + (it.citations.length ? "" : `<span class="chip bad">No citation</span>`);
+  // ponytail: "Key not found" joins the markers with the Jira lookups, ticket 06.
+  const owner = owners ? `<b class="own">${esc(it.owner ?? "Unassigned")}:</b> ` : "";
+  return `<li>${owner}${esc(it.text)}${chips}${markers}</li>`;
+}
+
+function summaryView(s: Summary) {
+  citeIndex = [];
+  return `<div id="summary" class="summary"><h3 class="sh">Overview</h3><p class="ovw">${esc(s.overview)}</p>${lists(s)
+    .map((l) => `<h3 class="sh">${esc(l.title)}</h3><ul class="it">${l.items.map((i) => itemHtml(i, l.owners)).join("")}</ul>`)
+    .join("")}</div>`;
+}
+
+function closePeek() {
+  document.getElementById("peek")?.remove();
+  const body = document.getElementById("tab-body");
+  if (body) body.style.paddingBottom = "";
+}
+
+function openPeek(chip: HTMLElement) {
+  closePeek();
+  const c = citeIndex[Number(chip.dataset.cite)];
+  const turn = c.turn !== null ? shown.transcript?.turns[c.turn] : undefined;
+  const reason = peekReason(c);
+  const head = `Transcript at ${turn?.at ?? c.at}`;
+  const line = (at: string, who: string, html: string) =>
+    `<p class="turn"><span class="th"><span class="tm">[${at}]</span> <b class="sp">${esc(who)}</b></span><span class="tx">${html}</span></p>`;
+  const body =
+    !reason && turn
+      ? line(turn.at, turn.speaker, markQuote(turn.text, c.quote))
+      : (c.cueText !== null ? line(c.cueAt ?? c.at, c.speaker ?? "", esc(c.cueText)) : "") +
+        `<p class="claim" id="peek-claim">Claimed quote: “${esc(c.quote)}”</p><p class="pkwhy" id="peek-reason">${esc(reason ?? "")}</p>`;
+  const peek = document.createElement("div");
+  peek.id = "peek";
+  peek.className = "peek";
+  peek.setAttribute("role", "dialog");
+  peek.setAttribute("aria-label", head);
+  peek.innerHTML = `<div class="pkh"><b id="peek-title">${head}</b>${
+    turn ? `<button id="peek-open" class="lnk">Open full transcript</button>` : ""
+  }<button id="peek-close" class="btn sm">Close</button></div><div class="pkb" id="peek-body">${body}</div>`;
+  $("detail").append(peek);
+  // Keep the cited item visible above the sheet (D43): room to scroll, then scroll it clear.
+  const pane = $("tab-body");
+  pane.style.paddingBottom = `${peek.offsetHeight}px`;
+  const li = chip.closest("li")!.getBoundingClientRect();
+  const top = peek.getBoundingClientRect().top - 12;
+  if (li.bottom > top) pane.scrollTop += li.bottom - top;
+  $("peek-close").onclick = () => {
+    closePeek();
+    chip.focus();
+  };
+  const full = document.getElementById("peek-open");
+  if (full)
+    full.onclick = () => {
+      scrollToTurn = c.turn;
+      tab = "transcript";
+      renderDetail();
+    };
+  $("peek-close").focus();
 }
 
 function transcriptBody(t: Transcript | null) {
   if (!t) return `<p class="muted">No transcript yet.</p>`;
   return `<div id="transcript" class="transcript">${t.turns
     .map(
-      (u) =>
-        `<p class="turn"><span class="th"><span class="tm">[${u.at}]</span> <b class="sp">${esc(u.speaker)}</b></span><span class="tx">${esc(u.text)}</span></p>`,
+      (u, i) =>
+        `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}"><span class="th"><span class="tm">[${u.at}]</span> <b class="sp">${esc(u.speaker)}</b></span><span class="tx">${esc(u.text)}</span></p>`,
     )
     .join("")}</div>`;
 }
@@ -295,11 +391,16 @@ function transcriptBody(t: Transcript | null) {
 async function renderDetail() {
   const det = $("detail");
   const m = byId(selected ?? undefined);
+  const n = ++renders;
   if (!m) {
     det.innerHTML = `<div class="detempty">${meetings.length ? "Choose a meeting to see it here." : "Summaries you capture appear here."}</div>`;
     return;
   }
   const t = m.hasTranscript ? await invoke<Transcript>("get_transcript", { id: m.id }) : null;
+  const wantSummary = tab === "summary" && m.hasSummary && m.state !== "summarising" && m.state !== "summaryFailed";
+  const s = wantSummary ? await invoke<Summary | null>("get_summary", { id: m.id }) : null;
+  if (n !== renders) return; // a newer render started while this one waited
+  shown = { transcript: t, summary: s };
   const d = m.start ? new Date(m.start) : null;
   const when = d
     ? `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).replace(",", "")}, ${span(m)}`
@@ -337,6 +438,13 @@ async function renderDetail() {
   );
   const choose = document.getElementById("attach-choose");
   if (choose) choose.onclick = () => chooseFile(m.id);
+  const action = document.getElementById("summary-action");
+  if (action) action.onclick = () => runSummary(m.id);
+  det.querySelectorAll<HTMLElement>(".chip[data-cite]").forEach((b) => (b.onclick = () => openPeek(b)));
+  if (tab === "transcript" && scrollToTurn !== null) {
+    document.getElementById(`turn-${scrollToTurn}`)?.scrollIntoView({ block: "start" });
+    scrollToTurn = null;
+  }
   $("detail-menu").onclick = (e) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     openMenu(m, r.right - 210, r.bottom + 4);

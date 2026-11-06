@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: walking skeleton (Outline ticket 01). v1 is single-user.
+Status: import and summarise (Outline tickets 01, 03, 04). v1 is single-user.
 
 ## Build and run
 
@@ -56,10 +56,24 @@ Test-only env vars (D36, D37):
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |
 | `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` |
 
+Fake claude scenarios (the file is read on every run, so it can be rewritten between runs):
+
+```jsonc
+{ "structuredOutput": { "overview": "…", "sections": [{ "title": "…", "points": [Item] }],
+                        "decisions": [Item], "actions": [Item & { "owner": "Name" | null }], "questions": [Item],
+                        "corrections": [] },   // a valid summary, printed in the real result shape
+  "delayMs": 3000 }                            // optional: answer late, so "Summarising" can be seen
+// Item = { "text": "…", "citations": [{ "at": "00:00:10", "quote": "three or more words" }], "inferred": false, "ticketKeys": [] }
+{ "stdout": "{not json" }                      // a malformed result: the summary fails
+{ "exitCode": 1 }                              // claude fails: the summary fails
+```
+
 ## Library
 
 Each meeting is a folder in the library, `YYYY-MM-DD HHmm <Subject>`, holding `meeting.json` and, once there
-is one, `transcript.vtt` exactly as imported. The list reads every folder with a `meeting.json`; every field
+is one, `transcript.vtt` exactly as imported, then `summary.md` (D21) and `summary.json` (Claude's structured
+output as returned, which the Summary tab re-checks against `transcript.vtt` to draw its citation chips).
+Importing or attaching a transcript starts its summary. The list reads every folder with a `meeting.json`; every field
 defaults, so a test or a QA run can seed a state by hand:
 
 ```json

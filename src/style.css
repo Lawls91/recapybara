@@ -814,3 +814,145 @@ select {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ---- summary tab (D21, D43) ---- */
+.det {
+  position: relative;
+}
+.summary {
+  max-width: 720px;
+  color: var(--mc-read);
+  font-weight: var(--mc-readwt);
+}
+.summary .sh {
+  font-family: var(--mc-disp);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 16px 0 4px;
+  line-height: 22px;
+  color: var(--mc-txt);
+}
+.summary .sh:first-child {
+  margin-top: 0;
+}
+.summary .ovw {
+  font-size: 14.5px;
+  line-height: 22px;
+  margin: 0;
+}
+.summary ul.it {
+  margin: 0;
+  padding: 0 0 0 18px;
+}
+.summary ul.it > li {
+  margin: 2px 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+.summary .own {
+  font-weight: 600;
+  color: var(--mc-txt);
+}
+/* trust chips: 18 px high, 9 px radius, focus ring (D43) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 7px;
+  margin-left: 4px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  white-space: nowrap;
+  vertical-align: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.chip.ok {
+  background: var(--tr-okbg);
+  color: var(--tr-ok);
+}
+.chip.bad {
+  background: var(--tr-warnbg);
+  color: var(--tr-warn);
+  border: 1px dashed var(--tr-warnline);
+}
+.chip.inf {
+  background: var(--tr-infbg);
+  color: var(--tr-inf);
+}
+button.chip:hover {
+  box-shadow: 0 0 0 1px currentColor;
+}
+.chip:focus-visible {
+  outline: 2px solid var(--mc-focus);
+  outline-offset: 2px;
+}
+/* peek sheet: 54% of the pane, from the bottom (D43) */
+.peek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 54%;
+  z-index: 7;
+  background: var(--mc-peek);
+  border-top: 1px solid var(--mc-stroke);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -6px 30px var(--mc-shadow);
+  display: flex;
+  flex-direction: column;
+}
+.pkh {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px 6px 34px;
+  font-size: 13px;
+}
+.pkh b {
+  font-weight: 600;
+}
+.pkh .lnk {
+  font-size: 13px;
+}
+.pkh #peek-close {
+  margin-left: auto;
+}
+.btn.sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+.pkb {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 34px 16px;
+  max-width: 788px;
+}
+.pkb .claim {
+  margin: 4px 0 2px;
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--mc-txt);
+}
+.pkb .pkwhy {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tr-warn);
+}
+.tx mark {
+  background: var(--mc-mark);
+  color: inherit;
+  border-radius: 2px;
+}
+.turn.hl {
+  background: var(--mc-accsoft);
+  box-shadow: -10px 0 0 var(--mc-accsoft), 10px 0 0 var(--mc-accsoft);
+  border-radius: 6px;
+}

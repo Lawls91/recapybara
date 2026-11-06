@@ -256,6 +256,9 @@ pub fn run() {
             let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
             let s = settings::load(&data_dir);
             let first = s.library_path.is_none();
+            if let Some(lib) = &s.library_path {
+                library::recover(std::path::Path::new(lib));
+            }
             let logon = s.start_at_logon;
             app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None) });
             // Display name follows productName only (D50).

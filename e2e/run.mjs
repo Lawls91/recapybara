@@ -65,7 +65,8 @@ for (const spec of specs) {
   // An existing install: library chosen, so no first-run dialog; logon off, so the Run key is never touched.
   fs.writeFileSync(path.join(data, "settings.json"), JSON.stringify({ libraryPath: library, startAtLogon: false }));
   const scenario = path.join(root, "scenario.json");
-  fs.writeFileSync(scenario, JSON.stringify({ result: { type: "result", is_error: false, result: "DONE" } }));
+  // Default: a valid minimal summary, so an import (which starts its summary, D15) ends "Summary ready".
+  fs.writeFileSync(scenario, JSON.stringify({ structuredOutput: { overview: "Synthetic summary." } }));
 
   const env = {
     ...process.env,
@@ -76,6 +77,8 @@ for (const spec of specs) {
     FAKE_CLAUDE_SCENARIO: scenario,
     MEETING_CAPTURE_DATA_DIR: data,
     MEETING_CAPTURE_HOME: home,
+    // The app must strip it from every claude it runs (D6); the fake's record shows whether it did.
+    ANTHROPIC_API_KEY: "sk-e2e-parent-key-must-not-leak",
   };
   if (name === "real-folders") {
     delete env.MEETING_CAPTURE_DATA_DIR;

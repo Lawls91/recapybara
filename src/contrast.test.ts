@@ -52,6 +52,13 @@ const PAIRS: [string, string[], number][] = [
   ),
   ["tr-warnline", ["mc-win", "mc-card"], UI],
   ["mc-focus", ALL, UI],
+  // the peek sheet (D43): its text, the quote mark behind reading text, and the reason line
+  ["mc-txt2", ["mc-peek"], TEXT],
+  ["mc-txt3", ["mc-peek"], TEXT],
+  ["mc-acctxt", ["mc-peek"], TEXT],
+  ["mc-read", ["mc-peek", "mc-mark"], TEXT],
+  ["tr-warn", ["mc-peek"], TEXT],
+  ["mc-focus", ["mc-peek"], UI],
 ];
 
 function failures(t: Tokens): string[] {

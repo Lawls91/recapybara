@@ -16,13 +16,14 @@ describe("import a transcript", () => {
     await expect(rows()).toBeElementsArrayOfSize(3);
   });
 
-  it("an imported fixture appears at the top of the past meetings as Transcript ready", async () => {
+  // Importing starts the summary (D15, ticket 04), and the default fake scenario returns a valid one.
+  it("an imported fixture appears at the top of the past meetings, then summarises", async () => {
     await importFile(freshFixture());
     await expect(rows()).toBeElementsArrayOfSize(4);
     const r = await rows();
     await expect(r[0]).toHaveAttribute("data-id", "upcoming"); // upcoming stays above the past meetings
     await expect(r[1].$(".rt")).toHaveText("Sprint review");
-    await expect(r[1].$(".lbl")).toHaveText("Transcript ready");
+    await expect(r[1].$(".lbl")).toHaveText("Summary ready");
     await expect(r[2]).toHaveAttribute("data-id", "yesterday");
   });
 
@@ -45,7 +46,7 @@ describe("import a transcript", () => {
     await importFile(freshFixture("bad.vtt"), "missing");
     await expect($("#attach-strip")).toHaveText(expect.stringContaining("bad.vtt: doesn't start with WEBVTT"));
     await importFile(freshFixture(), "missing");
-    await expect($('.row[data-id="missing"] .lbl')).toHaveText("Transcript ready");
+    await expect($('.row[data-id="missing"] .lbl')).toHaveText("Summary ready");
     await expect($("#attach-strip")).not.toBeExisting();
     expect(folders().length).toBe(before);
   });

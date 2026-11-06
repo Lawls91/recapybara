@@ -12,6 +12,15 @@ export const lastClaudeRecord = () => {
   return JSON.parse(lines.at(-1));
 };
 
+/** Every record the fake claude wrote, oldest first. */
+export const claudeRecords = () => {
+  const file = `${process.env.FAKE_CLAUDE_SCENARIO}.record.jsonl`;
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
+};
+
+/** What the fake claude answers next (fake-claude/src/main.rs documents the fields). */
+export const scenario = (s) => fs.writeFileSync(process.env.FAKE_CLAUDE_SCENARIO, JSON.stringify(s));
+
 export const root = (...p) => path.join(process.env.E2E_ROOT, ...p);
 
 export const fixture = (name = "Sprint review.vtt") => path.resolve("e2e", "fixtures", name);
