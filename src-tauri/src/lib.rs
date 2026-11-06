@@ -220,35 +220,27 @@ fn fetch_due(app: &AppHandle) {
     let state = app.state::<AppState>();
     let (runs, home, events) = (state.data_dir.join("runs"), state.home.clone(), state.calendar.events());
     let program = claude::program();
-    let tick = std::panic::AssertUnwindSafe(|| {
-        fetch::tick(
-            &lib,
-            &events,
-            chrono::Utc::now(),
-            |r| claude::run(&program, &runs, &home, r),
-            || claude::version(&program),
-            |id| {
-                let _ = app.emit("meeting-changed", id);
-            },
-        )
-    });
-    let done = std::panic::catch_unwind(tick).unwrap_or_else(|_| {
-        eprintln!("fetch: the tick panicked");
-        vec![]
-    });
-    for (id, m) in done {
-        match m.state {
-            library::State::TranscriptReady => {
-                if let Err(e) = start_summary(app, &id) {
+    // Each attempt's follow-up runs as it lands, so quitting during a later attempt loses none.
+    let landed = |id: &str, m: Option<&library::Meeting>| {
+        let _ = app.emit("meeting-changed", id);
+        match m.map(|m| (m, m.state)) {
+            Some((_, library::State::TranscriptReady)) => {
+                if let Err(e) = start_summary(app, id) {
                     eprintln!("summary not started for {id}: {e}");
                 }
             }
-            library::State::CaptureFailed => {
-                let (click_app, click_id) = (app.clone(), id.clone());
-                platform::toast(&summary::toast_title(&m), fetch::CAPTURE_FAILED_BODY, move || open_from_toast(&click_app, click_id.clone()));
+            Some((m, library::State::CaptureFailed)) => {
+                let (click_app, click_id) = (app.clone(), id.to_string());
+                platform::toast(&summary::toast_title(m), fetch::CAPTURE_FAILED_BODY, move || open_from_toast(&click_app, click_id.clone()));
             }
             _ => {}
         }
+    };
+    let tick = std::panic::AssertUnwindSafe(|| {
+        fetch::tick(&lib, &events, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::version(&program), landed)
+    });
+    if std::panic::catch_unwind(tick).is_err() {
+        eprintln!("fetch: the tick panicked");
     }
 }
 

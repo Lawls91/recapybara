@@ -232,21 +232,22 @@ fn attempt(dir: &Path, m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&Cl
 
 /// The scheduler's fetch look at the clock (D12, D25). Each cached event that has ended within the catch-up window
 /// and has no folder gets one ("awaiting transcript", due now). Then every awaiting meeting whose next attempt is
-/// due gets one attempt, one at a time. `changed` is called with each folder id as it is created or updated. Returns
-/// each attempted meeting as it now stands, for the summary or failure toast that follows.
+/// due gets one attempt, one at a time. `changed` is called with each folder id as it is created (no meeting) and as
+/// each attempt lands (the meeting as it now stands), so the summary or failure toast follows at once: a quit during a
+/// later attempt can't lose it. Returns each attempted meeting as it now stands.
 pub fn tick(
     lib: &Path,
     events: &[Event],
     now: DateTime<Utc>,
     mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>,
     version: impl Fn() -> Option<String>,
-    changed: impl Fn(&str),
+    mut changed: impl FnMut(&str, Option<&Meeting>),
 ) -> Vec<(String, Meeting)> {
     let known = library::list(lib);
     for e in events.iter().filter(|e| catches_up(e.end, now)) {
         if !known.iter().any(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) {
             match library::create(lib, &folder_for(e, now)) {
-                Ok(id) => changed(&id),
+                Ok(id) => changed(&id, None),
                 Err(err) => eprintln!("fetch: no folder for {}: {err}", e.subject),
             }
         }
@@ -258,7 +259,7 @@ pub fn tick(
     for l in due {
         match attempt(&lib.join(&l.id), &l.meeting, now, &mut run, &version) {
             Ok(m) => {
-                changed(&l.id);
+                changed(&l.id, Some(&m));
                 done.push((l.id, m));
             }
             Err(e) => eprintln!("fetch: {} not updated: {e}", l.id),
@@ -396,7 +397,7 @@ mod tests {
         let mut run = runner(&log, &minute, |_| blocks(&body(&[])));
         for m in -5..=180 {
             *minute.borrow_mut() = m;
-            tick(&lib, std::slice::from_ref(&e), end() + Duration::minutes(m), &mut run, none, |_| {});
+            tick(&lib, std::slice::from_ref(&e), end() + Duration::minutes(m), &mut run, none, |_, _| {});
         }
         assert_eq!(log.borrow().iter().map(|x| x.0).collect::<Vec<_>>(), [0, 2, 10, 30, 120]);
         let m = only(&lib);
@@ -412,7 +413,7 @@ mod tests {
         let mut run = runner(&log, &minute, |n| if n == 1 { blocks(r#"{"error":"Request failed with status 403"}"#) } else { blocks(&body(&[])) });
         for m in 0..=11 {
             *minute.borrow_mut() = m;
-            tick(&lib, &events, end() + Duration::minutes(m), &mut run, none, |_| {});
+            tick(&lib, &events, end() + Duration::minutes(m), &mut run, none, |_, _| {});
         }
         let mut got = log.borrow().clone();
         got.sort();
@@ -430,7 +431,7 @@ mod tests {
         let recent = event(2, now - Duration::minutes(150), now - Duration::minutes(100));
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
         let ids = RefCell::new(vec![]);
-        tick(&lib, &[old, recent.clone()], now, runner(&log, &minute, |_| blocks(&body(&[]))), none, |id| ids.borrow_mut().push(id.to_string()));
+        tick(&lib, &[old, recent.clone()], now, runner(&log, &minute, |_| blocks(&body(&[]))), none, |id, _| ids.borrow_mut().push(id.to_string()));
         assert_eq!(log.borrow().iter().map(|x| x.1).collect::<Vec<_>>(), [2]);
         let m = only(&lib);
         assert_eq!(m.event_id.as_deref(), Some("SYNTH-2"));
@@ -444,7 +445,7 @@ mod tests {
         let lib = temp("uri");
         let e = event(1, start(), end());
         let typo = |_: &ClaudeRun| Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=Y", blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])))] });
-        tick(&lib, std::slice::from_ref(&e), end(), typo, || Some("2.1.318 (Claude Code)".into()), |_| {});
+        tick(&lib, std::slice::from_ref(&e), end(), typo, || Some("2.1.318 (Claude Code)".into()), |_, _| {});
         let m = only(&lib);
         assert_eq!((m.state, m.attempts), (State::AwaitingTranscript, 1));
         assert_eq!(m.next_attempt.map(DateTime::<Utc>::from), Some(end() + Duration::minutes(2)));
@@ -453,7 +454,7 @@ mod tests {
         assert!(!dir.join(library::VTT).exists());
 
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(2));
-        let done = tick(&lib, &[e], end() + Duration::minutes(2), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)]))), none, |_| {});
+        let done = tick(&lib, &[e], end() + Duration::minutes(2), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)]))), none, |_, _| {});
         assert_eq!(done.len(), 1);
         assert_eq!(done[0].1.state, State::TranscriptReady);
         assert_eq!(fs::read_to_string(dir.join(library::VTT)).unwrap(), VTT_A, "exactly as captured");
@@ -464,11 +465,30 @@ mod tests {
     }
 
     #[test]
+    fn each_landed_attempt_is_reported_before_the_next_meetings_run_starts() {
+        let lib = temp("landed");
+        let events = [event(1, start(), end()), event(2, start(), end())];
+        let order = RefCell::new(vec![]);
+        let run = |r: &ClaudeRun| {
+            order.borrow_mut().push("run".to_string());
+            let uri = r.prompt.split('"').nth(1).unwrap().to_string();
+            Ok(Output { stdout: String::new(), captured: vec![read(&uri, blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])))] })
+        };
+        tick(&lib, &events, end(), run, none, |_, m| {
+            if let Some(m) = m {
+                order.borrow_mut().push(format!("{:?}", m.state));
+            }
+        });
+        // A quit during the second run can't lose the first meeting's summary: its follow-up already ran.
+        assert_eq!(*order.borrow(), ["run", "TranscriptReady", "run", "TranscriptReady"]);
+    }
+
+    #[test]
     fn a_two_part_capture_writes_each_part_as_captured_and_the_merged_transcript() {
         let lib = temp("parts");
         let e = event(1, start(), end());
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
-        tick(&lib, &[e], end(), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A), ("2026-11-05T11:20:00Z", VTT_B)]))), none, |_| {});
+        tick(&lib, &[e], end(), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A), ("2026-11-05T11:20:00Z", VTT_B)]))), none, |_, _| {});
         let dir = lib.join(&library::list(&lib)[0].id);
         assert_eq!(fs::read_to_string(dir.join("transcript.part1.vtt")).unwrap(), VTT_A);
         assert_eq!(fs::read_to_string(dir.join("transcript.part2.vtt")).unwrap(), VTT_B);
@@ -482,7 +502,7 @@ mod tests {
         let lib = temp("stub");
         let e = event(1, start(), end());
         let stub = |_: &ClaudeRun| Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=y", blocks("Error: result (60,000 characters across 1 line) exceeds maximum allowed tokens. Output has been saved to C:\\synthetic.txt"))] });
-        let done = tick(&lib, std::slice::from_ref(&e), end(), stub, none, |_| {});
+        let done = tick(&lib, std::slice::from_ref(&e), end(), stub, none, |_, _| {});
         assert_eq!(done[0].1.state, State::CaptureFailed);
         assert_eq!(only(&lib).next_attempt, None, "no more attempts");
         assert!(!lib.join(&done[0].0).join(library::VTT).exists());
@@ -496,7 +516,7 @@ mod tests {
             library::save(&dir(), &m).unwrap();
             Err(io::Error::other("synthetic"))
         };
-        tick(&lib, &[e], end(), import, none, |_| {});
+        tick(&lib, &[e], end(), import, none, |_, _| {});
         assert_eq!((only(&lib).state, only(&lib).attempts), (State::TranscriptReady, 0));
     }
 
