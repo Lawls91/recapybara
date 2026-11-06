@@ -43,7 +43,9 @@ const portFree = (port) =>
     const s = net.createServer().once("error", () => resolve(false));
     s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
   });
-const DRIVER_PORT = 4444; // @wdio/tauri-service's default tauriDriverPort
+// MC_E2E_PORT moves tauri-driver off 4444 (wdio.conf.mjs passes it as tauriDriverPort); the service picks its own
+// free native port.
+const DRIVER_PORT = Number(process.env.MC_E2E_PORT || 4444);
 
 const only = process.argv[2];
 const specs = fs

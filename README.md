@@ -62,6 +62,7 @@ Test-only env vars (D36, D37):
 | `MEETING_CAPTURE_DATA_DIR` | replaces `%APPDATA%\com.lawls91.meetingcapture` (settings, `runs`) |
 | `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |
+| `MC_E2E_PORT` | the E2E tauri-driver port (default 4444), when something else holds 4444 |
 | `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` |
 
 Fake claude scenarios (the file is read on every run, so it can be rewritten between runs):

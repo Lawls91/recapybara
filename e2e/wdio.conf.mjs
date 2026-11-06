@@ -12,7 +12,15 @@ export const config = {
   maxInstances: 1,
   capabilities: [{ browserName: "tauri", "tauri:options": { application: process.env.MC_APP } }],
   services: [
-    ["@wdio/tauri-service", { driverProvider: "external", autoInstallTauriDriver: true, autoDownloadEdgeDriver: true }],
+    [
+      "@wdio/tauri-service",
+      {
+        driverProvider: "external",
+        autoInstallTauriDriver: true,
+        autoDownloadEdgeDriver: true,
+        tauriDriverPort: Number(process.env.MC_E2E_PORT || 4444), // e2e/run.mjs checks it is free
+      },
+    ],
   ],
   framework: "mocha",
   reporters: ["spec"],
