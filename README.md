@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary, Jira key check (Outline tickets 01, 03, 04, 05, 06). v1 is single-user.
+Status: import, summarise, corrections and glossary, Jira key check, calendar refresh (Outline tickets 01, 03, 04, 05, 06, 07). v1 is single-user.
 
 ## Build and run
 
@@ -80,6 +80,11 @@ Fake claude scenarios (the file is read on every run, so it can be rewritten bet
     { "tool_name": "mcp__claude_ai_Atlassian__getJiraIssue", "tool_input": { "issueIdOrKey": "PROJ-404" },
       "tool_response": [{ "type": "text", "text": "{\"error\":true,\"message\":\"not found\"}" }] },  // an error: doesn't count
     { "event": "PostToolUseFailure", "tool_name": "…", "tool_input": {…}, "error": "…" } ] }  // the failure hook
+{ "result": { "type": "result", "is_error": false, "result": "DONE" }, "hooks": [   // a calendar refresh (D9)
+    { "tool_name": "mcp__claude_ai_Microsoft_365__outlook_calendar_search", "tool_input": { "query": "*" },
+      "tool_response": [{ "type": "text", "text": "{\"uri\":\"calendar:///events/E1\",\"id\":\"E1\",\"subject\":\"Backlog Refinement\",\"organizerName\":\"Robin Sample\",\"namedAttendees\":[{\"name\":\"Speaker A\",\"address\":\"a@example.com\"}],\"start\":{\"dateTime\":\"2026-11-07T14:00:00.0000000\",\"timeZone\":\"UTC\"},\"end\":{\"dateTime\":\"2026-11-07T15:00:00.0000000\",\"timeZone\":\"UTC\"}}{\"moreResults\":false}" }] },
+    { "tool_name": "mcp__claude_ai_Microsoft_365__read_resource", "tool_input": { "uri": "calendar:///events/E1" },
+      "tool_response": [{ "type": "text", "text": "{\"onlineMeeting\":{\"joinUrl\":\"https://teams.example/j/1\"}}" }] } ] }
 { "stdout": "{not json" }                      // a malformed result: the summary fails
 { "exitCode": 1 }                              // claude fails: the summary fails
 ```
@@ -100,6 +105,16 @@ told to look up every ticket key it mentions. Its capture hook (per-run `--setti
 has Git Bash write each raw payload to its own file under `runs\hooks-<pid>-<n>\`, which the app reads and deletes when the
 run ends (D7, D13). A key counts as found when a clean Jira read's response names it as an issue `"key"`; the found keys go in
 `meeting.json` (`foundKeys`), and an item whose key isn't among them gets `(unverified key)` and a "Key not found" chip. A failed run leaves its short reason in `meeting.json` (`summaryError`), shown on the Summary failed card.
+
+The calendar refresh (D9) runs at start and every 30 minutes, one at a time, and on Refresh calendar (the list's status
+line, or the tray's Refresh calendar now). It is a haiku run allowed only `outlook_calendar_search` and `read_resource`,
+both captured by the hook. The app follows the captured search pages from offset 0 through each `nextOffset` (a missing
+page fails the refresh), and keeps the events from 2 hours ago to 24 hours ahead whose captured read has
+`onlineMeeting.joinUrl`. Claude's reply is ignored. The cache is in memory only (the refresh at start refills it), and
+lists each event as Scheduled, unless a library folder has its event id. Only UTC times (`timeZone: "UTC"`, what the
+connector returned) or times with an offset convert; an event in another zone is left out and logged. A failed refresh
+keeps the cache and puts the failure, with its fix, in the status line.
+
 Without `MEETING_CAPTURE_CLAUDE`, the app runs the first `claude.exe` (or `claude.cmd` shim) on PATH. The list reads every folder with a `meeting.json`; every field
 defaults, so a test or a QA run can seed a state by hand:
 
