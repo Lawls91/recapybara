@@ -81,3 +81,26 @@ fn version_prints_the_scenario_version() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2.1.318 (Claude Code)");
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn structured_output_is_printed_in_the_real_result_shape() {
+    let dir = temp("fakeso");
+    let scenario = dir.join("scenario.json");
+    fs::write(&scenario, r#"{"structuredOutput":{"overview":"Synthetic"}}"#).unwrap();
+    let out = Command::new(FAKE)
+        .args(["-p", "x"])
+        .current_dir(&dir)
+        .env("FAKE_CLAUDE_SCENARIO", &scenario)
+        .env("MEETING_CAPTURE_HOME", dir.join("home"))
+        .output()
+        .unwrap();
+    let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((printed["type"].as_str(), printed["is_error"].as_bool()), (Some("result"), Some(false)));
+    assert_eq!(printed["structured_output"]["overview"], "Synthetic");
+    assert_eq!(printed["result"], r#"{"overview":"Synthetic"}"#);
+    fs::write(&scenario, r#"{"stdout":"{not json"}"#).unwrap();
+    let out = Command::new(FAKE).args(["-p", "x"]).current_dir(&dir).env("FAKE_CLAUDE_SCENARIO", &scenario)
+        .env("MEETING_CAPTURE_HOME", dir.join("home")).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "{not json");
+    fs::remove_dir_all(dir).unwrap();
+}

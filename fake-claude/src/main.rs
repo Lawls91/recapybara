@@ -2,7 +2,10 @@
 //!
 //! Scenario file (FAKE_CLAUDE_SCENARIO), all fields optional:
 //!   { "result": <json printed on stdout>, "exitCode": 0, "version": "2.1.318 (Claude Code)",
-//!     "hook": { "event": "PostToolUse", "tool_name": "...", "tool_input": {...}, "tool_response": ... } }
+//!     "hook": { "event": "PostToolUse", "tool_name": "...", "tool_input": {...}, "tool_response": ... },
+//!     "structuredOutput": {...},  // printed inside the real --output-format json shape (Research, Headless Claude Code)
+//!     "stdout": "raw text",       // printed as is, e.g. malformed JSON
+//!     "delayMs": 0 }              // sleep before answering, so a test can see "summarising"
 //! Each run appends one JSON line to `<scenario>.record.jsonl`:
 //!   { argv, env, stdin, cwd, projectDir, hooks: [{ command, exitCode }] }
 use serde_json::{json, Value};
@@ -110,7 +113,19 @@ fn main() {
             });
             record["hooks"] = json!(run_hooks(&argv[i + 1], hook, &payload));
         }
-        scenario.get("result").cloned().unwrap_or(Value::Null).to_string()
+        if let Some(ms) = scenario["delayMs"].as_u64() {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
+        if let Some(raw) = scenario["stdout"].as_str() {
+            raw.to_string()
+        } else if let Some(out) = scenario.get("structuredOutput") {
+            // The real result: structured_output parsed, and result holding the same object as a string.
+            json!({ "type": "result", "subtype": "success", "is_error": false, "duration_ms": 1, "num_turns": 1,
+                    "result": out.to_string(), "session_id": "fake-session", "structured_output": out })
+            .to_string()
+        } else {
+            scenario.get("result").cloned().unwrap_or(Value::Null).to_string()
+        }
     };
 
     let mut log = fs::OpenOptions::new()
