@@ -417,6 +417,9 @@ pub fn begin(dir: &Path) -> Result<Meeting, String> {
     if m.state == State::Summarising {
         return Err("A summary is already running for this meeting.".into());
     }
+    if m.state == State::Skipped {
+        return Err("This meeting is skipped. Unskip it first.".into());
+    }
     m.state = State::Summarising;
     library::save(dir, &m).map_err(|e| e.to_string())?;
     Ok(m)

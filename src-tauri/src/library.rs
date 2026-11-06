@@ -72,6 +72,24 @@ pub struct Listed {
     pub meeting: Meeting,
     pub has_transcript: bool,
     pub has_summary: bool,
+    /// Its series is excluded (D17).
+    pub excluded: bool,
+}
+
+/// In an excluded series (D17): the join URL every occurrence shares is in `series`.
+pub fn excluded(m: &Meeting, series: &[String]) -> bool {
+    m.join_url.as_ref().is_some_and(|u| series.contains(u))
+}
+
+/// Exclude series (D17): every occurrence of an excluded series not yet captured lists as skipped. One with a
+/// transcript keeps its state, so its summary stays readable.
+pub fn exclude(list: &mut [Listed], series: &[String]) {
+    for l in list.iter_mut().filter(|l| excluded(&l.meeting, series)) {
+        l.excluded = true;
+        if !l.has_transcript {
+            l.meeting.state = State::Skipped;
+        }
+    }
 }
 
 /// Temp file, then rename (D25). `before_rename` is the interruption point tests use.
@@ -180,6 +198,9 @@ pub fn attach(library: &Path, id: &str, src: &Path) -> Result<(), String> {
     if m.state == State::Summarising {
         return Err("A summary is running for this meeting. Replace the transcript when it finishes.".into());
     }
+    if m.state == State::Skipped {
+        return Err("This meeting is skipped. Unskip it first.".into());
+    }
     with_transcript(&mut m, &bytes);
     write_atomic(&dir.join(VTT), &bytes).and_then(|_| save(&dir, &m)).map_err(|e| e.to_string())
 }
@@ -211,6 +232,7 @@ pub fn list(library: &Path) -> Vec<Listed> {
                 id: e.file_name().to_string_lossy().into_owned(),
                 has_transcript: dir.join(VTT).exists(),
                 has_summary: dir.join(SUMMARY_MD).exists(),
+                excluded: false,
                 meeting,
             })
         })

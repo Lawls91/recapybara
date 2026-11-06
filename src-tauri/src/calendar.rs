@@ -263,6 +263,7 @@ pub fn listed(events: &[Event], mut library: Vec<Listed>) -> Vec<Listed> {
             },
             has_transcript: false,
             has_summary: false,
+            excluded: false,
         })
         .collect();
     library.extend(new);
@@ -460,6 +461,7 @@ mod tests {
             meeting: Meeting { event_id: Some("SYNTH-EVENT-1".into()), subject: "Backlog Refinement".into(), start: events[0].start.fixed_offset().into(), state: State::AwaitingTranscript, ..Meeting::default() },
             has_transcript: false,
             has_summary: false,
+            excluded: false,
         };
         let l = listed(&events, vec![folder]);
         let got: Vec<(&str, State)> = l.iter().map(|x| (x.meeting.subject.as_str(), x.meeting.state)).collect();

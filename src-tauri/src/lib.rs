@@ -101,7 +101,29 @@ fn library_path(app: &AppHandle) -> Result<PathBuf, String> {
 #[tauri::command]
 fn list_meetings(app: AppHandle) -> Result<Vec<library::Listed>, String> {
     let lib = library_path(&app)?;
-    Ok(calendar::listed(&app.state::<AppState>().calendar.events(), library::list(&lib)))
+    let state = app.state::<AppState>();
+    let mut list = calendar::listed(&state.calendar.events(), library::list(&lib));
+    library::exclude(&mut list, &state.settings.lock().unwrap().excluded());
+    Ok(list)
+}
+
+/// Skip (D17) from the list, on a folder or a cached event (which gets its folder now). Returns the folder id.
+#[tauri::command]
+fn skip_meeting(app: AppHandle, id: String) -> Result<String, String> {
+    let done = fetch::skip(&library_path(&app)?, &id, &app.state::<AppState>().calendar.events(), chrono::Utc::now())?;
+    let _ = app.emit("meeting-changed", &done);
+    Ok(done)
+}
+
+/// Unskip (D49): a meeting that ended within the catch-up window is fetched at once.
+#[tauri::command]
+fn unskip_meeting(app: AppHandle, id: String) -> Result<(), String> {
+    let m = fetch::unskip(&library::meeting_dir(&library_path(&app)?, &id)?, chrono::Utc::now())?;
+    let _ = app.emit("meeting-changed", &id);
+    if m.state == library::State::AwaitingTranscript {
+        std::thread::spawn(move || fetch_due(&app));
+    }
+    Ok(())
 }
 
 /// The Transcript tab: turns with the last summary run's corrections applied, the same ones `transcript.md` holds (D22).
@@ -216,9 +238,13 @@ fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
 /// Fetches every meeting that is due (D12): a folder for each cached event that just ended, then each due attempt,
 /// one at a time. A capture starts its summary (D15); a capture failure raises its toast (D29, D47).
 fn fetch_due(app: &AppHandle) {
+    // One tick at a time (the scheduler's and an Unskip's), so no meeting gets two attempts for one due time.
+    static FETCHING: Mutex<()> = Mutex::new(());
+    let _one = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
     let Ok(lib) = library_path(app) else { return };
     let state = app.state::<AppState>();
     let (runs, home, events) = (state.data_dir.join("runs"), state.home.clone(), state.calendar.events());
+    let excluded = state.settings.lock().unwrap().excluded();
     let program = claude::program();
     // Each attempt's follow-up runs as it lands, so quitting during a later attempt loses none.
     let landed = |id: &str, m: Option<&library::Meeting>| {
@@ -237,7 +263,7 @@ fn fetch_due(app: &AppHandle) {
         }
     };
     let tick = std::panic::AssertUnwindSafe(|| {
-        fetch::tick(&lib, &events, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::version(&program), landed)
+        fetch::tick(&lib, &events, &excluded, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::version(&program), landed)
     });
     if std::panic::catch_unwind(tick).is_err() {
         eprintln!("fetch: the tick panicked");
@@ -385,7 +411,9 @@ pub fn run() {
             open_folder,
             summarise,
             get_summary,
-            take_pending_meeting
+            take_pending_meeting,
+            skip_meeting,
+            unskip_meeting
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

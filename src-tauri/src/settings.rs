@@ -10,9 +10,24 @@ pub struct Settings {
     pub library_path: Option<String>,
     pub summary_model: String,
     pub start_at_logon: bool,
-    pub excluded_series: Vec<String>,
+    /// Exclude series (D17): keyed by the join URL every occurrence shares; the subject is for Settings' list.
+    pub excluded_series: Vec<Series>,
     /// `system`, `light` or `dark` (D46).
     pub appearance: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Series {
+    pub join_url: String,
+    pub subject: String,
+}
+
+impl Settings {
+    /// The excluded join URLs.
+    pub fn excluded(&self) -> Vec<String> {
+        self.excluded_series.iter().map(|s| s.join_url.clone()).collect()
+    }
 }
 
 impl Default for Settings {
@@ -54,6 +69,7 @@ mod tests {
             library_path: Some(r"D:\lib".into()),
             summary_model: "opus".into(),
             start_at_logon: false,
+            excluded_series: vec![Series { join_url: "https://teams.example/j/1".into(), subject: "Backlog Refinement".into() }],
             ..Settings::default()
         };
         save(&dir, &saved).unwrap();
@@ -63,6 +79,8 @@ mod tests {
         assert_eq!(loaded.library_path.as_deref(), Some(r"D:\lib"));
         assert_eq!(loaded.summary_model, "opus");
         assert!(!loaded.start_at_logon);
+        assert_eq!(loaded.excluded(), ["https://teams.example/j/1"], "an exclusion survives a restart (D17)");
+        assert_eq!(on_disk["excludedSeries"][0]["joinUrl"], "https://teams.example/j/1");
         fs::remove_dir_all(dir).unwrap();
     }
 
