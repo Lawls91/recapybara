@@ -25,8 +25,9 @@ fn observed_slug(path: &str) -> String {
             map.insert(a, b);
         }
     }
+    // Every observed letter and digit is kept as is, so all of them are; punctuation must be observed.
     path.chars()
-        .map(|c| *map.get(&c).unwrap_or_else(|| panic!("no observed folder name shows what Claude Code does with {c:?}")))
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { *map.get(&c).unwrap_or_else(|| panic!("no observed folder name shows what Claude Code does with {c:?}")) })
         .collect()
 }
 

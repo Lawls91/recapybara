@@ -121,7 +121,9 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
             "refresh" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = refresh_calendar(app).await;
+                    if let Err(e) = refresh_calendar(app).await {
+                        eprintln!("Refresh calendar failed: {e}");
+                    }
                 });
             }
             "logon" => {
