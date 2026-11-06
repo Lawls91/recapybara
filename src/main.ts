@@ -14,6 +14,8 @@ import {
 } from "./meetings";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+// Stable element ids from the folder name (WebView2 exposes ids as UIA AutomationIds).
+const slug = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "-");
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 let current: Settings;
@@ -84,10 +86,10 @@ function renderList() {
         g.items
           .map((m) => {
             const second = [span(m), m.source === "import" ? "imported" : (m.organiser ?? "")].filter(Boolean).map(esc).join(" · ");
-            return `<div class="row f-${STATES[m.state].family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
+            return `<div id="row-${slug(m.id)}" class="row f-${STATES[m.state].family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
               <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
               ${mark(m)}
-              <button class="kebab" tabindex="-1" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button>
+              <button id="kebab-${slug(m.id)}" class="kebab" tabindex="-1" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button>
             </div>`;
           })
           .join(""),

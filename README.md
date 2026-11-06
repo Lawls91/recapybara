@@ -38,3 +38,18 @@ Test-only env vars (D36, D37):
 | `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |
 | `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` |
+
+## Library
+
+Each meeting is a folder in the library, `YYYY-MM-DD HHmm <Subject>`, holding `meeting.json` and, once there
+is one, `transcript.vtt` exactly as imported. The list reads every folder with a `meeting.json`; every field
+defaults, so a test or a QA run can seed a state by hand:
+
+```json
+{ "subject": "Backlog Refinement", "start": "2026-11-05T13:00:00+00:00", "end": "2026-11-05T14:00:00+00:00",
+  "state": "noTranscript", "organiser": "Robin Sample", "attendees": ["Speaker A"], "joinUrl": "https://teams.example/x" }
+```
+
+`state` is one of `scheduled`, `inCall`, `awaitingTranscript`, `noTranscript`, `notReachable`, `captureFailed`,
+`transcriptReady`, `summarising`, `done`, `summaryFailed`, `skipped`. A `summary.md` in the folder makes the
+summary action read "Re-run summary". Settings' Appearance (`appearance`: `system`, `light`, `dark`) picks the theme.
