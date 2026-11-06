@@ -18,7 +18,7 @@ use std::{
 /// never from the app's rule: each char maps the way the observations show it maps.
 fn observed_slug(path: &str) -> String {
     let pairs: Vec<(String, String)> =
-        serde_json::from_str(include_str!("../../tests/fixtures/observed-slugs.json")).unwrap();
+        serde_json::from_str(include_str!("../tests/fixtures/observed-slugs.json")).unwrap();
     let mut map = HashMap::new();
     for (p, s) in &pairs {
         for (a, b) in p.chars().zip(s.chars()) {

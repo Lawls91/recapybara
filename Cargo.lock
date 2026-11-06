@@ -967,6 +967,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fake-claude"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "meeting-capture",
+ "serde_json",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

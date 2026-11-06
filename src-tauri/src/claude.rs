@@ -30,7 +30,7 @@ pub fn slug(path: &Path) -> String {
 /// Runs isolated in `runs_dir`, then deletes Claude Code's copies under `home` (D7),
 /// whether the run succeeded or not. Returns stdout.
 pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) -> io::Result<String> {
-    fs::create_dir_all(runs_dir)?;
+    fs::create_dir_all(runs_dir).map_err(|e| io::Error::new(e.kind(), format!("create {}: {e}", runs_dir.display())))?;
     let mut cmd = Command::new(program);
     cmd.arg("-p")
         .arg(&run.prompt)
@@ -52,7 +52,7 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
     });
     // ponytail: hook transcript_path ground truth (D7) arrives with the first hooked run (tickets 06-08).
     let _ = fs::remove_dir_all(home.join(".claude").join("projects").join(slug(runs_dir)));
-    let out = result?;
+    let out = result.map_err(|e| io::Error::new(e.kind(), format!("run {}: {e}", program.to_string_lossy())))?;
     if !out.status.success() {
         return Err(io::Error::other(format!(
             "claude exited with {}: {}",

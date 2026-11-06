@@ -3,7 +3,7 @@
 //   1. cargo test under cargo-llvm-cov, failing under 80% Rust line coverage
 //   2. Vitest
 //   3. tauri build --debug --no-bundle (app + fake claude; the installer is `npx tauri build`, not part of check)
-//   4. E2E (WebdriverIO + @wdio/tauri-service) against that build
+//   4. cargo build -p fake-claude, then E2E (WebdriverIO + @wdio/tauri-service) against that build
 // Prerequisites it installs when missing: llvm-tools-preview, cargo-llvm-cov.
 // tauri-driver and msedgedriver are fetched by @wdio/tauri-service on first E2E run.
 import { spawnSync } from "node:child_process";
@@ -31,11 +31,12 @@ if (!has("cargo", ["llvm-cov", "--version"])) {
 // the gate measures the Rust core.
 step("cargo test + coverage", "cargo", [
   "llvm-cov",
-  "--manifest-path", "src-tauri/Cargo.toml",
+  "--workspace",
   "--fail-under-lines", process.env.MC_COVERAGE_MIN ?? "80",
   "--ignore-filename-regex", '"src[\\\\/](lib|main)\\.rs$"',
 ]);
 step("vitest", "npx", ["vitest", "run"]);
 step("tauri build (debug, no installer)", "npx", ["tauri", "build", "--debug", "--no-bundle"]);
+step("fake claude", "cargo", ["build", "-p", "fake-claude"]);
 step("e2e", "node", ["e2e/run.mjs"]);
 console.log("\ncheck PASSED");
