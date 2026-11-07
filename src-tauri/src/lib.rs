@@ -34,8 +34,8 @@ struct AppState {
     /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
     pending_open: Mutex<Option<String>>,
     calendar: calendar::Calendar,
-    /// Import from Teams: the last Search's eligible events, which Import takes.
-    teams_found: Mutex<Vec<calendar::Event>>,
+    /// Import from Teams: the latest Search's eligible events and dates, which Import takes.
+    teams: fetch::TeamsImport,
     /// A dev instance: never touches the Run key.
     dev: bool,
 }
@@ -372,6 +372,7 @@ fn after_fetch(app: &AppHandle, id: &str, m: &library::Meeting, excluded: &[Stri
 async fn teams_search(app: AppHandle, from: String, to: String) -> Result<serde_json::Value, String> {
     let (start, end) = calendar::import_window(&from, &to, chrono::Local::now().date_naive())?;
     let lib = library_path(&app)?;
+    let search = app.state::<AppState>().teams.searching();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
@@ -379,25 +380,21 @@ async fn teams_search(app: AppHandle, from: String, to: String) -> Result<serde_
         let excluded = state.settings.lock().unwrap().excluded();
         let (found, left_out) = fetch::eligible(events, &lib, &excluded, |id| state.calendar.deleted(id), chrono::Utc::now());
         let n = found.len();
-        *state.teams_found.lock().unwrap() = found;
+        state.teams.found(search, &from, &to, found);
         Ok(serde_json::json!({ "found": n, "leftOut": left_out }))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Import from Teams' Import: the last Search's meetings, one at a time on their own thread, each fetched and then
+/// Import from Teams' Import, for the dates the dialog shows: the latest Search's meetings if it searched those dates
+/// (else refused), one at a time on their own thread, each fetched and then
 /// summarised before the next (fetch::import). Progress goes out as teams-import ("Importing 3 of 7...", then null),
 /// each landed meeting as meeting-changed.
 #[tauri::command]
-fn teams_import(app: AppHandle) -> Result<(), String> {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static IMPORTING: AtomicBool = AtomicBool::new(false);
+fn teams_import(app: AppHandle, from: String, to: String) -> Result<(), String> {
     let lib = library_path(&app)?;
-    if IMPORTING.swap(true, Ordering::SeqCst) {
-        return Err("An import from Teams is already running.".into());
-    }
-    let events = std::mem::take(&mut *app.state::<AppState>().teams_found.lock().unwrap());
+    let events = app.state::<AppState>().teams.start(&from, &to)?;
     std::thread::spawn(move || {
         let state = app.state::<AppState>();
         let (runs, home, program) = (state.data_dir.join("runs"), state.home.clone(), claude::program());
@@ -423,7 +420,7 @@ fn teams_import(app: AppHandle) -> Result<(), String> {
         if std::panic::catch_unwind(job).is_err() {
             eprintln!("import: panicked");
         }
-        IMPORTING.store(false, Ordering::SeqCst);
+        state.teams.finished();
         let _ = app.emit("teams-import", None::<String>);
     });
     Ok(())
@@ -568,7 +565,7 @@ pub fn run() {
             let logon = s.start_at_logon;
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams_found: Mutex::new(vec![]), dev: dev.is_some() });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some() });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;

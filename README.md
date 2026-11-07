@@ -80,15 +80,16 @@ past meetings' transcripts by date range, for meetings the app wasn't running fo
 1. Pick From and To (the last 7 days by default). To can't be later than today, and the range is at most 31 days.
 2. **Search** runs one calendar search over those dates and says how many Teams meetings with a transcript it found
    (those whose calendar entry has a transcript link and that have ended), and how many it left out because they are
-   already in the library (captured or skipped), deleted, or in an excluded series. Nothing is fetched yet.
+   already in the library (captured, skipped, or imported from a file with the same title and start minute), deleted,
+   or in an excluded series. Nothing is fetched yet.
 3. **Import** fetches and summarises each one in turn, exactly as after a meeting. The status line shows
    "Importing 3 of 7…", and each meeting appears in the list as it lands. A meeting whose transcript list is empty
    leaves no folder behind; "Not reachable" and "Capture failed" ones stay, so you can attach the transcript.
 
 **Cost:** one Claude run (haiku) for the search, then two per meeting: one fetch run (haiku) and one summary run (the
 summary model, Opus by default). Importing 7 meetings is 15 runs. Runs go one at a time and share the fetch lock with
-the regular 30-second tick, so an import never fetches a meeting twice; a calendar refresh can wait for at most one
-running fetch.
+the regular 30-second tick, so an import never fetches a meeting twice; the tick's fetch waits for at most one running
+import fetch. Import fetches only what the latest Search found for the dates on show: change a date and Search again.
 
 ## Known limitations
 

@@ -390,8 +390,68 @@ pub fn eligible(events: Vec<Event>, lib: &Path, excluded: &[String], deleted: im
     let (keep, out): (Vec<Event>, Vec<Event>) = events
         .into_iter()
         .filter(|e| e.meeting_transcript_url.as_deref().is_some_and(|u| !u.is_empty()) && e.end <= now)
-        .partition(|e| !known.iter().any(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) && !excluded.contains(&e.join_url) && !deleted(&e.id));
+        .partition(|e| !known.iter().any(|l| same(&l.meeting, e)) && !excluded.contains(&e.join_url) && !deleted(&e.id));
     (keep, out.len())
+}
+
+/// A library meeting is this event's: its event id, or (an earlier .vtt import) its subject and start minute.
+fn same(m: &Meeting, e: &Event) -> bool {
+    m.event_id.as_deref() == Some(e.id.as_str()) || (m.subject == e.subject && m.start.is_some_and(|s| s.timestamp() / 60 == e.start.timestamp() / 60))
+}
+
+/// Import from Teams between Search and Import: the latest search's result with the dates it searched, and whether an
+/// import is running. A search started later drops an earlier one's result, even one that lands after it, and Import
+/// takes the result only for the dates the dialog shows, so a stale search can never widen what Import fetches.
+#[derive(Default)]
+pub struct TeamsImport(Mutex<TeamsState>);
+
+#[derive(Default)]
+struct TeamsState {
+    latest: u64,
+    found: Option<(String, String, Vec<Event>)>,
+    running: bool,
+}
+
+impl TeamsImport {
+    /// A search starting: its number. Any earlier result is dropped.
+    pub fn searching(&self) -> u64 {
+        let mut s = self.0.lock().unwrap();
+        s.latest += 1;
+        s.found = None;
+        s.latest
+    }
+
+    /// Keeps search `n`'s result for `from`..`to`, unless a later search has started. Returns whether it was kept.
+    pub fn found(&self, n: u64, from: &str, to: &str, events: Vec<Event>) -> bool {
+        let mut s = self.0.lock().unwrap();
+        let latest = s.latest == n;
+        if latest {
+            s.found = Some((from.into(), to.into(), events));
+        }
+        latest
+    }
+
+    /// Import: the kept result, if it is for `from`..`to` and no import is running. Call `finished` when it ends.
+    pub fn start(&self, from: &str, to: &str) -> Result<Vec<Event>, String> {
+        let mut s = self.0.lock().unwrap();
+        if s.running {
+            return Err("An import from Teams is already running.".into());
+        }
+        match s.found.take() {
+            Some((f, t, events)) if f == from && t == to => {
+                s.running = true;
+                Ok(events)
+            }
+            other => {
+                s.found = other;
+                Err("The dates changed since the last search. Search again, then Import.".into())
+            }
+        }
+    }
+
+    pub fn finished(&self) {
+        self.0.lock().unwrap().running = false;
+    }
 }
 
 /// Import from Teams: each event in turn gets a folder and one attempt through the tick's own fetch code (D13, D14),
@@ -429,12 +489,15 @@ pub fn import(
         };
         let dir = lib.join(&id);
         match attempt(&dir, &m, now, &mut run, &version, &excluded) {
-            Ok(m) if m.state == State::NoTranscript => {
-                if let Err(err) = std::fs::remove_dir_all(&dir) {
-                    eprintln!("import: {id} not removed: {err}");
-                }
-            }
+            // Only a folder holding nothing but meeting.json goes: remove_dir refuses once My notes wrote into it
+            // during the run, and the meeting then stays as "no transcript".
+            Ok(m) if m.state == State::NoTranscript && std::fs::remove_file(dir.join(library::META)).is_ok() && std::fs::remove_dir(&dir).is_ok() => {}
             Ok(m) => {
+                if !dir.join(library::META).exists() {
+                    if let Err(err) = library::save(&dir, &m) {
+                        eprintln!("import: {id} not kept: {err}");
+                    }
+                }
                 drop(one);
                 landed(&id, &m);
             }
@@ -920,13 +983,17 @@ mod tests {
             event(6, start(), end()), // captured
             event(7, start(), end()), // skipped
             event(8, start(), end()),
+            event(9, start(), end()), // imported earlier from a .vtt
         ];
+        // An ad-hoc import: no event id, the same subject, a start in the same minute.
+        let adhoc = Meeting { subject: "Synthetic 9".into(), start: Some((start() + Duration::seconds(40)).fixed_offset()), state: State::Done, source: Some("import".into()), ..Meeting::default() };
+        library::create(&lib, &adhoc).unwrap();
         let captured = library::create(&lib, &folder_for(&events[5], now)).unwrap();
         fs::write(lib.join(&captured).join(library::VTT), VTT_A).unwrap();
         skip(&lib, &events[6].uri, &events, now).unwrap();
         let (keep, out) = eligible(events, &lib, &["https://teams.example/j/excluded".into()], |id| id == "SYNTH-4", now);
         assert_eq!(keep.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["SYNTH-1", "SYNTH-8"]);
-        assert_eq!(out, 4, "deleted, excluded, captured and skipped");
+        assert_eq!(out, 5, "deleted, excluded, captured, skipped and imported earlier");
     }
 
     #[test]
@@ -972,6 +1039,47 @@ mod tests {
         import(&lib, &events, Vec::new, |_| false, || now, run, none, |_, _| {}, |_, _| {});
         assert_eq!(again.borrow().len(), 1);
         assert!(again.borrow()[0].contains("SYNTH-2"));
+    }
+
+    #[test]
+    fn no_transcript_keeps_its_folder_when_my_notes_were_written_into_it_during_the_fetch() {
+        let lib = temp("importnotes");
+        let now = end() + Duration::days(3);
+        let run = |_: &ClaudeRun| {
+            let dir = lib.join(&library::list(&lib)[0].id);
+            fs::write(dir.join("notes.md"), "Synthetic notes typed during the fetch
+").unwrap();
+            Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=y", blocks(&body(&[])))] })
+        };
+        let landed = RefCell::new(vec![]);
+        import(&lib, &[event(1, start(), end())], Vec::new, |_| false, || now, run, none, |_, _| {}, |_, m| landed.borrow_mut().push(m.state));
+        let l = library::list(&lib);
+        assert_eq!(l.len(), 1, "the folder stays");
+        assert_eq!(l[0].meeting.state, State::NoTranscript);
+        assert_eq!(fs::read_to_string(lib.join(&l[0].id).join("notes.md")).unwrap(), "Synthetic notes typed during the fetch
+");
+        assert_eq!(*landed.borrow(), [State::NoTranscript], "and lands, so the list shows it");
+    }
+
+    #[test]
+    fn a_late_search_never_widens_what_import_takes_and_a_second_import_is_refused_while_one_runs() {
+        let t = TeamsImport::default();
+        let wide = t.searching(); // 31 days
+        let narrow = t.searching(); // the user narrowed to 7 days and searched again
+        assert!(t.found(narrow, "2026-11-01", "2026-11-07", vec![event(1, start(), end())]));
+        assert!(!t.found(wide, "2026-10-08", "2026-11-07", vec![event(1, start(), end()), event(2, start(), end())]), "the wide one lands late: dropped");
+        assert_eq!(t.start("2026-10-08", "2026-11-07").unwrap_err(), "The dates changed since the last search. Search again, then Import.");
+        let events = t.start("2026-11-01", "2026-11-07").unwrap();
+        assert_eq!(events.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["SYNTH-1"]);
+
+        // While that import runs, a second Import is refused, even after a new search.
+        let again = t.searching();
+        t.found(again, "2026-11-01", "2026-11-07", vec![event(3, start(), end())]);
+        assert_eq!(t.start("2026-11-01", "2026-11-07").unwrap_err(), "An import from Teams is already running.");
+        t.finished();
+        assert_eq!(t.start("2026-11-01", "2026-11-07").unwrap()[0].id, "SYNTH-3", "the result was kept for after");
+        t.finished();
+        assert!(t.start("2026-11-01", "2026-11-07").is_err(), "taken once");
     }
 
     #[test]

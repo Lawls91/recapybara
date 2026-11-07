@@ -586,6 +586,8 @@ const teamsFrom = $<HTMLInputElement>("teams-from");
 const teamsTo = $<HTMLInputElement>("teams-to");
 /** Bumped by every date change and close, so a search answering late is dropped. */
 let teamsSearch = 0;
+/** A search is running: Search stays disabled until it answers. */
+let searching = false;
 function teamsMessage(text: string, error = false) {
   $("teams-msg").textContent = text;
   $("teams-msg").classList.toggle("err", error);
@@ -594,7 +596,7 @@ function checkTeamsRange() {
   teamsSearch++;
   const error = rangeError(teamsFrom.value, teamsTo.value, ymd(new Date()));
   teamsMessage(error ?? "", !!error);
-  $<HTMLButtonElement>("teams-search").disabled = !!error;
+  $<HTMLButtonElement>("teams-search").disabled = !!error || searching;
   $("teams-go").hidden = true;
   return !error;
 }
@@ -609,8 +611,8 @@ teamsFrom.oninput = teamsTo.oninput = checkTeamsRange;
 $("teams-search").onclick = async () => {
   if (!checkTeamsRange()) return;
   const at = teamsSearch;
-  const search = $<HTMLButtonElement>("teams-search");
-  search.disabled = true;
+  searching = true;
+  $<HTMLButtonElement>("teams-search").disabled = true;
   teamsMessage("Searching your calendar\u2026");
   try {
     const r = await invoke<{ found: number; leftOut: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
@@ -621,12 +623,15 @@ $("teams-search").onclick = async () => {
   } catch (e) {
     if (at === teamsSearch) teamsMessage(String(e), true);
   } finally {
-    if (at === teamsSearch) search.disabled = false;
+    searching = false;
+    $<HTMLButtonElement>("teams-search").disabled = !!rangeError(teamsFrom.value, teamsTo.value, ymd(new Date()));
   }
 };
+// Import names the dates on show: the backend refuses them unless its latest search was for them.
 $("teams-go").onclick = () => {
+  const [from, to] = [teamsFrom.value, teamsTo.value];
   teams.close();
-  invoke("teams_import").catch(failed);
+  invoke("teams_import", { from, to }).catch(failed);
 };
 $("teams-cancel").onclick = () => teams.close();
 teams.addEventListener("close", () => {

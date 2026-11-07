@@ -249,7 +249,7 @@ pub fn search(from: DateTime<Utc>, to: DateTime<Utc>, run: impl FnOnce(&ClaudeRu
         .map_err(|e| run_failure(&e))
         .and_then(|o| counted_in(&o.captured, from, to))
         .map(|(events, _)| events)
-        .map_err(|e| e.replace("then Refresh calendar", "then search again").replace("refresh the calendar", "search the calendar"))
+        .map_err(|e| e.replace("Refresh calendar to try again", "Search again").replace("then Refresh calendar", "then search again").replace("refresh the calendar", "search the calendar"))
 }
 
 impl Calendar {
@@ -624,6 +624,9 @@ mod tests {
         assert!(runs.borrow()[0].contains("afterDateTime 2026-11-05T00:00:00Z, beforeDateTime 2026-11-06T00:00:00Z"));
         let failed = super::search(now(), now(), |_| Err(io::Error::new(io::ErrorKind::NotFound, "x"))).unwrap_err();
         assert_eq!(failed, "Claude Code not found. Install it or add it to PATH, then search again.");
+        let mut stopped = all_teams();
+        stopped.remove(1);
+        assert_eq!(super::search(now(), now(), good(stopped)).unwrap_err(), "The calendar search stopped before its last page. Search again.");
         assert_eq!(super::search(now(), now(), good(vec![])).unwrap_err(), "Claude didn't search the calendar. Check the Microsoft 365 connector is connected in claude.ai, then search again.");
     }
 }
