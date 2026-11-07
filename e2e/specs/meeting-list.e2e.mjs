@@ -82,7 +82,9 @@ describe("meeting list", () => {
     await expect($("#detail-title")).toHaveText(subject);
     await browser.keys("Delete");
     await expect($("#confirm")).toBeDisplayed();
-    await expect($("#confirm-title")).toHaveText(`Delete “${subject}”?`);
+    // Ticket 17 added the start, e.g. (Wed 4 Nov 10:00).
+    const quoted = subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    await expect($("#confirm-title")).toHaveText(new RegExp(`^Delete “${quoted}” \\(\\w{3} \\d{1,2} \\w{3} \\d{2}:\\d{2}\\)\\?$`));
     await $("#confirm-cancel").click();
     await expect($("#confirm")).not.toBeDisplayed();
     expect(fs.existsSync(root("library", id, "meeting.json"))).toBe(true);
