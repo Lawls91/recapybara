@@ -44,7 +44,9 @@ Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins; an empt
 
 - All state is under the dir: settings and `runs` in `<dir>\data`, the WebView2 profile in `<dir>\webview`, and the
   library defaults to `<dir>\library` (so there is no first-run folder prompt). `MEETING_CAPTURE_DATA_DIR` and
-  `MEETING_CAPTURE_HOME` still win where set. The home is the real one, so the real claude finds its skill.
+  `MEETING_CAPTURE_HOME` still win where set. The home is the real one, so the real claude finds the
+  installed copy's skill. A dev instance installs the skill only with `MEETING_CAPTURE_HOME` set, so it never points
+  the installed copy's skill at the dev library.
 - No single-instance lock: it neither focuses nor is blocked by the installed copy. Two dev instances on one dir
   both run, so give each its own dir.
 - It never reads or writes the Run key: Start at logon is off, and disabled in Settings and the tray.
@@ -227,3 +229,12 @@ defaults, so a test or a QA run can seed a state by hand:
 `state` is one of `scheduled`, `inCall`, `awaitingTranscript`, `noTranscript`, `notReachable`, `captureFailed`,
 `transcriptReady`, `summarising`, `done`, `summaryFailed`, `skipped`. A `summary.md` in the folder makes the
 summary action read "Re-run summary". Settings' Appearance (`appearance`: `system`, `light`, `dark`) picks the theme.
+
+## Claude skill
+
+At start, and whenever the library path changes, the app writes its bundled skill (`src-tauri/skill/SKILL.md`, with
+the library path filled in) to `~/.claude/skills/meeting-capture/SKILL.md` if it is missing or differs (D33): written
+atomically, and left alone (file time unchanged) when it already matches. It gives your own Claude sessions the library
+path and layout, so "what did we decide in the release meeting?" finds the meeting with Read and Grep. The app writes
+nothing else under `~/.claude`; its one other touch is deleting its own `runs` project folder (D7). Home is
+`MEETING_CAPTURE_HOME` if set, else your profile. Run `chezmoi add ~/.claude/skills/meeting-capture` once to sync it.
