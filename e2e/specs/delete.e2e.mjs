@@ -28,7 +28,7 @@ describe("delete", () => {
     const meeting = (subject, days) => ({ subject, start: at(days, 10), end: at(days, 11), state: "done", source: "connector", joinUrl: SERIES });
     for (const [id, days] of [[A, -1], [B, -2], [C, -3]]) {
       const subject = id.slice(16);
-      seed(id, meeting(subject, days), { "summary.md": `# ${subject}\n\n- The Orbit rule ships next sprint.\n`, "notes.md": `Synthetic notes for ${subject}\n` });
+      seed(id, meeting(subject, days), { "summary.md": `# ${subject}\n\n## Decisions\n\n- The Orbit rule ships next sprint.\n`, "notes.md": `Synthetic notes for ${subject}\n` });
     }
     await browser.refresh();
     await expect($$("#meeting-list .row")).toBeElementsArrayOfSize(3);
