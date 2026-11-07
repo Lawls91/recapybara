@@ -32,6 +32,12 @@ let scrollToTurn: number | null = null;
 /** Show all in this series (D17): the list keeps the meetings sharing this join URL. A list-state filter, so search
  * (ticket 15) can filter within it. */
 let series: { joinUrl: string; subject: string } | null = null;
+/** The keyboard-cursor row's id (D42). A re-render that takes focus from the list or the detail pane gives it back to
+ * this row; `refocus` holds that until the row is drawn (a skipped calendar event comes back under its folder id). */
+let cursor: string | null = null;
+let refocus = false;
+/** Settings' Remove that was pressed, so focus lands on the next Remove once the list redraws. */
+let removing: number | null = null;
 
 // ---------- settings and appearance (D46) ----------
 
@@ -60,8 +66,44 @@ async function loadSettings() {
         .join("")}</div>`
     : `<p class="desc">No series excluded.</p>`;
   $("excluded-series").querySelectorAll<HTMLElement>("[data-include]").forEach(
-    (b) => (b.onclick = () => include(current.excludedSeries[Number(b.dataset.include)].joinUrl)),
+    (b) =>
+      (b.onclick = () => {
+        removing = Number(b.dataset.include);
+        include(current.excludedSeries[removing].joinUrl);
+      }),
   );
+  if (removing !== null) {
+    const n = current.excludedSeries.length;
+    (document.getElementById(`include-${Math.min(removing, n - 1)}`) ?? $("excluded-series")).focus();
+    removing = null;
+  }
+}
+
+// ---------- keyboard focus across re-renders (D42) ----------
+
+document.addEventListener("focusin", (e) => {
+  const row = rowOf(e);
+  if (row) cursor = row.dataset.id!;
+  refocus = false;
+});
+const lost = () => !document.activeElement || document.activeElement === document.body;
+/** Focuses the cursor row, or the first row when there is none; waits (refocus) when it isn't drawn yet. */
+function focusCursor() {
+  const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")];
+  const row = cursor ? rows.find((r) => r.dataset.id === cursor) : rows[0];
+  if (!row || row.closest("[hidden]")) {
+    refocus = true;
+    return;
+  }
+  rows.forEach((r) => (r.tabIndex = -1));
+  row.tabIndex = 0;
+  row.focus();
+}
+/** Runs `render`, giving focus back to the cursor row if `render` took it from `within`. */
+function keepFocus(within: HTMLElement[], render: () => void) {
+  const had = within.some((el) => el.contains(document.activeElement));
+  render();
+  if ((had || refocus) && lost()) focusCursor();
 }
 
 function failed(e: unknown) {
@@ -76,6 +118,7 @@ async function skip(m: Meeting) {
   const id = await invoke<string>("skip_meeting", { id: m.id }).catch(failed);
   // A cached event's id is its uri; skipped, it is its new folder.
   if (id && was) selected = id;
+  if (id && cursor === m.id) cursor = id;
   await loadMeetings();
 }
 
@@ -93,7 +136,14 @@ async function include(joinUrl: string) {
 }
 
 async function save(change: Partial<Settings>) {
-  await invoke("save_settings", { settings: { ...current, ...change } });
+  // Taken at once, so a second change made before this one lands (another Exclude series) builds on it, not on a
+  // stale list. A refused save puts it back.
+  const before = current;
+  current = { ...current, ...change };
+  await invoke("save_settings", { settings: current }).catch((e) => {
+    current = before;
+    throw e;
+  });
 }
 
 function show(view: "list" | "settings") {
@@ -120,6 +170,10 @@ async function loadMeetings() {
 }
 
 function renderList() {
+  keepFocus([$("meeting-list"), $("series-filter")], drawList);
+}
+
+function drawList() {
   const list = $("meeting-list");
   const chip = $("series-filter");
   chip.hidden = !series;
@@ -207,6 +261,7 @@ $("meeting-list").addEventListener("keydown", (e) => {
 
 function openMenu(m: Meeting, x: number, y: number) {
   menuMeeting = m;
+  cursor = m.id; // the menu's action hands focus back to its meeting's row
   const menu = $("row-menu");
   menu.innerHTML = menuFor(m)
     .map(
@@ -245,6 +300,7 @@ $("row-menu").addEventListener("click", async (e) => {
     series = { joinUrl: m.joinUrl!, subject: m.subject };
     renderList();
   }
+  if (lost()) focusCursor();
 });
 document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#row-menu, .kebab")) closeMenu();
@@ -485,13 +541,16 @@ async function renderDetail() {
   const m = byId(selected ?? undefined);
   const n = ++renders;
   if (!m) {
-    det.innerHTML = `<div class="detempty">${meetings.length ? "Choose a meeting to see it here." : "Summaries you capture appear here."}</div>`;
+    keepFocus([det], () => {
+      det.innerHTML = `<div class="detempty">${meetings.length ? "Choose a meeting to see it here." : "Summaries you capture appear here."}</div>`;
+    });
     return;
   }
   const t = m.hasTranscript ? await invoke<Transcript>("get_transcript", { id: m.id }) : null;
   const wantSummary = tab === "summary" && m.hasSummary && m.state !== "summarising" && m.state !== "summaryFailed";
   const s = wantSummary ? await invoke<Summary | null>("get_summary", { id: m.id }) : null;
   if (n !== renders) return; // a newer render started while this one waited
+  const had = det.contains(document.activeElement); // Unskip, Include series: the redraw drops the button
   shown = { transcript: t, summary: s };
   const d = m.start ? new Date(m.start) : null;
   const when = d
@@ -557,6 +616,7 @@ async function renderDetail() {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     openMenu(m, r.right - 210, r.bottom + 4);
   };
+  if ((had || refocus) && lost()) focusCursor();
 }
 
 // ---------- wiring ----------
