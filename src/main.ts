@@ -6,6 +6,7 @@ import { libraryLabel, type Settings } from "./settings";
 import {
   calendarLine,
   dayGroups,
+  deletePrompt,
   menuFor,
   needsTranscript,
   STATE_CARDS,
@@ -491,25 +492,37 @@ let deleting: Meeting | null = null;
 function askDelete(m: Meeting) {
   closeMenu();
   deleting = m;
-  $("confirm-title").textContent = `Delete “${m.subject || m.id}”?`;
-  $<HTMLDialogElement>("confirm").showModal();
+  $("confirm-title").textContent = deletePrompt(m);
+  confirmDialog.showModal();
 }
-$("confirm-cancel").onclick = () => $<HTMLDialogElement>("confirm").close();
+const confirmDialog = $<HTMLDialogElement>("confirm");
+$("confirm-cancel").onclick = () => confirmDialog.close();
+// Cancel or Esc: focus goes back to the meeting's row, which opened the dialog.
+confirmDialog.addEventListener("close", () => {
+  if (!deleting) return;
+  cursor = deleting.id;
+  deleting = null;
+  focusCursor();
+});
 // Delete (D30): the folder goes to the Recycle Bin, then the meeting leaves the list, its search hits and the detail
-// pane; the keyboard cursor moves to the row below it (or above, for the last).
+// pane; the keyboard cursor moves to the row below it (or above, for the last), else to the search box.
 $("confirm-delete").onclick = async () => {
-  $<HTMLDialogElement>("confirm").close();
   const m = deleting;
-  if (!m || (await invoke("delete_meeting", { id: m.id }).then(() => false, (e) => (failed(e), true)))) return;
+  deleting = null;
+  confirmDialog.close();
+  if (!m) return;
+  if (await invoke("delete_meeting", { id: m.id }).then(() => false, (e) => (failed(e), true))) {
+    cursor = m.id; // refused (a summary is running): the banner says why, focus stays on its row
+    return focusCursor();
+  }
   unsaved.delete(m.id); // its notes went with the folder
   notSaved.delete(m.id);
-  if (cursor === m.id) {
-    const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")].map((r) => r.dataset.id);
-    const at = rows.indexOf(m.id);
-    cursor = rows[at + 1] ?? rows[at - 1] ?? null;
-  }
+  const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")].map((r) => r.dataset.id);
+  const at = rows.indexOf(m.id);
+  cursor = rows[at + 1] ?? rows[at - 1] ?? null;
   await loadMeetings();
-  focusCursor();
+  if (cursor) focusCursor();
+  else $("search").focus();
 };
 
 // ---------- import (D15, D44) ----------

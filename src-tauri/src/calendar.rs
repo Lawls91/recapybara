@@ -6,9 +6,9 @@ use crate::{
     summary,
 };
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, io, sync::Mutex};
+use std::{collections::HashMap, fs, io, path::PathBuf, sync::Mutex};
 
 pub const SEARCH: &str = "mcp__claude_ai_Microsoft_365__outlook_calendar_search";
 pub const READ: &str = "mcp__claude_ai_Microsoft_365__read_resource";
@@ -16,6 +16,8 @@ pub const READ: &str = "mcp__claude_ai_Microsoft_365__read_resource";
 pub const TOOLS: &[&str] = &[SEARCH, READ];
 /// Refresh interval (D9).
 pub const EVERY: Duration = Duration::minutes(30);
+/// The cache keeps events that ended less than this long ago (D9).
+pub const LOOK_BACK: Duration = Duration::hours(2);
 /// How often the scheduler looks at the clock. A sleeping laptop wakes to a due refresh within this.
 pub const TICK: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -41,7 +43,7 @@ pub fn run_for(now: DateTime<Utc>) -> ClaudeRun {
             "Call outlook_calendar_search with query \"*\", afterDateTime {}, beforeDateTime {}, limit 25. While its last \
              object says moreResults is true, call it again with the same arguments and offset set to that nextOffset. \
              Then call read_resource once on each event's uri, exactly as the search gave it. Reply DONE.",
-            fmt(now - Duration::hours(2)),
+            fmt(now - LOOK_BACK),
             fmt(now + Duration::hours(24)),
         ),
         model: "haiku".into(),
@@ -140,7 +142,7 @@ pub fn counted(captured: &[Value], now: DateTime<Utc>) -> Result<(Vec<Event>, us
             skipped += 1;
             continue;
         };
-        if end <= now - Duration::hours(2) || start >= now + Duration::hours(24) || events.iter().any(|x| x.uri == uri) {
+        if end <= now - LOOK_BACK || start >= now + Duration::hours(24) || events.iter().any(|x| x.uri == uri) {
             continue;
         }
         let names = e["namedAttendees"].as_array().into_iter().flatten();
@@ -178,8 +180,17 @@ struct Inner {
     events: Vec<Event>,
     status: Status,
     last_start: Option<DateTime<Utc>>,
-    /// Event ids of meetings deleted this session (D30), so the list and the fetch don't bring them back.
-    deleted: Vec<String>,
+    /// Events of deleted meetings (D30), so neither the list nor the fetch brings them back, and the file keeping them.
+    deleted: Vec<Deleted>,
+    deleted_file: Option<PathBuf>,
+}
+
+/// A deleted meeting's event, kept until the cache's look-back has passed its end.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct Deleted {
+    event_id: String,
+    end: DateTime<Utc>,
 }
 
 /// The calendar cache, in memory: the first refresh at start fills it again.
@@ -199,14 +210,27 @@ fn run_failure(e: &io::Error) -> String {
 impl Calendar {
     pub fn events(&self) -> Vec<Event> {
         let i = self.0.lock().unwrap();
-        i.events.iter().filter(|e| !i.deleted.contains(&e.id)).cloned().collect()
+        i.events.iter().filter(|e| !i.deleted.iter().any(|d| d.event_id == e.id)).cloned().collect()
     }
 
-    /// A deleted meeting's event (D30) leaves the cache for good, through every later refresh.
-    // ponytail: in memory only; an app restart within the cache's 2-hour look-back captures it again. Persist the ids
-    // in settings if that bites.
-    pub fn forget(&self, event_id: &str) {
-        self.0.lock().unwrap().deleted.push(event_id.into());
+    /// At start: the deleted meetings' events kept in `file`, so a restart within the look-back brings none back.
+    /// Unreadable is none. Ones whose end the look-back has passed are dropped: no refresh can find them again.
+    pub fn load_deleted(&self, file: PathBuf, now: DateTime<Utc>) {
+        let mut kept: Vec<Deleted> = fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        kept.retain(|d| d.end > now - LOOK_BACK);
+        let mut i = self.0.lock().unwrap();
+        (i.deleted, i.deleted_file) = (kept, Some(file));
+    }
+
+    /// A deleted meeting's event (D30) leaves the cache for good, through every later refresh and restart. Written to
+    /// the file before it returns, so a delete that can't be recorded can be refused.
+    pub fn forget(&self, event_id: &str, end: DateTime<Utc>, now: DateTime<Utc>) -> io::Result<()> {
+        let mut i = self.0.lock().unwrap();
+        i.deleted.retain(|d| d.end > now - LOOK_BACK);
+        i.deleted.push(Deleted { event_id: event_id.into(), end });
+        let Some(file) = &i.deleted_file else { return Ok(()) };
+        fs::create_dir_all(file.parent().unwrap_or(file))?;
+        crate::library::write_atomic(file, &serde_json::to_vec_pretty(&i.deleted)?)
     }
 
     pub fn status(&self) -> Status {
@@ -430,14 +454,30 @@ mod tests {
     }
 
     #[test]
-    fn a_deleted_meetings_event_stays_out_of_the_cache_and_the_list_through_later_refreshes() {
+    fn a_deleted_meetings_event_stays_out_of_the_cache_and_the_list_through_later_refreshes_and_a_restart() {
+        let dir = std::env::temp_dir().join(format!("mc-deleted-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let file = dir.join("deleted-events.json");
         let cal = Calendar::default();
+        cal.load_deleted(file.clone(), now());
         cal.refresh(now(), good(all_teams()), || {});
-        cal.forget("SYNTH-EVENT-3");
+        cal.forget("SYNTH-EVENT-3", t("2026-11-05T13:00:00Z"), now()).unwrap();
         assert_eq!(subjects(&cal.events()), ["Backlog Refinement", "Focus"]);
         cal.refresh(now() + Duration::minutes(30), good(all_teams()), || {});
         let list: Vec<String> = listed(&cal.events(), vec![]).into_iter().map(|l| l.meeting.subject).collect();
         assert_eq!(list, ["Focus", "Backlog Refinement"], "a later refresh brings it back neither to the cache nor the list");
+
+        // A restart an hour later: a new cache, filled again by the start-up refresh, still leaves it out.
+        let restarted = Calendar::default();
+        restarted.load_deleted(file.clone(), now() + Duration::hours(1));
+        restarted.refresh(now() + Duration::hours(1), good(all_teams()), || {});
+        assert_eq!(subjects(&restarted.events()), ["Backlog Refinement", "Focus"], "it survives the restart");
+
+        // Two hours past its end (13:00 + 2 h) no refresh can find it, so the next delete drops it from the file.
+        restarted.forget("SYNTH-EVENT-2", t("2026-11-05T16:00:00Z"), t("2026-11-05T15:00:00Z")).unwrap();
+        let on_disk: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(on_disk, json!([{ "eventId": "SYNTH-EVENT-2", "end": "2026-11-05T16:00:00Z" }]));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

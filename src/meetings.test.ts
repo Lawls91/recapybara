@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { calendarLine, menuFor, type Meeting } from "./meetings";
+import { calendarLine, deletePrompt, menuFor, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -39,6 +39,7 @@ test("a meeting from the calendar cache has no Open folder until it is captured"
   expect(menuFor({ ...meeting("scheduled"), source: "calendar" }).map((i) => i.id)).not.toContain("folder");
   expect(menuFor({ ...meeting("scheduled"), source: "calendar" }).map((i) => i.id)).not.toContain("delete");
   expect(menuFor(meeting("scheduled")).map((i) => i.id)).toContain("delete");
+  expect(menuFor(meeting("summarising")).map((i) => i.id)).not.toContain("delete");
   expect(menuFor(meeting("scheduled")).map((i) => i.id)).toContain("folder");
 });
 
@@ -51,4 +52,10 @@ test("the calendar status line reads refreshing, else the failure with its fix, 
   expect(calendarLine({ updated: null, refreshing: false, failure: null }).text).toBe("Calendar not loaded");
   expect(calendarLine({ updated: at, refreshing: false, failure: null, skipped: 2 }).text).toBe("Updated 14:00 · 2 events skipped: unknown time zone");
   expect(calendarLine({ updated: at, refreshing: false, failure: null, skipped: 1 }).text).toBe("Updated 14:00 · 1 event skipped: unknown time zone");
+});
+
+test("the delete question names the meeting and its start, so two with one subject are told apart", () => {
+  const start = new Date(2026, 10, 4, 10, 0).toISOString(); // Wednesday 4 November 2026, 10:00 local
+  expect(deletePrompt({ ...meeting("done"), subject: "Sprint review", start })).toBe("Delete “Sprint review” (Wed 4 Nov 10:00)?");
+  expect(deletePrompt({ ...meeting("done"), subject: "", id: "2026-11-04 1000 x" })).toBe("Delete “2026-11-04 1000 x”?");
 });

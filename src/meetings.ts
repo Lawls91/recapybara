@@ -62,6 +62,13 @@ export const summaryAction = (m: Meeting) => (m.hasSummary ? "Re-run summary" : 
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const dayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" });
+const timeFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/** The delete confirmation's question (D30): the subject, then the start, so two meetings with one subject are told apart. */
+export function deletePrompt(m: Meeting): string {
+  const d = m.start ? new Date(m.start) : null;
+  return `Delete “${m.subject || m.id}”${d ? ` (${dayFmt.format(d)} ${timeFmt.format(d)})` : ""}?`;
+}
 
 /** Groups an already newest-first list by local day: "Today", "Yesterday", "Tomorrow", else the weekday. */
 export function dayGroups(meetings: Meeting[], now: Date): { label: string; date: string; items: Meeting[] }[] {
@@ -109,8 +116,9 @@ export function menuFor(m: Meeting): MenuItem[] {
   // D17 keys a series by join URL.
   if (m.joinUrl)
     group.push(m.excluded ? { id: "include", label: "Include series", icon: "" } : { id: "exclude", label: "Exclude series", icon: "", key: "E" });
-  // Delete moves the folder to the Recycle Bin (D30); a calendar-cache meeting has none yet.
-  if (m.source !== "calendar") group.push({ id: "delete", label: "Delete", icon: "", key: "Del", danger: true });
+  // Delete moves the folder to the Recycle Bin (D30); a calendar-cache meeting has none yet, and a running summary
+  // would write into it.
+  if (m.source !== "calendar" && !busy) group.push({ id: "delete", label: "Delete", icon: "", key: "Del", danger: true });
   if (group.length) group[0].sep = true;
   items.push(...group);
   if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "" });

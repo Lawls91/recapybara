@@ -208,21 +208,31 @@ pub fn attach(library: &Path, id: &str, src: &Path) -> Result<(), String> {
 }
 
 /// A direct child folder of the library. Ids come from the page, so exactly one plain name:
-/// no separators, `..` or drive prefix (`C:x` would join outside the library on Windows).
+/// no separators, `..` or drive prefix (`C:x` would join outside the library on Windows), and no trailing dot or
+/// space: Windows drops those, so `.. ` or `...` would name the library's parent or the library itself.
 pub fn meeting_dir(library: &Path, id: &str) -> Result<PathBuf, String> {
     let mut parts = Path::new(id).components();
     match (parts.next(), parts.next()) {
-        (Some(std::path::Component::Normal(_)), None) if !id.contains([':', '/', '\\']) => Ok(library.join(id)),
+        (Some(std::path::Component::Normal(_)), None) if !id.contains([':', '/', '\\']) && !id.ends_with(['.', ' ']) => Ok(library.join(id)),
         _ => Err(format!("Not a meeting: {id}")),
     }
 }
 
-/// Delete (D30): the meeting's folder goes to the Recycle Bin. Only a meeting folder of this library: anything else
-/// is refused untouched. Returns the meeting as it was.
-pub fn delete(library: &Path, id: &str) -> Result<Meeting, String> {
+/// Delete (D30): the meeting's folder goes to the Recycle Bin, any nuke prompt owned by window `owner` (0: none).
+/// Only a meeting folder directly in this library, and not while its summary runs: anything else is refused untouched.
+/// `first` runs before the folder moves (recording the delete); its error refuses it too. Returns the meeting as it was.
+pub fn delete(library: &Path, id: &str, owner: isize, first: impl FnOnce(&Meeting) -> Result<(), String>) -> Result<Meeting, String> {
     let dir = meeting_dir(library, id)?;
+    let abs = |p: &Path| std::path::absolute(p).map_err(|e| e.to_string());
+    if abs(&dir)?.parent() != Some(abs(library)?.as_path()) {
+        return Err(format!("Not a meeting: {id}"));
+    }
     let m = load(&dir).map_err(|_| format!("Not a meeting: {id}"))?;
-    crate::platform::recycle(&dir).map_err(|e| format!("{id} wasn't deleted: {e}"))?;
+    if m.state == State::Summarising {
+        return Err("A summary is running for this meeting. Delete it when it finishes.".into());
+    }
+    first(&m)?;
+    crate::platform::recycle(&dir, owner).map_err(|e| format!("{id} wasn't deleted: {e}"))?;
     Ok(m)
 }
 
@@ -933,7 +943,7 @@ Ask Robin about the 403
             save(&lib.join(id), &Meeting { subject: id.clone(), ..Meeting::default() }).unwrap();
             fs::write(lib.join(id).join(VTT), FIXTURE).unwrap();
         }
-        assert_eq!(delete(&lib, &a).unwrap().subject, a);
+        assert_eq!(delete(&lib, &a, 0, |_| Ok(())).unwrap().subject, a);
         assert!(!lib.join(&a).exists(), "A has left the library");
         assert_eq!(fs::read_to_string(lib.join(&b).join(VTT)).unwrap(), FIXTURE, "B is untouched");
         assert_eq!(load(&lib.join(&b)).unwrap().subject, b);
@@ -947,10 +957,27 @@ Ask Robin about the 403
     fn delete_refuses_anything_but_a_meeting_folder_of_the_library_and_touches_nothing() {
         let lib = temp("delete-refused");
         fs::create_dir_all(lib.join("stray")).unwrap();
-        for id in ["stray", "missing", "..", "../delete-refused", "C:stray"] {
-            assert!(delete(&lib, id).unwrap_err().starts_with("Not a meeting"), "{id}");
+        save(&lib, &Meeting::default()).unwrap(); // a meeting.json in the library itself: `...` would name it
+        fs::create_dir_all(lib.join("real")).unwrap();
+        save(&lib.join("real"), &Meeting::default()).unwrap(); // Windows reads `real.` as `real`
+        let first = |_: &Meeting| -> Result<(), String> { panic!("nothing is recorded for a refused delete") };
+        for id in ["stray", "missing", "..", "../delete-refused", "C:stray", ".. ", "...", ". ", "stray.", "real.", "real "] {
+            assert!(delete(&lib, id, 0, first).unwrap_err().starts_with("Not a meeting"), "{id}");
         }
-        assert!(lib.join("stray").exists());
+        assert!(lib.join("stray").exists() && lib.join(META).exists() && lib.join("real").join(META).exists());
+    }
+
+    #[test]
+    fn delete_is_refused_while_the_summary_runs_and_when_it_cant_be_recorded() {
+        let lib = temp("delete-busy");
+        fs::create_dir_all(lib.join("running")).unwrap();
+        save(&lib.join("running"), &Meeting { state: State::Summarising, ..Meeting::default() }).unwrap();
+        let refused = delete(&lib, "running", 0, |_| Ok(())).unwrap_err();
+        assert_eq!(refused, "A summary is running for this meeting. Delete it when it finishes.");
+        fs::create_dir_all(lib.join("done")).unwrap();
+        save(&lib.join("done"), &Meeting { state: State::Done, ..Meeting::default() }).unwrap();
+        assert_eq!(delete(&lib, "done", 0, |_| Err("disk full".into())).unwrap_err(), "disk full");
+        assert!(lib.join("running").join(META).exists() && lib.join("done").join(META).exists());
     }
 
     #[test]

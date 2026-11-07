@@ -148,15 +148,26 @@ fn skip_meeting(app: AppHandle, id: String) -> Result<String, String> {
     Ok(done)
 }
 
-/// Delete (D30), after the page's confirmation: the folder goes to the Recycle Bin, and its calendar event, if any,
-/// stays out of the list and the fetch.
+/// Delete (D30), after the page's confirmation: its calendar event, if any, is recorded to stay out of the list and the
+/// fetch, even across restarts; then the folder goes to the Recycle Bin. Off the main thread, like search.
 #[tauri::command]
-fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
-    let m = library::delete(&library_path(&app)?, &id)?;
-    if let Some(e) = m.event_id {
-        app.state::<AppState>().calendar.forget(&e);
-    }
-    Ok(())
+async fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
+    let lib = library_path(&app)?;
+    #[cfg(windows)]
+    let owner = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map_or(0, |h| h.0 as isize);
+    #[cfg(not(windows))]
+    let owner = 0;
+    tauri::async_runtime::spawn_blocking(move || {
+        library::delete(&lib, &id, owner, |m| {
+            let Some(event) = &m.event_id else { return Ok(()) };
+            let now = chrono::Utc::now();
+            let end = m.end.map_or(now, Into::into);
+            app.state::<AppState>().calendar.forget(event, end, now).map_err(|e| format!("{id} wasn't deleted: {e}"))
+        })
+        .map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Unskip (D49): a meeting that ended within the catch-up window is fetched at once.
@@ -478,7 +489,9 @@ pub fn run() {
                 library::recover(std::path::Path::new(lib));
             }
             let logon = s.start_at_logon;
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar: Default::default(), dev: dev.is_some() });
+            let calendar = calendar::Calendar::default();
+            calendar.load_deleted(data_dir.join("deleted-events.json"), chrono::Utc::now());
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, dev: dev.is_some() });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
