@@ -114,6 +114,7 @@ listen("quitting", async () => {
   await flushNotes();
   await invoke("quit");
 });
+listen("hiding", () => flushNotes()); // the window's close button hides it to the tray
 window.addEventListener("blur", () => flushNotes());
 window.addEventListener("pagehide", () => flushNotes());
 document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushNotes());

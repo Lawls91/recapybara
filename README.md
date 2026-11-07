@@ -192,7 +192,7 @@ Show all in this series (meetings with a join URL) filters the list to that join
 
 My notes (D27): the meeting's My notes tab edits its `notes.md` directly (plain text, written atomically). It saves after
 a 500 ms pause in typing, and at once on a tab or meeting switch, on opening Settings, on the tray's Quit (which waits
-up to 1 s for it), and when the window loses focus, hides or closes. The tab reads "Saving…" until the save lands, then
+up to 1 s for it), when the window's close button hides it to the tray, and when the window loses focus or is hidden. The tab reads "Saving…" until the save lands, then
 "Saved". A failed write shows "Not saved" on that meeting's tab and the error banner; the text is kept and every later
 save, redraw or switch retries it until it lands. The tab reads `notes.md` afresh each time it is drawn, so an edit made
 in another editor shows the next time My notes opens (not while its box is already on screen). Changing the library

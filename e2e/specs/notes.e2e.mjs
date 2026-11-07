@@ -41,6 +41,8 @@ describe("my notes", () => {
     await openNotes(A);
     await expect($("#notes")).toHaveValue("");
     await $("#notes").click();
+    // A focus ring drawn inside the box (--mc-focus #1B1E25, 3:1 on every surface), so the pane can't clip it.
+    expect(await browser.execute(() => getComputedStyle(document.getElementById("notes")).boxShadow)).toBe("rgb(27, 30, 37) 0px 0px 0px 2px inset");
     await browser.keys("Follow up on Orbit".split(""));
     await browser.keys(["Enter", ..."Ask Speaker B about the rollout".split("")]);
     const text = "Follow up on Orbit\nAsk Speaker B about the rollout";
@@ -127,12 +129,21 @@ describe("my notes", () => {
     await expect($("#notes-status")).toHaveText("Saved");
   });
 
-  // Last: the app exits. Tray Quit emits this event; the page saves, then asks the backend to exit.
+  // The app exits. Tray Quit emits this event; the page saves, then asks the backend to exit.
   it("Quit saves what was just typed before the app exits", async () => {
     await openNotes(C);
     await $("#notes").click();
     await browser.keys(["End", ..." bye".split("")]);
     await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "quitting", payload: null })).catch(() => {});
     await onDisk(C, "one two three bye", SOON);
+    await browser.reloadSession(); // the app quit; start it again for the next test
+  });
+
+  it("closing the window to the tray saves what was just typed at once", async () => {
+    await openNotes(C);
+    await $("#notes").click();
+    await browser.keys(["End", ..." hidden".split("")]);
+    await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:window|close", { label: "main" })).catch(() => {});
+    await onDisk(C, "one two three bye hidden", SOON);
   });
 });

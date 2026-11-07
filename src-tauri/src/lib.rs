@@ -465,6 +465,7 @@ pub fn run() {
         .on_window_event(|w, e| {
             if let WindowEvent::CloseRequested { api, .. } = e {
                 api.prevent_close();
+                let _ = w.emit("hiding", ()); // the page saves its notes at once
                 let _ = w.hide();
             }
         })

@@ -504,23 +504,27 @@ button {
   overflow-y: auto;
   padding-top: 16px;
 }
-/* My notes (D27): the whole tab body is the editor */
+/* My notes (D27): the whole tab body is the editor; it widens by its padding so the text lines up with the title */
 .body.nb {
   display: flex;
   overflow: hidden;
+  margin: 0 -10px;
+  padding-top: 8px;
 }
 .notes {
   flex: 1;
   resize: none;
   border: 0;
-  padding: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
   background: transparent;
   color: var(--mc-read);
   font: var(--mc-readwt) 14px/1.6 var(--mc-ui);
 }
-/* the caret marks focus in a full-pane text box; a ring here is clipped to a stray line by the pane */
+/* the focus ring drawn inside the box, so the pane can't clip it (3:1: mc-focus on every surface) */
 .notes:focus-visible {
   outline: 0;
+  box-shadow: inset 0 0 0 2px var(--mc-focus);
 }
 .notes::placeholder {
   color: var(--mc-txt3);
