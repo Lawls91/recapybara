@@ -59,6 +59,8 @@ const PAIRS: [string, string[], number][] = [
   ["mc-read", ["mc-peek", "mc-mark"], TEXT],
   ["tr-warn", ["mc-peek"], TEXT],
   ["mc-focus", ["mc-peek"], UI],
+  // a search snippet's line on its lavender mark (D45)
+  ["mc-txt", ["mc-mark"], TEXT],
   // the series filter chip (D17)
   ["mc-acctxt", ["mc-accsoft"], TEXT],
   ["mc-focus", ["mc-accsoft"], UI],

@@ -14,6 +14,7 @@ import {
   type CalendarStatus,
   type Meeting,
 } from "./meetings";
+import { byMeeting, markParts, snippet, TABS, type Hit, type Part, type Tab } from "./search";
 import { chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -23,12 +24,18 @@ const slug = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "-");
 let current: Settings;
 let meetings: Meeting[] = [];
 let selected: string | null = null;
-let tab: "summary" | "transcript" | "notes" = "summary";
+let tab: Tab = "summary";
 let refusals: string[] = [];
 let menuMeeting: Meeting | null = null;
 let renders = 0;
 let shown: { transcript: Transcript | null; summary: Summary | null } = { transcript: null, summary: null };
 let scrollToTurn: number | null = null;
+/** A transcript search hit just clicked (D45): the Transcript tab scrolls to the turn at this time and marks `q`. */
+let hitTurn: { at: string; q: string } | null = null;
+/** The search box's query, trimmed (D45), and its hits by meeting; null when the box is empty. */
+let query = "";
+let hits: Map<string, Hit[]> | null = null;
+let searches = 0;
 /** Show all in this series (D17): the list keeps the meetings sharing this join URL. A list-state filter, so search
  * (ticket 15) can filter within it. */
 let series: { joinUrl: string; subject: string } | null = null;
@@ -265,9 +272,37 @@ function mark(m: Meeting) {
 async function loadMeetings() {
   meetings = current.libraryPath ? await invoke<Meeting[]>("list_meetings") : [];
   if (selected && !meetings.some((m) => m.id === selected)) selected = null;
+  await runSearch();
   renderList();
   await renderDetail();
 }
+
+// ---------- search (D28, D45) ----------
+
+/** Scans the library for `query`; an older scan that ends after a newer one is dropped. */
+async function runSearch() {
+  const n = ++searches;
+  const q = query;
+  const found = q && current.libraryPath ? await invoke<Hit[]>("search", { query: q }).catch((e) => (failed(e), [])) : null;
+  if (n === searches) hits = found && byMeeting(found);
+}
+
+let searchTimer: number | undefined;
+const search = $<HTMLInputElement>("search");
+search.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(async () => {
+    query = search.value.trim();
+    await runSearch();
+    renderList();
+  }, 150);
+});
+// Esc clears the query and gives the whole list back.
+search.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !search.value) return;
+  search.value = "";
+  search.dispatchEvent(new Event("input"));
+});
 
 function renderList() {
   keepFocus([$("meeting-list"), $("series-filter")], drawList);
@@ -284,9 +319,13 @@ function drawList() {
     series = null;
     renderList();
   };
-  const shown = series ? meetings.filter((m) => m.joinUrl === series!.joinUrl) : meetings;
+  // Search filters within the series filter (D17).
+  const inSeries = series ? meetings.filter((m) => m.joinUrl === series!.joinUrl) : meetings;
+  const shown = hits ? inSeries.filter((m) => hits!.has(m.id)) : inSeries;
   if (!shown.length) {
-    list.innerHTML = `<div class="empty"><div class="emt">No meetings yet</div><p class="ems">Import a Teams transcript, and meetings from your calendar will show here as they happen.</p></div>`;
+    list.innerHTML = hits
+      ? `<div class="empty" id="no-matches"><div class="emt">No matches for “${esc(query)}”</div><p class="ems">Try fewer words, such as Orbit, or a person’s name.</p></div>`
+      : `<div class="empty"><div class="emt">No meetings yet</div><p class="ems">Import a Teams transcript, and meetings from your calendar will show here as they happen.</p></div>`;
     return;
   }
   list.innerHTML = dayGroups(shown, new Date())
@@ -301,7 +340,7 @@ function drawList() {
               <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
               ${mark(m)}
               <button id="kebab-${slug(m.id)}" class="kebab" tabindex="-1" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button>
-            </div>`;
+            </div>${snippets(m.id)}`;
           })
           .join(""),
     )
@@ -309,11 +348,22 @@ function drawList() {
   if (!selected) list.querySelector<HTMLElement>(".row")?.setAttribute("tabindex", "0");
 }
 
+/** A matching meeting's hits under its row (D45): tab icon, tab name, a transcript hit's time, the line marked. */
+const snippets = (id: string) =>
+  (hits?.get(id) ?? [])
+    .map(
+      (h, i) =>
+        `<button class="snip" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i class="ic">${TABS[h.tab].icon}</i>${TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></button>`,
+    )
+    .join("");
+
 const byId = (id: string | undefined) => meetings.find((m) => m.id === id);
 const rowOf = (e: Event) => (e.target as HTMLElement).closest<HTMLElement>(".row");
 
-async function open(id: string) {
-  if (selected !== id) tab = "summary";
+/** Opens a meeting: on tab `on` when given, else where it was, or Summary for another meeting. */
+async function open(id: string, on?: Tab) {
+  if (on) tab = on;
+  else if (selected !== id) tab = "summary";
   selected = id;
   refusals = [];
   renderList();
@@ -323,6 +373,14 @@ async function open(id: string) {
 }
 
 $("meeting-list").addEventListener("click", (e) => {
+  const snip = (e.target as HTMLElement).closest<HTMLElement>(".snip");
+  if (snip) {
+    const h = hits?.get(snip.dataset.id!)?.[Number(snip.dataset.hit)];
+    if (!h) return;
+    hitTurn = h.at ? { at: h.at, q: query } : null;
+    open(h.id, h.tab);
+    return;
+  }
   const row = rowOf(e);
   if (!row) return;
   if ((e.target as HTMLElement).closest(".kebab")) {
@@ -488,12 +546,6 @@ getCurrentWebview().onDragDropEvent((e) => {
 
 // ---------- detail pane (D42, D44, D49) ----------
 
-/** `was` is what Teams heard where a correction replaced it (D45). */
-interface Part {
-  text: string;
-  was: string | null;
-}
-
 interface Transcript {
   /** `speaker` and `text` raw, as the citation check read them (D20); the parts corrected (D22). */
   turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
@@ -501,9 +553,8 @@ interface Transcript {
   corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean }[];
 }
 
-// A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45).
-const partsHtml = (ps: Part[]) =>
-  ps.map((p) => (p.was === null ? esc(p.text) : `<span class="cx" title="Was: ${esc(p.was)}">${esc(p.text)}</span>`)).join("");
+// A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45); a search hit's `q` marked.
+const partsHtml = (ps: Part[], q = "") => markParts(ps, q);
 // D22's turn head, **[hh:mm:ss] Speaker:**, in the Transcript tab and the peek alike.
 const turnHead = (at: string, who: string) => `<b class="th"><span class="tm">[${esc(at)}]</span> <span class="sp">${who}</span>:</b>`;
 
@@ -615,13 +666,13 @@ function openPeek(chip: HTMLElement) {
   $("peek-close").focus();
 }
 
-function transcriptBody(t: Transcript | null) {
+function transcriptBody(t: Transcript | null, q: string) {
   if (!t) return `<p class="muted">No transcript yet.</p>`;
   const turns = t.turns
-    .map(
-      (u, i) =>
-        `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}">${turnHead(u.at, partsHtml(u.speakerParts))}<span class="tx">${partsHtml(u.parts)}</span></p>`,
-    )
+    .map((u, i) => {
+      const mq = i === scrollToTurn ? q : "";
+      return `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}">${turnHead(u.at, partsHtml(u.speakerParts, mq))}<span class="tx">${partsHtml(u.parts, mq)}</span></p>`;
+    })
     .join("");
   // The corrections applied, after the last turn, each with Add to glossary (D22, D23, D45).
   const fixes = t.corrections.length
@@ -692,7 +743,11 @@ async function renderDetail() {
       box.value = unsaved.get(m.id) ?? loaded!; // typed into while notes.md was read
       box.oninput = notesTyped;
     } else {
-      const body = tab === "summary" ? summaryBody(m) : transcriptBody(t);
+      // A clicked transcript hit: the turn at its time, the match marked (D45).
+      const q = tab === "transcript" && hitTurn && t ? hitTurn.q : "";
+      if (q) scrollToTurn = t!.turns.findIndex((u) => u.at === hitTurn!.at);
+      hitTurn = null;
+      const body = tab === "summary" ? summaryBody(m) : transcriptBody(t, q);
       det.innerHTML = `${top}<div class="body" id="tab-body">${body}</div>`;
     }
   }

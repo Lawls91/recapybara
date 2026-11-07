@@ -1042,6 +1042,53 @@ button.chip:hover {
   border-radius: 6px;
 }
 
+/* ---- search hits under their meeting's row (D45) ---- */
+.snip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: calc(100% - 8px);
+  margin: 0 4px 2px;
+  padding: 5px 10px 5px 22px;
+  border-radius: 8px;
+  text-align: left;
+  min-width: 0;
+}
+.snip:hover {
+  background: var(--mc-hover);
+}
+.snip:focus-visible {
+  outline: 2px solid var(--mc-focus);
+  outline-offset: -2px;
+}
+.snip .tl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--mc-txt2);
+  white-space: nowrap;
+}
+.snip .tl .ic {
+  font-size: 11px;
+}
+.snip .ts {
+  font-variant-numeric: tabular-nums;
+}
+.snip .sl {
+  font-size: 13px;
+  color: var(--mc-txt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.snip mark {
+  background: var(--mc-mark);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
 /* ---- Show all in this series: the filter chip at the top of the list (D17) ---- */
 .sfilter {
   padding: 2px 14px 6px 16px;
