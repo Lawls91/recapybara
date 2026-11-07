@@ -570,6 +570,13 @@ $("import-button").onclick = () => {
   $("import-button").setAttribute("aria-expanded", "true");
   placeMenu($("import-menu"), r.right - 210, r.bottom + 4);
 };
+// Tab closes the menu and moves on from its button (WAI-ARIA menu button): Tab to Settings, Shift+Tab to the button.
+$("import-menu").addEventListener("keydown", (e) => {
+  if (e.key !== "Tab") return;
+  e.preventDefault();
+  closeImportMenu();
+  $(e.shiftKey ? "import-button" : "settings-button").focus();
+});
 $("import-file").onclick = () => {
   closeImportMenu();
   chooseFile(null);

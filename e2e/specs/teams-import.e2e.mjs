@@ -89,6 +89,19 @@ describe("import from Teams", () => {
     await expect($("#import-button")).toHaveAttribute("aria-expanded", "false");
     expect(await focused()).toBe("import-button");
 
+    // Tab past the last item closes the menu and moves on to Settings, the next control after the button.
+    await browser.keys(Key.Enter);
+    await browser.keys(Key.ArrowDown);
+    expect(await focused()).toBe("import-teams");
+    await browser.keys(Key.Tab);
+    await expect($("#import-menu")).not.toBeDisplayed();
+    await expect($("#import-button")).toHaveAttribute("aria-expanded", "false");
+    expect(await focused()).toBe("settings-button");
+    await $("#import-button").click();
+    await browser.keys([Key.Shift, Key.Tab]);
+    await expect($("#import-menu")).not.toBeDisplayed();
+    expect(await focused()).toBe("import-button");
+
     // Enter opens it from the keyboard, and Enter on From Teams… opens its dialog; Esc closes that, back on the
     // button. (Transcript file… opens the native file dialog, which E2E can't drive: import.e2e covers the import.)
     await browser.keys(Key.Enter);
