@@ -390,13 +390,13 @@ pub fn eligible(events: Vec<Event>, lib: &Path, excluded: &[String], deleted: im
     let (keep, out): (Vec<Event>, Vec<Event>) = events
         .into_iter()
         .filter(|e| e.meeting_transcript_url.as_deref().is_some_and(|u| !u.is_empty()) && e.end <= now)
-        .partition(|e| !known.iter().any(|l| same(&l.meeting, e)) && !excluded.contains(&e.join_url) && !deleted(&e.id));
+        .partition(|e| !known.iter().any(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) && !excluded.contains(&e.join_url) && !deleted(&e.id));
     (keep, out.len())
 }
 
-/// A library meeting is this event's: its event id, or (an earlier .vtt import) its subject and start minute.
-fn same(m: &Meeting, e: &Event) -> bool {
-    m.event_id.as_deref() == Some(e.id.as_str()) || (m.subject == e.subject && m.start.is_some_and(|s| s.timestamp() / 60 == e.start.timestamp() / 60))
+/// The folder holds nothing but meeting.json.
+fn only_meta(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| entries.flatten().all(|e| e.file_name() == library::META))
 }
 
 /// Import from Teams between Search and Import: the latest search's result with the dates it searched, and whether an
@@ -489,9 +489,9 @@ pub fn import(
         };
         let dir = lib.join(&id);
         match attempt(&dir, &m, now, &mut run, &version, &excluded) {
-            // Only a folder holding nothing but meeting.json goes: remove_dir refuses once My notes wrote into it
-            // during the run, and the meeting then stays as "no transcript".
-            Ok(m) if m.state == State::NoTranscript && std::fs::remove_file(dir.join(library::META)).is_ok() && std::fs::remove_dir(&dir).is_ok() => {}
+            // Only a folder holding nothing but meeting.json goes. One My notes wrote into during the run stays, as
+            // "no transcript": checked first, then remove_dir refuses a file written since, and meeting.json is put back.
+            Ok(m) if m.state == State::NoTranscript && only_meta(&dir) && std::fs::remove_file(dir.join(library::META)).is_ok() && std::fs::remove_dir(&dir).is_ok() => {}
             Ok(m) => {
                 if !dir.join(library::META).exists() {
                     if let Err(err) = library::save(&dir, &m) {
@@ -983,17 +983,17 @@ mod tests {
             event(6, start(), end()), // captured
             event(7, start(), end()), // skipped
             event(8, start(), end()),
-            event(9, start(), end()), // imported earlier from a .vtt
+            event(9, start(), end()),
         ];
-        // An ad-hoc import: no event id, the same subject, a start in the same minute.
-        let adhoc = Meeting { subject: "Synthetic 9".into(), start: Some((start() + Duration::seconds(40)).fixed_offset()), state: State::Done, source: Some("import".into()), ..Meeting::default() };
-        library::create(&lib, &adhoc).unwrap();
+        // Only the event id counts: a folder with the same subject and start minute but another event id doesn't.
+        let other = Meeting { event_id: Some("SYNTH-OTHER".into()), subject: "Synthetic 9".into(), start: Some(start().fixed_offset()), state: State::Done, ..Meeting::default() };
+        library::create(&lib, &other).unwrap();
         let captured = library::create(&lib, &folder_for(&events[5], now)).unwrap();
         fs::write(lib.join(&captured).join(library::VTT), VTT_A).unwrap();
         skip(&lib, &events[6].uri, &events, now).unwrap();
         let (keep, out) = eligible(events, &lib, &["https://teams.example/j/excluded".into()], |id| id == "SYNTH-4", now);
-        assert_eq!(keep.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["SYNTH-1", "SYNTH-8"]);
-        assert_eq!(out, 5, "deleted, excluded, captured, skipped and imported earlier");
+        assert_eq!(keep.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["SYNTH-1", "SYNTH-8", "SYNTH-9"]);
+        assert_eq!(out, 4, "deleted, excluded, captured and skipped");
     }
 
     #[test]

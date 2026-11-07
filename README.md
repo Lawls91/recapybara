@@ -80,8 +80,8 @@ past meetings' transcripts by date range, for meetings the app wasn't running fo
 1. Pick From and To (the last 7 days by default). To can't be later than today, and the range is at most 31 days.
 2. **Search** runs one calendar search over those dates and says how many Teams meetings with a transcript it found
    (those whose calendar entry has a transcript link and that have ended), and how many it left out because they are
-   already in the library (captured, skipped, or imported from a file with the same title and start minute), deleted,
-   or in an excluded series. Nothing is fetched yet.
+   already in the library (captured or skipped, matched by the calendar event), deleted, or in an excluded series.
+   Nothing is fetched yet.
 3. **Import** fetches and summarises each one in turn, exactly as after a meeting. The status line shows
    "Importing 3 of 7…", and each meeting appears in the list as it lands. A meeting whose transcript list is empty
    leaves no folder behind; "Not reachable" and "Capture failed" ones stay, so you can attach the transcript.
