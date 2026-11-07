@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10). v1 is single-user.
+Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14). v1 is single-user.
 
 ## Build and run
 
@@ -189,6 +189,14 @@ captured (Skipped, or waiting) takes its cached event's current start, end and t
 Show all in this series (meetings with a join URL) filters the list to that join URL, newest first, under a chip
 "Series: <subject> ×"; × clears it. To seed: a skipped folder is `"state": "skipped"` (plus `"skipped": true`, and
 `end` and `transcriptUrl` for Unskip to fetch); a series is folders sharing one `joinUrl`.
+
+My notes (D27): the meeting's My notes tab edits its `notes.md` directly (plain text, written atomically). It saves after
+a 500 ms pause in typing, and at once on a tab or meeting switch, on opening Settings, and when the window loses focus,
+hides or closes. The tab reads "Saving…" until the save lands, then "Saved" ("Not saved" and the error banner if the
+write fails; the next pause retries). Keys typed there stay there: S, E and Del act only on the list's cursor row. Nothing
+else writes `notes.md`: summary runs, re-runs and Replace transcript… leave it byte-identical. The tab shows on any
+meeting with a folder and no state card (so not on Scheduled, In call, Awaiting transcript or Skipped). To seed: put a
+`notes.md` in the meeting folder.
 
 Every claude run is stopped after 10 minutes, and `claude --version` after 30 seconds (the child is killed); a
 stopped run fails like any other, so a fetch retries on schedule and a summary shows "Summary failed" with the reason.
