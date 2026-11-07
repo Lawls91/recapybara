@@ -8,7 +8,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicU32, AtomicUsize, Ordering},
-        mpsc, Mutex,
+        mpsc, Mutex, OnceLock,
     },
     time::{Duration, Instant},
 };
@@ -67,26 +67,17 @@ pub fn version(program: &OsString) -> Option<String> {
     version_within(program, VERSION_TIMEOUT)
 }
 
-static VERSION: Mutex<Option<String>> = Mutex::new(None);
+static VERSION: OnceLock<Option<String>> = OnceLock::new();
 
-/// `version`, run once per app session: the first answer is kept. One that can't run is asked again next time. It runs
-/// outside the lock, so a slow or failing `--version` never queues the fetches behind it (several may ask at once).
-// ponytail: a Claude Code upgrade mid-session is recorded from the next app start.
+/// `version`, run once per app session, its answer (none included) kept: the first caller runs it and any caller
+/// meanwhile waits for that answer, so parallel fetches never run it twice and a failing one is paid once.
+// ponytail: a Claude Code upgrade, or a fixed install, is recorded from the next app start.
 pub fn session_version(program: &OsString) -> Option<String> {
     once(&VERSION, || version(program))
 }
 
-fn once(cell: &Mutex<Option<String>>, ask: impl FnOnce() -> Option<String>) -> Option<String> {
-    let lock = || cell.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(v) = lock().clone() {
-        return Some(v);
-    }
-    let v = ask();
-    let mut kept = lock();
-    if kept.is_none() {
-        *kept = v;
-    }
-    kept.clone()
+fn once(cell: &OnceLock<Option<String>>, ask: impl FnOnce() -> Option<String>) -> Option<String> {
+    cell.get_or_init(ask).clone()
 }
 
 /// `f` over `items`, at most `n` at once, the results in `items`' order.
@@ -511,19 +502,20 @@ mod tests {
     }
 
     #[test]
-    fn the_version_is_asked_once_per_session_and_again_only_while_it_cant_be_read() {
-        let cell = Mutex::new(None);
-        let asked = std::cell::Cell::new(0);
-        let ask = |v: Option<&str>| {
-            asked.set(asked.get() + 1);
-            v.map(String::from)
-        };
-        assert_eq!(once(&cell, || ask(None)), None);
-        assert_eq!(once(&cell, || ask(Some("2.1.319 (Claude Code)"))).as_deref(), Some("2.1.319 (Claude Code)"));
-        for _ in 0..5 {
-            assert_eq!(once(&cell, || ask(Some("9.9.9"))).as_deref(), Some("2.1.319 (Claude Code)"));
+    fn the_version_runs_once_for_callers_asking_together_and_a_failed_answer_is_kept_too() {
+        for answer in [Some("2.1.319 (Claude Code)"), None] {
+            let (cell, runs) = (OnceLock::new(), AtomicUsize::new(0));
+            // A slow --version, asked by 8 fetches at once.
+            let ask = || {
+                runs.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(200));
+                answer.map(String::from)
+            };
+            let got = parallel(&[(); 8], 8, |_| once(&cell, ask));
+            assert_eq!(got, vec![answer.map(String::from); 8], "{answer:?}");
+            assert_eq!(once(&cell, || panic!("asked again")), answer.map(String::from));
+            assert_eq!(runs.load(Ordering::SeqCst), 1, "{answer:?}: one run");
         }
-        assert_eq!(asked.get(), 2);
     }
 
     #[test]
