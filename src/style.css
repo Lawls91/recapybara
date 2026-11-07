@@ -518,6 +518,10 @@ button {
   color: var(--mc-read);
   font: var(--mc-readwt) 14px/1.6 var(--mc-ui);
 }
+/* the caret marks focus in a full-pane text box; a ring here is clipped to a stray line by the pane */
+.notes:focus-visible {
+  outline: 0;
+}
 .notes::placeholder {
   color: var(--mc-txt3);
 }
