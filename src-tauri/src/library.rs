@@ -482,8 +482,21 @@ fn snippet_line(tab: &str, raw: &str) -> (String, Option<String>) {
     (line.trim_start_matches(['#', '-', ' ']).to_string(), None)
 }
 
+/// The lines of a file search reads: never the app's own boilerplate. In `summary.md` (D21) that is the title, the
+/// date line and every heading; in `transcript.md` (D22) the "Corrections applied" block after the turns. Notes are
+/// the user's own, read whole.
+fn searchable<'a>(tab: &str, text: &'a str) -> Vec<&'a str> {
+    match tab {
+        // The body starts at the first section heading, after the title and date line.
+        "summary" => text.lines().skip_while(|l| !l.starts_with("## ")).filter(|l| !l.starts_with('#')).collect(),
+        "transcript" => text.lines().take_while(|l| !l.starts_with("## ")).collect(),
+        _ => text.lines().collect(),
+    }
+}
+
 /// Search (D28): a plain scan, no index, of each meeting's `summary.md`, `transcript.md` and `notes.md`, ignoring
-/// case. Meetings come in list order (newest first), each one's hits in tab order.
+/// case. Meetings come in list order (newest first), each one's hits in tab order; a meeting's scan stops at its
+/// third hit.
 pub fn search(library: &Path, query: &str) -> Vec<Hit> {
     let q = query.trim().to_lowercase();
     let mut hits = vec![];
@@ -493,12 +506,16 @@ pub fn search(library: &Path, query: &str) -> Vec<Hit> {
     for l in list(library) {
         let dir = library.join(&l.id);
         let mut n = 0;
-        for (tab, file) in [("summary", SUMMARY_MD), ("transcript", TRANSCRIPT_MD), ("notes", NOTES_MD)] {
-            for raw in fs::read_to_string(dir.join(file)).unwrap_or_default().lines() {
+        'files: for (tab, file) in [("summary", SUMMARY_MD), ("transcript", TRANSCRIPT_MD), ("notes", NOTES_MD)] {
+            let text = fs::read_to_string(dir.join(file)).unwrap_or_default();
+            for raw in searchable(tab, &text) {
                 let (line, at) = snippet_line(tab, raw);
-                if n < HITS_PER_MEETING && line.to_lowercase().contains(&q) {
+                if line.to_lowercase().contains(&q) {
                     hits.push(Hit { id: l.id.clone(), tab, line, at });
                     n += 1;
+                    if n == HITS_PER_MEETING {
+                        break 'files;
+                    }
                 }
             }
         }
@@ -824,6 +841,18 @@ Ask Robin about the 403
         assert_eq!(search(&lib, "retry")[0], hit("A", "summary", "Ship the retry rule first. [00:00:04]", None));
         assert_eq!(search(&lib, "   "), [], "a blank query finds nothing");
         assert_eq!(search(&lib, "zzz"), []);
+    }
+
+    #[test]
+    fn search_skips_the_summary_title_date_line_and_headings_and_the_corrections_block() {
+        let lib = search_library("search5");
+        let dir = lib.join("A");
+        fs::write(dir.join(SUMMARY_MD), "# Decisions review\n\nThu 5 Nov 2026, 14:30-15:15\n\n## Overview\n\nNo decisions yet.\n\n## Decisions\n\n- Go with the retry limit. [00:00:04]\n").unwrap();
+        fs::write(dir.join(TRANSCRIPT_MD), "**[00:00:03] Speaker A:** We keep the filter rule.\n\n## Corrections applied\n\n- felter -> filter: domain term\n").unwrap();
+        assert_eq!(search(&lib, "decisions"), [hit("A", "summary", "No decisions yet.", None)]);
+        assert_eq!(search(&lib, "2026"), [], "the date line");
+        assert_eq!(search(&lib, "felter"), [], "the corrections block");
+        assert_eq!(search(&lib, "filter rule"), [hit("A", "transcript", "Speaker A: We keep the filter rule.", Some("00:00:03"))]);
     }
 
     #[test]

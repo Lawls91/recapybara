@@ -166,10 +166,11 @@ fn save_notes(app: AppHandle, id: String, text: String) -> Result<(), String> {
     library::write_notes(&library::meeting_dir(&library_path(&app)?, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))
 }
 
-/// Search (D28) for the list's search box. Async, so a scan of a big library never holds the window.
+/// Search (D28) for the list's search box. The scan runs on a blocking thread, so a big library never holds the window.
 #[tauri::command]
 async fn search(app: AppHandle, query: String) -> Result<Vec<library::Hit>, String> {
-    Ok(library::search(&library_path(&app)?, &query))
+    let lib = library_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || library::search(&lib, &query)).await.map_err(|e| e.to_string())
 }
 
 /// Tray Quit's second half: the page has saved its notes.
