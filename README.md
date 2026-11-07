@@ -33,8 +33,10 @@ It builds the debug exe if missing (or with `-Build`), copies it to `<StateDir>\
 unlocked, stops that dir's previous instance (by its recorded PID, and only if that PID still runs the copy), launches
 the copy with `MEETING_CAPTURE_DEV=<StateDir>` and prints `{"pid":…,"stateDir":"…"}`. The default dir is
 `%LOCALAPPDATA%\MeetingCapture-dev\default`. Stop it by that PID (`Stop-Process -Id <pid>`), never by name: that
-would take the installed copy down too. Its output goes to `<StateDir>\dev.log` and `dev.log.err`. `-Claude` and
-`-Scenario` set `MEETING_CAPTURE_CLAUDE` and `FAKE_CLAUDE_SCENARIO`, for runs against the fake claude.
+would take the installed copy down too. `-Claude` and
+`-Scenario` set `MEETING_CAPTURE_CLAUDE` and `FAKE_CLAUDE_SCENARIO`, for runs against the fake claude. Without them it
+runs the real `claude` on PATH, like the installed copy: it refreshes your calendar and captures your meetings into
+the dev library.
 
 Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins; an empty value is unset), resolved in
 `dev_dir` in `src-tauri/src/lib.rs`. In dev mode:

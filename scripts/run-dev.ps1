@@ -4,7 +4,7 @@ run-dev.ps1: launches a dev instance of Meeting capture beside the installed cop
   pwsh -File scripts\run-dev.ps1 [-StateDir <dir>] [-Build] [-Claude <exe>] [-Scenario <file>]
 
 All its state lives under -StateDir (default %LOCALAPPDATA%\MeetingCapture-dev\default). It runs a copy of the
-debug exe from <StateDir>\bin, so the build output stays unlocked, logs to <StateDir>\dev.log, and prints
+debug exe from <StateDir>\bin, so the build output stays unlocked, and prints
 {pid, stateDir} as JSON. Re-running it replaces that dir's previous instance, stopped by its recorded PID and only
 when that PID still runs the copy: never by name, so the installed copy and other dirs' instances are left alone.
 -Claude and -Scenario point it at the fake claude (MEETING_CAPTURE_CLAUDE, FAKE_CLAUDE_SCENARIO).
@@ -52,8 +52,8 @@ foreach ($i in 1..20) {
 $env:MEETING_CAPTURE_DEV = $StateDir
 if ($Claude) { $env:MEETING_CAPTURE_CLAUDE = [IO.Path]::GetFullPath($Claude) }
 if ($Scenario) { $env:FAKE_CLAUDE_SCENARIO = [IO.Path]::GetFullPath($Scenario) }
-# The debug exe is a console app: its console is hidden and its output goes to dev.log.
-$log = Join-Path $StateDir 'dev.log'
-$p = Start-Process -FilePath $exe -WindowStyle Hidden -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+# The debug exe is a console app: its console is hidden. No redirects: they make the app inherit this script's
+# handles, so a caller reading our output would wait for the app to exit.
+$p = Start-Process -FilePath $exe -WindowStyle Hidden -PassThru
 Set-Content -LiteralPath $pidFile -Value $p.Id
 [pscustomobject]@{ pid = $p.Id; stateDir = $StateDir } | ConvertTo-Json -Compress
