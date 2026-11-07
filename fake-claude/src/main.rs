@@ -8,8 +8,10 @@
 //!     "stdout": "raw text",       // printed as is, e.g. malformed JSON
 //!     "delayMs": 0,               // sleep before answering, so a test can see "summarising" (or a run time out)
 //!     "versionDelayMs": 0 }       // sleep before answering --version
+//! Like the model told to skip them, a read_resource hook whose uri the prompt lists after "already read:" isn't fired.
 //! Each run appends one JSON line to `<scenario>.record.jsonl`:
-//!   { argv, env, stdin, cwd, projectDir, hooks: [{ command, exitCode }] }
+//!   { argv, env, stdin, cwd, projectDir, startedMs, endedMs, fired: [{ tool_name, uri }], hooks: [{ command, exitCode }] }
+//! (`startedMs` and `endedMs` are Unix epoch milliseconds, so overlapping runs show.)
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -78,7 +80,12 @@ fn run_hooks(settings: &str, hook: &Value, payload: &Value) -> Vec<Value> {
     ran
 }
 
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+}
+
 fn main() {
+    let started = epoch_ms();
     let scenario_path = PathBuf::from(env::var("FAKE_CLAUDE_SCENARIO").expect("FAKE_CLAUDE_SCENARIO not set"));
     let scenario: Value = serde_json::from_str(&fs::read_to_string(&scenario_path).unwrap()).unwrap();
     let argv: Vec<String> = env::args().skip(1).collect();
@@ -87,6 +94,7 @@ fn main() {
         "argv": argv,
         "env": env::vars().collect::<BTreeMap<_, _>>(),
         "cwd": cwd,
+        "startedMs": started,
     });
 
     let output = if argv.iter().any(|a| a == "--version") {
@@ -104,8 +112,15 @@ fn main() {
         fs::write(project.join("fake-session").join("tool-results").join("toolu_fake.json"), "{}").unwrap();
         record["projectDir"] = json!(project);
 
-        let hooks: Vec<&Value> = scenario.get("hook").into_iter().chain(scenario["hooks"].as_array().into_iter().flatten()).collect();
+        let skipped = argv.iter().skip_while(|a| *a != "-p").nth(1).and_then(|p| p.split_once("already read:")).map_or("", |(_, l)| l);
+        let hooks: Vec<&Value> = scenario
+            .get("hook")
+            .into_iter()
+            .chain(scenario["hooks"].as_array().into_iter().flatten())
+            .filter(|h| !(h["tool_name"].as_str().is_some_and(|t| t.ends_with("read_resource")) && h["tool_input"]["uri"].as_str().is_some_and(|u| skipped.contains(&format!("\"{u}\"")))))
+            .collect();
         if let Some(i) = argv.iter().position(|a| a == "--settings") {
+            record["fired"] = hooks.iter().map(|h| json!({ "tool_name": h["tool_name"], "uri": h["tool_input"]["uri"] })).collect();
             let mut ran = vec![];
             for hook in hooks {
                 let event = hook["event"].as_str().unwrap_or("PostToolUse");
@@ -142,6 +157,7 @@ fn main() {
         }
     };
 
+    record["endedMs"] = json!(epoch_ms());
     let mut log = fs::OpenOptions::new()
         .create(true)
         .append(true)

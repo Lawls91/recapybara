@@ -9,7 +9,7 @@ use crate::{
 };
 use chrono::{DateTime, Duration, Local, NaiveDateTime, Utc};
 use serde_json::Value;
-use std::{io, path::Path, sync::Mutex};
+use std::{io, path::{Path, PathBuf}, sync::{mpsc, Mutex}};
 
 /// Attempt times, in minutes from event end (D12). After the last, the meeting is "no transcript".
 pub const RETRIES: [i64; 5] = [0, 2, 10, 30, 120];
@@ -18,21 +18,47 @@ pub const CATCH_UP: Duration = Duration::minutes(120);
 /// Transcripts created this long before the event's start still belong to it (D14).
 pub const EARLY: Duration = Duration::minutes(30);
 
-/// One fetch at a time, whoever starts it: the scheduler's tick, an Unskip's, or Import from Teams. So no meeting
-/// gets two attempts for one due time.
-pub static FETCHING: Mutex<()> = Mutex::new(());
+/// Import from Teams fetches at most this many meetings at once ...
+pub const FETCHES: usize = 4;
+/// ... and summarises at most this many at once.
+pub const SUMMARIES: usize = 2;
+
+/// The meetings being fetched or given their folder now, as library and event id (else folder id), whoever does it:
+/// the scheduler's tick, an Unskip's, or Import from Teams. So no meeting gets two attempts for one due time.
+static FETCHING: Mutex<Vec<PathBuf>> = Mutex::new(vec![]);
+
+/// A meeting taken for its fetch until dropped.
+pub struct Claim(PathBuf);
+
+/// Takes meeting `id` (its event id, else its folder id) in `lib` for a fetch, unless someone has it already.
+pub fn claim(lib: &Path, id: &str) -> Option<Claim> {
+    let key = lib.join(id);
+    let mut f = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
+    if f.contains(&key) {
+        return None;
+    }
+    f.push(key.clone());
+    Some(Claim(key))
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        FETCHING.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| *k != self.0);
+    }
+}
 
 pub const CAPTURE_FAILED_BODY: &str = "Capture failed: no transcript was saved. Import it from the Teams recap.";
 
 /// The fetch run (D8, D13): haiku, the two calendar tools, `read_resource` captured, the bigger MCP output limit.
 pub fn run_for(url: &str) -> ClaudeRun {
     ClaudeRun {
+        kind: "fetch",
         prompt: format!("Call read_resource once with uri exactly \"{url}\". Don't change any character of it. Reply DONE."),
         model: "haiku".into(),
         allowed_tools: TOOLS,
         capture: &[READ],
         args: vec![],
-        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000")],
+        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000"), crate::calendar::NO_TOOL_SEARCH],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -331,10 +357,16 @@ fn attempt(
     Ok(m)
 }
 
+/// Whether the meeting is due for an attempt at `now` (D12).
+fn due(m: &Meeting, now: DateTime<Utc>) -> bool {
+    matches!(m.state, State::AwaitingTranscript | State::Scheduled) && m.next_attempt.is_some_and(|t| t <= now)
+}
+
 /// The scheduler's fetch look at the clock (D12, D25). Each cached event that has ended within the catch-up window
 /// and has no folder gets one ("awaiting transcript", due now). Then every awaiting meeting whose next attempt is
 /// due gets one attempt, one at a time. A skipped meeting, or one whose join URL `excluded()` names, never gets
-/// either (D17); the exclusions are read again after each run, so one made during it still holds. First, each folder
+/// either (D17); the exclusions are read again after each run, so one made during it still holds. A meeting another
+/// fetch has (`claim`) is left to it, and each is checked again once taken. First, each folder
 /// not yet captured takes its cached event's current times and transcript URL (a moved meeting). `changed` is called with each folder id as it is created (no meeting) and as
 /// each attempt lands (the meeting as it now stands), so the summary or failure toast follows at once: a quit during a
 /// later attempt can't lose it. Returns each attempted meeting as it now stands.
@@ -355,23 +387,26 @@ pub fn tick(
             }
         }
     }
-    let known = library::list(lib);
-    let skip = excluded();
-    for e in events.iter().filter(|e| catches_up(e.end, now) && !skip.contains(&e.join_url)) {
-        if !known.iter().any(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) {
-            match library::create(lib, &folder_for(e, now)) {
-                Ok(id) => changed(&id, None),
-                Err(err) => eprintln!("fetch: no folder for {}: {err}", e.subject),
-            }
+    let known = |list: &[library::Listed], e: &Event| list.iter().any(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str()));
+    let (before, skip) = (library::list(lib), excluded());
+    for e in events.iter().filter(|e| catches_up(e.end, now) && !skip.contains(&e.join_url) && !known(&before, e)) {
+        // Checked again once taken: an import may have given it a folder meanwhile.
+        let Some(_one) = claim(lib, &e.id).filter(|_| !known(&library::list(lib), e)) else { continue };
+        match library::create(lib, &folder_for(e, now)) {
+            Ok(id) => changed(&id, None),
+            Err(err) => eprintln!("fetch: no folder for {}: {err}", e.subject),
         }
     }
     let mut done = vec![];
-    let due = library::list(lib)
-        .into_iter()
-        .filter(|l| matches!(l.meeting.state, State::AwaitingTranscript | State::Scheduled) && l.meeting.next_attempt.is_some_and(|t| t <= now))
-        .filter(|l| !library::excluded(&l.meeting, &skip));
-    for l in due {
-        match attempt(&lib.join(&l.id), &l.meeting, now, &mut run, &version, &excluded) {
+    let listed = library::list(lib).into_iter().filter(|l| due(&l.meeting, now) && !library::excluded(&l.meeting, &skip));
+    for l in listed {
+        let Some(one) = claim(lib, l.meeting.event_id.as_deref().unwrap_or(&l.id)) else { continue };
+        let dir = lib.join(&l.id);
+        // Another fetch may have made its attempt since the list was read.
+        let Some(m) = library::load(&dir).ok().filter(|m| due(m, now)) else { continue };
+        let landed = attempt(&dir, &m, now, &mut run, &version, &excluded);
+        drop(one);
+        match landed {
             Ok(m) => {
                 changed(&l.id, Some(&m));
                 done.push((l.id, m));
@@ -449,48 +484,63 @@ impl TeamsImport {
     }
 }
 
-/// Import from Teams: each event in turn gets a folder and one attempt through the tick's own fetch code (D13, D14),
-/// holding `FETCHING`, so it never overlaps a tick's fetch. Each is checked again under the lock, so one the tick, a
-/// Skip, a Delete or an Exclude took meanwhile is left alone. "No transcript" (an empty list, past the retries) keeps
-/// its folder and lists as a No transcript row, to Attach or Delete; one that ended within the catch-up window stays
-/// "awaiting", for the tick's retries. `progress(n, total)` is called before each; `landed` after each attempt, with
-/// the lock released, so its follow-up (the summary) doesn't hold up the tick.
+/// Import from Teams: each event gets a folder and one attempt through the tick's own fetch code (D13, D14), at most
+/// `FETCHES` at once. Each is taken (`claim`) and checked again first, so one the tick has, or a Skip, a Delete or an
+/// Exclude took meanwhile, is left alone. "No transcript" (an empty list, past the retries) keeps its folder and lists
+/// as a No transcript row, to Attach or Delete; one that ended within the catch-up window stays "awaiting", for the
+/// tick's retries. `landed` is called after each attempt; a capture is then handed to `summarise`, at most `SUMMARIES`
+/// at once, while the fetches go on. `progress(done, total)` is called at the start and as each meeting is done
+/// (fetched, and summarised if captured). Returns when every one is done.
 #[allow(clippy::too_many_arguments)]
 pub fn import(
     lib: &Path,
     events: &[Event],
-    excluded: impl Fn() -> Vec<String>,
-    deleted: impl Fn(&str) -> bool,
-    now: impl Fn() -> DateTime<Utc>,
-    mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>,
-    version: impl Fn() -> Option<String>,
-    mut progress: impl FnMut(usize, usize),
-    mut landed: impl FnMut(&str, &Meeting),
+    excluded: impl Fn() -> Vec<String> + Sync,
+    deleted: impl Fn(&str) -> bool + Sync,
+    now: impl Fn() -> DateTime<Utc> + Sync,
+    run: impl Fn(&ClaudeRun) -> io::Result<Output> + Sync,
+    version: impl Fn() -> Option<String> + Sync,
+    progress: impl Fn(usize, usize) + Sync,
+    landed: impl Fn(&str, &Meeting) + Sync,
+    summarise: impl Fn(&str) + Sync,
 ) {
-    for (n, e) in events.iter().enumerate() {
-        progress(n + 1, events.len());
-        let one = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
+    let count = Mutex::new(0);
+    let finished = || {
+        let mut n = count.lock().unwrap_or_else(|e| e.into_inner());
+        *n += 1;
+        progress(*n, events.len());
+    };
+    progress(0, events.len());
+    // Returns the folder id when its capture is to be summarised.
+    let fetch = |e: &Event| -> Option<String> {
+        let one = claim(lib, &e.id)?;
         let now = now();
         if eligible(vec![e.clone()], lib, &excluded(), &deleted, now).0.is_empty() {
-            continue;
+            return None;
         }
         let m = folder_for(e, now);
-        let id = match library::create(lib, &m) {
-            Ok(id) => id,
-            Err(err) => {
-                eprintln!("import: no folder for {}: {err}", e.subject);
-                continue;
-            }
-        };
-        let dir = lib.join(&id);
-        match attempt(&dir, &m, now, &mut run, &version, &excluded) {
-            Ok(m) => {
-                drop(one);
-                landed(&id, &m);
-            }
-            Err(err) => eprintln!("import: {id} not updated: {err}"),
+        let id = library::create(lib, &m).map_err(|err| eprintln!("import: no folder for {}: {err}", e.subject)).ok()?;
+        let m = attempt(&lib.join(&id), &m, now, &mut |r| run(r), &version, &excluded).map_err(|err| eprintln!("import: {id} not updated: {err}")).ok()?;
+        drop(one);
+        landed(&id, &m);
+        (m.state == State::TranscriptReady && !library::excluded(&m, &excluded())).then_some(id)
+    };
+    let (captured, queue) = mpsc::channel::<String>();
+    let queue = Mutex::new(queue);
+    std::thread::scope(|s| {
+        for _ in 0..SUMMARIES {
+            s.spawn(|| loop {
+                let Ok(id) = queue.lock().unwrap_or_else(|e| e.into_inner()).recv() else { break };
+                summarise(&id);
+                finished();
+            });
         }
-    }
+        let captured = captured; // the summaries end once the fetches have, and with them this sender
+        crate::claude::parallel(events, FETCHES, |e| match fetch(e) {
+            Some(id) => captured.send(id).expect("the summaries outlive the fetches"),
+            None => finished(),
+        });
+    });
 }
 
 #[cfg(test)]
@@ -983,26 +1033,68 @@ mod tests {
         assert_eq!(out, 4, "deleted, excluded, captured and skipped");
     }
 
+    /// Runs going now and the most seen at once, for a runner on several threads.
+    #[derive(Default)]
+    struct Overlap {
+        going: std::sync::atomic::AtomicUsize,
+        most: std::sync::atomic::AtomicUsize,
+    }
+    impl Overlap {
+        fn during<R>(&self, f: impl FnOnce() -> R) -> R {
+            use std::sync::atomic::Ordering::SeqCst;
+            self.most.fetch_max(self.going.fetch_add(1, SeqCst) + 1, SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            let r = f();
+            self.going.fetch_sub(1, SeqCst);
+            r
+        }
+        fn most(&self) -> usize {
+            self.most.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+    /// The event number a fetch run's prompt names.
+    fn fetched(r: &ClaudeRun) -> u32 {
+        r.prompt.split("SYNTH-").nth(1).unwrap().split('?').next().unwrap().parse().unwrap()
+    }
+
     #[test]
-    fn import_fetches_each_meeting_in_turn_and_keeps_a_folder_for_each_no_transcript_included() {
+    fn import_fetches_up_to_4_meetings_at_once_summarises_up_to_2_at_once_and_each_outcome_is_as_before() {
         let lib = temp("import");
         let now = end() + Duration::days(3);
         let recent = event(6, now - Duration::minutes(80), now - Duration::minutes(30));
-        let events = [event(1, start(), end()), event(2, start(), end()), event(3, start(), end()), event(4, start(), end()), event(5, start(), end()), recent];
-        let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
-        let run = runner(&log, &minute, |n| match n {
-            1 => blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])),
-            3 => blocks(r#"{"error":"Request failed with status 403"}"#),
-            4 => blocks(r"Error: result (1 line) exceeds maximum allowed tokens. Output has been saved to C:\synthetic.txt"),
-            5 => blocks("Error: synthetic transient failure"),
-            _ => blocks(&body(&[])), // 2 and the recent one: an empty list
-        });
-        let (steps, landed) = (RefCell::new(vec![]), RefCell::new(vec![]));
-        import(&lib, &events, Vec::new, |_| false, || now, run, none, |n, total| steps.borrow_mut().push((n, total, log.borrow().len())), |_, m| {
-            landed.borrow_mut().push((m.subject.clone(), m.state))
-        });
-        assert_eq!(ran(&log), [1, 2, 3, 4, 5, 6], "one run each, in turn");
-        assert_eq!(*steps.borrow(), [(1, 6, 0), (2, 6, 1), (3, 6, 2), (4, 6, 3), (5, 6, 4), (6, 6, 5)], "each step said before its run");
+        // Three captures in the first four, so their summaries queue.
+        let mut events: Vec<Event> = [1, 7, 8, 2, 3, 4, 5].iter().map(|n| event(*n, start(), end())).collect();
+        events.push(recent);
+        let (fetches, summaries) = (Overlap::default(), Overlap::default());
+        let ran = Mutex::new(vec![]);
+        let run = |r: &ClaudeRun| {
+            let n = fetched(r);
+            ran.lock().unwrap().push(n);
+            let answer = match n {
+                1 | 7 | 8 => blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])),
+                3 => blocks(r#"{"error":"Request failed with status 403"}"#),
+                4 => blocks(r"Error: result (1 line) exceeds maximum allowed tokens. Output has been saved to C:\synthetic.txt"),
+                5 => blocks("Error: synthetic transient failure"),
+                _ => blocks(&body(&[])), // 2 and the recent one: an empty list
+            };
+            fetches.during(|| Ok(Output { stdout: String::new(), captured: vec![read(&format!("meeting-transcript:///events/SYNTH-{n}?start=x&end=y"), answer)] }))
+        };
+        let (steps, landed, summarised) = (Mutex::new(vec![]), Mutex::new(vec![]), Mutex::new(vec![]));
+        import(
+            &lib, &events, Vec::new, |_| false, || now, run, none,
+            |n, total| steps.lock().unwrap().push((n, total)),
+            |_, m| landed.lock().unwrap().push((m.subject.clone(), m.state)),
+            |id| summaries.during(|| summarised.lock().unwrap().push(library::load(&lib.join(id)).unwrap().subject)),
+        );
+        let mut got = ran.into_inner().unwrap();
+        got.sort();
+        assert_eq!(got, [1, 2, 3, 4, 5, 6, 7, 8], "one run each");
+        assert_eq!((FETCHES, fetches.most()), (4, 4), "four fetches at once, never more");
+        assert_eq!((SUMMARIES, summaries.most()), (2, 2), "two summaries at once, never more");
+        let mut summarised = summarised.into_inner().unwrap();
+        summarised.sort();
+        assert_eq!(summarised, ["Synthetic 1", "Synthetic 7", "Synthetic 8"], "each capture summarised");
+        assert_eq!(steps.into_inner().unwrap(), (0..=8).map(|n| (n, 8)).collect::<Vec<_>>(), "0 done first, then each as it is done");
         let want = [
             ("Synthetic 1".to_string(), State::TranscriptReady),
             ("Synthetic 2".into(), State::NoTranscript),
@@ -1010,8 +1102,12 @@ mod tests {
             ("Synthetic 4".into(), State::CaptureFailed),
             ("Synthetic 5".into(), State::CaptureFailed),
             ("Synthetic 6".into(), State::AwaitingTranscript),
+            ("Synthetic 7".into(), State::TranscriptReady),
+            ("Synthetic 8".into(), State::TranscriptReady),
         ];
-        assert_eq!(*landed.borrow(), want);
+        let mut landed = landed.into_inner().unwrap();
+        landed.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(landed, want);
         let mut folders: Vec<(String, State)> = library::list(&lib).into_iter().map(|l| (l.meeting.subject, l.meeting.state)).collect();
         folders.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(folders, want, "the empty list kept its folder, as No transcript");
@@ -1019,10 +1115,10 @@ mod tests {
         assert_eq!(recent.next_attempt.map(DateTime::<Utc>::from), Some(now + Duration::minutes(90)), "the tick retries it at end + 120");
 
         // A second import of the same range: every one is in the library now, so nothing runs and nothing changes.
-        let again = RefCell::new(0);
-        import(&lib, &events, Vec::new, |_| false, || now, |_: &ClaudeRun| { *again.borrow_mut() += 1; Ok(Output::default()) }, none, |_, _| {}, |_, _| {});
-        assert_eq!(*again.borrow(), 0);
-        assert_eq!(library::list(&lib).len(), 6);
+        let again = Mutex::new(0);
+        import(&lib, &events, Vec::new, |_| false, || now, |_: &ClaudeRun| { *again.lock().unwrap() += 1; Ok(Output::default()) }, none, |_, _| {}, |_, _| {}, |_| panic!("nothing to summarise"));
+        assert_eq!(*again.lock().unwrap(), 0);
+        assert_eq!(library::list(&lib).len(), 8);
     }
 
     #[test]
@@ -1047,33 +1143,65 @@ mod tests {
     }
 
     #[test]
-    fn import_waits_for_a_running_fetch_and_then_leaves_alone_a_meeting_taken_meanwhile() {
-        let lib = temp("importlock");
+    fn a_meeting_another_fetch_has_is_left_to_it_and_one_taken_meanwhile_is_left_alone() {
+        let lib = temp("importclaim");
         let now = end() + Duration::days(3);
-        let events = vec![event(1, start(), end()), event(2, start(), end()), event(3, start(), end())];
-        let held = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
-        let ran = std::sync::Arc::new(Mutex::new(vec![]));
-        let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let worker = {
-            let (lib, events, ran, gone) = (lib.clone(), events.clone(), ran.clone(), gone.clone());
-            std::thread::spawn(move || {
-                let run = |r: &ClaudeRun| {
-                    ran.lock().unwrap().push(r.prompt.clone());
+        let events = vec![event(31, start(), end()), event(32, start(), end()), event(33, start(), end())];
+        let ran = Mutex::new(vec![]);
+        let run = |r: &ClaudeRun| {
+            ran.lock().unwrap().push(fetched(r));
+            Ok(Output::default())
+        };
+        // The tick has meeting 31, and meeting 33 was deleted meanwhile.
+        let held = claim(&lib, "SYNTH-31").unwrap();
+        assert!(claim(&lib, "SYNTH-31").is_none(), "taken once");
+        assert!(claim(&temp("otherlib"), "SYNTH-31").is_some(), "another library's meeting is another meeting");
+        import(&lib, &events, Vec::new, |id| id == "SYNTH-33", || now, run, none, |_, _| {}, |_, _| {}, |_| {});
+        assert_eq!(*ran.lock().unwrap(), [32]);
+        drop(held);
+        assert!(claim(&lib, "SYNTH-31").is_some(), "free once dropped");
+
+        // While an import fetches meeting 34, which ended within the catch-up window, the tick leaves it alone ...
+        let lib = temp("tickclaim");
+        let now = end();
+        let e = event(34, start(), end());
+        let (started, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let slow = |_: &ClaudeRun| {
+                    started.wait();
+                    release.wait();
+                    Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-34?start=x&end=y", blocks(&body(&[])))] })
+                };
+                import(&lib, std::slice::from_ref(&e), Vec::new, |_| false, || now, slow, none, |_, _| {}, |_, _| {}, |_| {});
+            });
+            started.wait();
+            let done = tick(&lib, std::slice::from_ref(&e), Vec::new, now, |_| panic!("the import has it"), none, |_, _| panic!("no change"));
+            assert!(done.is_empty());
+            release.wait();
+        });
+        // ... and once it has landed, the tick finds it not due until its next retry.
+        tick(&lib, std::slice::from_ref(&e), Vec::new, now, |_| panic!("not due"), none, |_, _| {});
+        assert_eq!((only(&lib).attempts, only(&lib).next_attempt.map(DateTime::<Utc>::from)), (1, Some(end() + Duration::minutes(2))));
+
+        // While the tick fetches meeting 35, an import leaves it alone.
+        let lib = temp("importwhiletick");
+        let e = event(35, start(), end());
+        let (started, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let slow = |_: &ClaudeRun| {
+                    started.wait();
+                    release.wait();
                     Ok(Output::default())
                 };
-                import(&lib, &events, Vec::new, |id| id == "SYNTH-3" && gone.load(std::sync::atomic::Ordering::SeqCst), || now, run, || None, |_, _| {}, |_, _| {});
-            })
-        };
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        assert!(ran.lock().unwrap().is_empty(), "no run while a tick's fetch holds the lock");
-        // That tick gave meeting 1 its folder, and meeting 3 was deleted meanwhile.
-        library::create(&lib, &folder_for(&events[0], now)).unwrap();
-        gone.store(true, std::sync::atomic::Ordering::SeqCst);
-        drop(held);
-        worker.join().unwrap();
-        let ran = ran.lock().unwrap();
-        assert_eq!(ran.len(), 1);
-        assert!(ran[0].contains("SYNTH-2"));
+                tick(&lib, std::slice::from_ref(&e), Vec::new, now, slow, none, |_, _| {});
+            });
+            started.wait();
+            import(&lib, std::slice::from_ref(&e), Vec::new, |_| false, || now, |_: &ClaudeRun| panic!("the tick has it"), none, |_, _| {}, |_, _| panic!("not landed"), |_| {});
+            release.wait();
+        });
+        assert_eq!(library::list(&lib).len(), 1, "one folder");
     }
 
     #[test]
@@ -1081,7 +1209,7 @@ mod tests {
         let r = run_for(URL);
         assert_eq!(r.model, "haiku");
         assert_eq!(r.capture, ["mcp__claude_ai_Microsoft_365__read_resource"]);
-        assert_eq!(r.env, [("MAX_MCP_OUTPUT_TOKENS", "200000")]);
+        assert_eq!(r.env, [("MAX_MCP_OUTPUT_TOKENS", "200000"), ("ENABLE_TOOL_SEARCH", "false")]);
         assert!(r.prompt.contains(URL));
     }
 }

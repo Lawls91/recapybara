@@ -133,6 +133,8 @@ export interface CalendarStatus {
   failure: string | null;
   /** Teams events left out for a time zone the app can't convert. */
   skipped?: number;
+  /** Events whose read failed, even on the retry. */
+  unreadable?: number;
 }
 
 /** D40's calendar status line: refreshing, else the last failure with its fix, else when it last refreshed. */
@@ -141,7 +143,10 @@ export function calendarLine(s: CalendarStatus): { text: string; error: boolean 
   if (s.failure) return { text: s.failure, error: true };
   if (!s.updated) return { text: "Calendar not loaded", error: false };
   const updated = `Updated ${new Date(s.updated).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
-  const n = s.skipped ?? 0;
-  if (n) return { text: `${updated} · ${n} event${n === 1 ? "" : "s"} skipped: unknown time zone`, error: false };
-  return { text: updated, error: false };
+  const events = (n: number) => `${n} event${n === 1 ? "" : "s"}`;
+  const notes = [
+    s.skipped ? `${events(s.skipped)} skipped: unknown time zone` : "",
+    s.unreadable ? `${events(s.unreadable)} couldn't be read` : "",
+  ];
+  return { text: [updated, ...notes.filter(Boolean)].join(" · "), error: false };
 }

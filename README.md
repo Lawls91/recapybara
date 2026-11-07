@@ -78,19 +78,28 @@ The list's Import button opens a menu: **Transcript file…** imports a `.vtt` y
 past meetings' transcripts by date range, for meetings the app wasn't running for.
 
 1. Pick From and To (the last 7 days by default). To can't be later than today, and the range is at most 31 days.
-2. **Search** runs one calendar search over those dates and says how many Teams meetings with a transcript it found
-   (those whose calendar entry has a transcript link and that have ended), and how many it left out because they are
-   already in the library (captured or skipped, matched by the calendar event), deleted, or in an excluded series.
-   Nothing is fetched yet.
-3. **Import** fetches and summarises each one in turn, exactly as after a meeting. The status line shows
-   "Importing 3 of 7…", and each meeting appears in the list as it lands. A meeting whose transcript list is empty
+2. **Search** runs one calendar search per day of those dates, 4 days at once, and says how many Teams meetings with
+   a transcript it found (those whose calendar entry has a transcript link and that have ended), and how many it left
+   out because they are already in the library (captured or skipped, matched by the calendar event), deleted, or in an
+   excluded series. An event whose read failed is read once more in a run of its own; one still unreadable is counted,
+   not dropped: "2 couldn't be read. Search again to retry." Nothing is fetched yet.
+3. **Import** fetches up to 4 meetings at once, exactly as after a meeting, and summarises each capture as it lands,
+   up to 2 at once. The status line shows "Importing: 3 of 7 done…" (a meeting is done once fetched, and summarised
+   if captured), and each meeting appears in the list as it lands. A meeting whose transcript list is empty
    stays as a "No transcript" row, like "Not reachable" and "Capture failed" ones, so you can attach the transcript
    or delete it. Being in the library, it is left out of a later Search of the same dates.
 
-**Cost:** one Claude run (haiku) for the search, then two per meeting: one fetch run (haiku) and one summary run (the
-summary model, Opus by default). Importing 7 meetings is 15 runs. Runs go one at a time and share the fetch lock with
-the regular 30-second tick, so an import never fetches a meeting twice; the tick's fetch waits for at most one running
-import fetch. Import fetches only what the latest Search found for the dates on show: change a date and Search again.
+**Cost:** one Claude run (haiku) per day searched (plus one read retry for a day whose reads failed), then two per
+meeting: one fetch run (haiku) and one summary run (the summary model, Sonnet by default). Importing 7 meetings found
+over 7 days is 21 runs. Each meeting is taken by whoever fetches it (an import, the regular 30-second tick, an Unskip),
+so no meeting is fetched twice at once; the tick leaves a meeting an import has to it, and the other way round.
+Import fetches only what the latest Search found for the dates on show: change a date and Search again.
+
+**Speed** (perf spike, 2026-11-07): every Claude run costs about 13 s of start-up and exit before the model does
+anything, so the app runs them side by side rather than batching. A 7-day search took ~110 s as one run and is
+estimated at ~35-40 s as day runs; a 10-meeting import goes from ~12 minutes one at a time to a few minutes.
+Refresh, search and fetch runs set `ENABLE_TOOL_SEARCH=false` (saves a turn, ~3.5 s a run), and `claude --version`
+runs once per app session.
 
 ## Known limitations
 
@@ -119,7 +128,7 @@ Test-only env vars (D36, D37):
 | `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |
 | `MC_E2E_PORT` | the E2E tauri-driver port (default 4444), when something else holds 4444 |
-| `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` |
+| `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` (argv, env, stdin, `startedMs`/`endedMs`, the hooks `fired`) |
 
 Fake claude scenarios (the file is read on every run, so it can be rewritten between runs):
 
@@ -146,10 +155,19 @@ Fake claude scenarios (the file is read on every run, so it can be rewritten bet
       "tool_response": [{ "type": "text", "text": "{\"meeting\":{…},\"transcripts\":[{\"createdDateTime\":\"2026-11-07T14:00:00Z\",\"content\":\"WEBVTT\n\n…\"}]}" }] },
     { "event": "PostToolUseFailure", "tool_name": "mcp__claude_ai_Microsoft_365__read_resource",
       "tool_input": { "uri": "…" }, "error": "MCP error 3003: …" } ] }   // not reachable
-// Every run fires every hook its --settings matches, so one scenario can serve the refresh, each fetch and the summary.
+// Every run fires every hook its --settings matches, so one scenario can serve the refresh, each fetch and the summary,
+// except a read_resource whose uri the prompt lists after "already read:" (the refresh's cached events).
 { "stdout": "{not json" }                      // a malformed result: the summary fails
 { "exitCode": 1 }                              // claude fails: the summary fails
 ```
+
+## Run log
+
+Every Claude run appends one JSON line to `runs.jsonl` in the app's data folder (`%APPDATA%\com.lawls91.meetingcapture`,
+or `<dir>\data` for a dev instance): `at`, `kind` (`refresh`, `search`, `read retry`, `fetch` or `summary`), `model`,
+`wall_ms`, and from the run's result `duration_ms`, `duration_api_ms`, `num_turns`, `usage` (token counts),
+`total_cost_usd` and `is_error` (null when the run gave no result). Never the prompt, the transcript or the reply.
+It is never trimmed.
 
 ## Library
 
@@ -173,7 +191,10 @@ line, or the tray's Refresh calendar now). It is a haiku run allowed only `outlo
 both captured by the hook. The app follows the captured search pages from offset 0 through each `nextOffset` (a missing
 page fails the refresh), and keeps the events from 2 hours ago to the end of the next working day (local midnight
 after it; Monday to Thursday that is tomorrow, Friday to Sunday it is Monday; no holidays) whose captured read has
-`onlineMeeting.joinUrl`. Claude's reply is ignored. The cache is in memory only (the refresh at start refills it), and
+`onlineMeeting.joinUrl`. Claude's reply is ignored. All-day and cancelled events aren't read, and the prompt lists the
+cached events with their times so the run skips reading those that haven't moved (the cache keeps their join and
+transcript links). An event the run didn't read that is new or has moved, and any read that failed, gets one follow-up
+run reading just those; one still unreadable is counted in the status line: "Updated 14:00 · 1 event couldn't be read". The cache is in memory only (the refresh at start refills it), and
 lists each event as Scheduled, unless a library folder has its event id. Only UTC times (`timeZone: "UTC"`, what the
 connector returned) or times with an offset convert; an event in another zone is left out and logged. A failed refresh
 keeps the cache and puts the failure, with its fix, in the status line. Events left out for their time zone are
@@ -196,7 +217,7 @@ to the end are kept, each must be VTT with a cue. One part is saved as `transcri
 
 An event that ended under 120 minutes ago while the app was closed gets an attempt as soon as the calendar finds it,
 then the rest of the schedule from its end. `meeting.json` keeps `transcriptUrl`, `attempts`, `nextAttempt` and
-`claudeVersion` (`claude --version` at each attempt), so a schedule survives a restart after the cache has forgotten the
+`claudeVersion` (`claude --version`, run once per app session), so a schedule survives a restart after the cache has forgotten the
 event: seed `"state": "awaitingTranscript"` with a past `nextAttempt` and a `transcriptUrl` to make one due at start.
 
 Skip and Exclude series (D17), from a row's `...` menu (or S and E on the keyboard-cursor row): skipped and excluded

@@ -8,7 +8,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicU32, AtomicUsize, Ordering},
-        mpsc,
+        mpsc, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -19,6 +19,8 @@ pub const RUN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 pub const VERSION_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct ClaudeRun {
+    /// What the run is for, as `runs.jsonl` names it: `refresh`, `search`, `read retry`, `fetch` or `summary`.
+    pub kind: &'static str,
     pub prompt: String,
     pub model: String,
     /// Empty: no tool is pre-approved, so `dontAsk` denies every tool.
@@ -63,6 +65,39 @@ pub fn program() -> OsString {
 /// `claude --version`, trimmed, for the meeting metadata (D14). None when it can't be run.
 pub fn version(program: &OsString) -> Option<String> {
     version_within(program, VERSION_TIMEOUT)
+}
+
+static VERSION: Mutex<Option<String>> = Mutex::new(None);
+
+/// `version`, run once per app session: the first answer is kept. One that can't run is asked again next time.
+// ponytail: a Claude Code upgrade mid-session is recorded from the next app start.
+pub fn session_version(program: &OsString) -> Option<String> {
+    once(&VERSION, || version(program))
+}
+
+fn once(cell: &Mutex<Option<String>>, ask: impl FnOnce() -> Option<String>) -> Option<String> {
+    let mut v = cell.lock().unwrap_or_else(|e| e.into_inner());
+    if v.is_none() {
+        *v = ask();
+    }
+    v.clone()
+}
+
+/// `f` over `items`, at most `n` at once, the results in `items`' order.
+pub fn parallel<T: Sync, R: Send>(items: &[T], n: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let next = AtomicUsize::new(0);
+    let out: Mutex<Vec<Option<R>>> = Mutex::new(items.iter().map(|_| None).collect());
+    std::thread::scope(|s| {
+        for _ in 0..n.min(items.len()) {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                let Some(item) = items.get(i) else { break };
+                let r = f(item);
+                out.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
+            });
+        }
+    });
+    out.into_inner().unwrap_or_else(|e| e.into_inner()).into_iter().map(|r| r.expect("every item ran")).collect()
 }
 
 /// `version`, stopped after `limit`.
@@ -176,22 +211,27 @@ pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<Pat
 
 static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
 
-/// Runs going now. Every run shares one project folder (D7), so it is deleted only when no other run uses it.
-static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+/// Runs going now, and the project folders waiting for none to be (D7). Every run shares one project folder, so it is
+/// deleted only when no other run uses it; the lock also keeps a run from starting between that check and the delete.
+static IN_FLIGHT: Mutex<(usize, Vec<PathBuf>)> = Mutex::new((0, vec![]));
+
+fn in_flight() -> std::sync::MutexGuard<'static, (usize, Vec<PathBuf>)> {
+    IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Counts a run as going until dropped.
 struct InFlight;
 
 impl InFlight {
     fn start() -> Self {
-        IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+        in_flight().0 += 1;
         InFlight
     }
 }
 
 impl Drop for InFlight {
     fn drop(&mut self) {
-        IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
+        in_flight().0 -= 1;
     }
 }
 
@@ -203,11 +243,18 @@ fn remove(d: &Path) {
     }
 }
 
-/// Deletes `dirs` unless a run other than the caller's own `mine` (0 or 1) is going. Returns whether it did.
+/// Deletes `dirs`, and any an earlier run had to leave, unless a run other than the caller's own `mine` (0 or 1) is
+/// going: then they wait for the next call that finds none. Returns whether it deleted.
 fn remove_if_idle(dirs: &[PathBuf], mine: usize) -> bool {
-    let idle = IN_FLIGHT.load(Ordering::SeqCst) <= mine;
+    let mut f = in_flight();
+    for d in dirs {
+        if !f.1.contains(d) {
+            f.1.push(d.clone());
+        }
+    }
+    let idle = f.0 <= mine;
     if idle {
-        dirs.iter().for_each(|d| remove(d));
+        f.1.drain(..).for_each(|d| remove(&d));
     }
     idle
 }
@@ -246,6 +293,7 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
     // Whatever an earlier run left late, unless another run is using the folder.
     remove_if_idle(&[home.join(".claude").join("projects").join(slug(runs_dir))], 1);
     let capture_dir = runs_dir.join(format!("hooks-{}-{}", std::process::id(), RUN_SEQ.fetch_add(1, Ordering::Relaxed)));
+    let began = Instant::now();
     let mut cmd = Command::new(program);
     cmd.arg("-p")
         .arg(&run.prompt)
@@ -289,13 +337,42 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
     });
     let captured = if run.capture.is_empty() { vec![] } else { take_captured(&capture_dir) };
     clean_projects(project_dirs(home, runs_dir, &captured));
+    let stdout = result.as_ref().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    log_run(&runs_dir.parent().unwrap_or(runs_dir).join(RUNS_LOG), run, began.elapsed(), &stdout);
     let out = result.map_err(|e| io::Error::new(e.kind(), format!("run {}: {e}", program.to_string_lossy())))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let detail = if stderr.trim().is_empty() { String::new() } else { format!(": {}", stderr.trim()) };
         return Err(io::Error::other(format!("claude exited with {}{detail}", out.status)));
     }
-    Ok(Output { stdout: String::from_utf8_lossy(&out.stdout).into_owned(), captured })
+    Ok(Output { stdout, captured })
+}
+
+/// The run log in the app's data folder: one line per run.
+pub const RUNS_LOG: &str = "runs.jsonl";
+static LOG: Mutex<()> = Mutex::new(());
+
+/// Appends the run's metrics from its `--output-format json` result to `file`: never the prompt or any content (D34).
+/// A run with no result (failed, stopped) still gets its line, its metrics null. Best effort: a failure is logged.
+fn log_run(file: &Path, run: &ClaudeRun, wall: Duration, stdout: &str) {
+    let r: Value = serde_json::from_str(stdout.trim()).unwrap_or_default();
+    let line = json!({
+        "at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "kind": run.kind,
+        "model": run.model,
+        "wall_ms": wall.as_millis() as u64,
+        "duration_ms": r["duration_ms"],
+        "duration_api_ms": r["duration_api_ms"],
+        "num_turns": r["num_turns"],
+        "usage": r["usage"],
+        "total_cost_usd": r["total_cost_usd"],
+        "is_error": r["is_error"],
+    });
+    let _one = LOG.lock().unwrap_or_else(|e| e.into_inner());
+    let written = fs::OpenOptions::new().create(true).append(true).open(file).and_then(|mut f| writeln!(f, "{line}"));
+    if let Err(e) = written {
+        eprintln!("runs log: {}: {e}", file.display());
+    }
 }
 
 #[cfg(test)]
@@ -389,8 +466,12 @@ mod tests {
         sweep_project(&home.join("nohome"), &runs); // nothing there: nothing to do
     }
 
+    /// The run count is process-wide: tests that hold runs take turns.
+    static RUNS: Mutex<()> = Mutex::new(());
+
     #[test]
     fn the_shared_project_folder_is_kept_while_another_run_is_going() {
+        let _turn = RUNS.lock().unwrap_or_else(|e| e.into_inner());
         let d = temp("busy").join("C--d-runs");
         let mk = || fs::create_dir_all(d.join("memory")).unwrap();
         mk();
@@ -406,6 +487,52 @@ mod tests {
         mk();
         assert!(remove_if_idle(&[d.clone()], 0), "nothing going: the retry deletes");
         assert!(!d.exists());
+    }
+
+    #[test]
+    fn a_folder_left_while_runs_overlap_is_deleted_by_the_end_that_finds_none_going() {
+        let _turn = RUNS.lock().unwrap_or_else(|e| e.into_inner());
+        let root = temp("overlap");
+        let (a, b) = (root.join("A-left-by-run-1"), root.join("B-of-run-2"));
+        [&a, &b].iter().for_each(|d| fs::create_dir_all(d.join("tool-results")).unwrap());
+        let (one, two) = (InFlight::start(), InFlight::start());
+        assert!(!remove_if_idle(std::slice::from_ref(&a), 1), "run 1 ends while run 2 goes");
+        drop(one);
+        assert!(a.exists());
+        assert!(remove_if_idle(std::slice::from_ref(&b), 1), "run 2 ends alone");
+        drop(two);
+        assert!(!a.exists() && !b.exists(), "run 2's end deleted run 1's folder too");
+    }
+
+    #[test]
+    fn the_version_is_asked_once_per_session_and_again_only_while_it_cant_be_read() {
+        let cell = Mutex::new(None);
+        let asked = std::cell::Cell::new(0);
+        let ask = |v: Option<&str>| {
+            asked.set(asked.get() + 1);
+            v.map(String::from)
+        };
+        assert_eq!(once(&cell, || ask(None)), None);
+        assert_eq!(once(&cell, || ask(Some("2.1.319 (Claude Code)"))).as_deref(), Some("2.1.319 (Claude Code)"));
+        for _ in 0..5 {
+            assert_eq!(once(&cell, || ask(Some("9.9.9"))).as_deref(), Some("2.1.319 (Claude Code)"));
+        }
+        assert_eq!(asked.get(), 2);
+    }
+
+    #[test]
+    fn parallel_runs_at_most_n_at_once_and_keeps_the_order() {
+        let (going, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let items: Vec<u32> = (1..=9).collect();
+        let out = parallel(&items, 3, |n| {
+            most.fetch_max(going.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(60));
+            going.fetch_sub(1, Ordering::SeqCst);
+            n * 10
+        });
+        assert_eq!(out, [10, 20, 30, 40, 50, 60, 70, 80, 90]);
+        assert_eq!(most.load(Ordering::SeqCst), 3);
+        assert!(parallel(&[] as &[u32], 3, |n| *n).is_empty());
     }
 
     #[test]

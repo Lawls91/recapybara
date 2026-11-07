@@ -73,4 +73,27 @@ describe("calendar refresh", () => {
     await $("#refresh-button").click();
     await expect($("#calendar-status")).toHaveText(/^Updated \d\d:\d\d$/);
   });
+
+  it("a second refresh doesn't read again the events it has cached, and they stay listed", async () => {
+    const events = [event(6, "Cached once", hourFromNow(7)), event(7, "Cached twice", hourFromNow(8))];
+    scenario(calendar(events, ["https://teams.example/l/meetup-join/six", "https://teams.example/l/meetup-join/seven"]));
+    const reads = () => claudeRecords().at(-1).fired.filter((h) => h.tool_name === `${M365}read_resource`).length;
+    await refreshCalendar();
+    expect(reads()).toBe(2);
+    await refreshCalendar();
+    expect(reads()).toBe(0);
+    for (const e of events) await expect(row(e).$(".lbl")).toHaveText("Scheduled");
+    await expect($("#calendar-status")).toHaveText(/^Updated \d\d:\d\d$/);
+  });
+
+  it("an event whose read fails is read again once in a run of its own, and one still failing is counted in the status line", async () => {
+    const [bad, good] = [event(8, "Unreadable", hourFromNow(9)), event(9, "Readable", hourFromNow(10))];
+    const s = calendar([bad, good], ["https://teams.example/l/meetup-join/eight", "https://teams.example/l/meetup-join/nine"]);
+    s.hooks[1] = { event: "PostToolUseFailure", tool_name: `${M365}read_resource`, tool_input: { uri: bad.uri }, error: "synthetic transient failure" };
+    scenario(s);
+    await refreshCalendar();
+    await expect($("#calendar-status")).toHaveText(/^Updated \d\d:\d\d · 1 event couldn't be read$/);
+    expect(claudeRecords().at(-1).argv[1]).toBe(`Call read_resource once on each of these uris, exactly as given: "${bad.uri}". Reply DONE.`);
+    await expect(row(good).$(".lbl")).toHaveText("Scheduled");
+  });
 });

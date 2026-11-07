@@ -345,6 +345,7 @@ pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun
         if glossary.trim().is_empty() { "(empty)" } else { glossary.trim_end() }
     );
     ClaudeRun {
+        kind: "summary",
         prompt: PROMPT.into(),
         model: model.into(),
         allowed_tools: JIRA_READ_TOOLS,

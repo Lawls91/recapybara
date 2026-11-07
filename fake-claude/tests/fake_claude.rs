@@ -104,3 +104,28 @@ fn structured_output_is_printed_in_the_real_result_shape() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "{not json");
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn a_read_the_prompt_lists_as_already_read_is_not_fired_and_each_run_records_when_it_ran() {
+    let dir = temp("fakeskip");
+    let scenario = dir.join("scenario.json");
+    let read = |uri: &str| json!({ "tool_name": "mcp__claude_ai_Microsoft_365__read_resource", "tool_input": { "uri": uri }, "tool_response": "{}" });
+    let search = json!({ "tool_name": "mcp__claude_ai_Microsoft_365__outlook_calendar_search", "tool_input": { "query": "*" }, "tool_response": "{}" });
+    fs::write(&scenario, json!({ "result": {}, "delayMs": 300, "hooks": [search, read("calendar:///events/A"), read("calendar:///events/B")] }).to_string()).unwrap();
+    let settings = json!({ "hooks": {} }).to_string();
+    let prompt = r#"Call outlook_calendar_search. Skip these events too, already read: "calendar:///events/A" start 2026-11-05T14:00:00Z end 2026-11-05T15:00:00Z. Reply DONE."#;
+    for p in ["Call read_resource on calendar:///events/A.", prompt] {
+        let out = Command::new(FAKE).args(["-p", p, "--settings", &settings]).current_dir(&dir).env("FAKE_CLAUDE_SCENARIO", &scenario)
+            .env("MEETING_CAPTURE_HOME", dir.join("home")).output().unwrap();
+        assert!(out.status.success());
+    }
+    let fired = |r: &Value| r["fired"].as_array().unwrap().iter().map(|h| h["uri"].as_str().unwrap_or("search").to_string()).collect::<Vec<_>>();
+    let recs = records(&scenario);
+    assert_eq!(fired(&recs[0]), ["search", "calendar:///events/A", "calendar:///events/B"], "no skip list: every read");
+    assert_eq!(fired(&recs[1]), ["search", "calendar:///events/B"]);
+    for r in &recs {
+        let (start, end) = (r["startedMs"].as_u64().unwrap(), r["endedMs"].as_u64().unwrap());
+        assert!(end >= start + 300, "{start}..{end} spans the delay");
+    }
+    fs::remove_dir_all(dir).unwrap();
+}

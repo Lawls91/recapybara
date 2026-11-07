@@ -4,8 +4,12 @@ use std::{fs, path::PathBuf};
 
 const FAKE: &str = env!("CARGO_BIN_EXE_fake-claude");
 
+fn temp_dir(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("mc-{name}-{}", std::process::id()))
+}
+
 fn temp(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("mc-{name}-{}", std::process::id()));
+    let d = temp_dir(name);
     let _ = fs::remove_dir_all(&d);
     fs::create_dir_all(&d).unwrap();
     d
@@ -30,7 +34,7 @@ fn run_within(name: &str, scenario_json: &str, capture: &'static [&'static str],
     fs::create_dir_all(&sibling).unwrap();
     // Bigger than a pipe buffer, as a ticket 04 transcript is.
     let stdin = format!("on stdin{}", "x".repeat(200_000));
-    let run = claude::ClaudeRun { stdin, capture, timeout, ..calendar::run_for(chrono::Utc::now()) };
+    let run = claude::ClaudeRun { stdin, capture, timeout, ..calendar::run_for(chrono::Utc::now(), &[]) };
     let out = claude::run(&FAKE.into(), &dir.join("data").join("runs"), &dir.join("home"), &run);
     (dir, out)
 }
@@ -57,6 +61,26 @@ fn run_is_isolated_and_cleans_its_project_folder() {
     assert_eq!(rec["stdin"].as_str().unwrap().len(), 200_008);
     assert!(!PathBuf::from(rec["projectDir"].as_str().unwrap()).exists(), "runs project folder not deleted");
     assert!(dir.join("home/.claude/projects/sibling").exists(), "sibling deleted");
+    fs::remove_dir_all(&dir).unwrap();
+
+    // Each run's metrics go on one line of <data>/runs.jsonl: never its prompt, stdin or reply.
+    let result = r#"{"result":{"type":"result","is_error":false,"duration_ms":23400,"duration_api_ms":9900,"num_turns":10,"result":"SYNTHETIC REPLY",
+        "total_cost_usd":0.0118,"usage":{"input_tokens":30,"cache_creation_input_tokens":49000,"cache_read_input_tokens":119000,"output_tokens":1540}}}"#;
+    let (dir, out) = run_case("runnerlog", result, &[]);
+    out.unwrap();
+    let (_, failed) = run_within("runnerlog2", r#"{"exitCode":3}"#, &[], claude::RUN_TIMEOUT);
+    assert!(failed.is_err());
+    let log = fs::read_to_string(dir.join("data").join("runs.jsonl")).unwrap();
+    let line: Value = serde_json::from_str(log.trim()).unwrap();
+    assert_eq!(line["kind"], "refresh");
+    assert_eq!(line["model"], "haiku");
+    assert_eq!((line["duration_ms"].as_u64(), line["duration_api_ms"].as_u64(), line["num_turns"].as_u64()), (Some(23400), Some(9900), Some(10)));
+    assert_eq!(line["total_cost_usd"], 0.0118);
+    assert_eq!(line["usage"]["cache_read_input_tokens"], 119000);
+    assert!(line["wall_ms"].as_u64().is_some());
+    assert!(!log.contains("SYNTHETIC REPLY") && !log.contains("on stdin") && !log.contains("outlook_calendar_search"), "{log}");
+    let failed: Value = serde_json::from_str(fs::read_to_string(temp_dir("runnerlog2").join("data").join("runs.jsonl")).unwrap().trim()).unwrap();
+    assert_eq!((failed["kind"].as_str(), failed["duration_ms"].is_null()), (Some("refresh"), true), "a failed run gets its line too");
     fs::remove_dir_all(&dir).unwrap();
 
     // A failing run is an error, and still cleans up.

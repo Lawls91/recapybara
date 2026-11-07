@@ -325,8 +325,7 @@ fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
 /// Fetches every meeting that is due (D12): a folder for each cached event that just ended, then each due attempt,
 /// one at a time. A capture starts its summary (D15); a capture failure raises its toast (D29, D47).
 fn fetch_due(app: &AppHandle) {
-    // One fetch at a time (the scheduler's, an Unskip's and Import from Teams'), so no meeting gets two attempts.
-    let _one = fetch::FETCHING.lock().unwrap_or_else(|e| e.into_inner());
+    // A meeting another fetch has (the scheduler's, an Unskip's, Import from Teams') is left to it (fetch::claim).
     let Ok(lib) = library_path(app) else { return };
     let state = app.state::<AppState>();
     let (runs, home, events) = (state.data_dir.join("runs"), state.home.clone(), state.calendar.events());
@@ -337,37 +336,39 @@ fn fetch_due(app: &AppHandle) {
     let landed = |id: &str, m: Option<&library::Meeting>| {
         let _ = app.emit("meeting-changed", id);
         if let Some(m) = m {
-            after_fetch(app, id, m, &excluded(), false);
+            after_fetch(app, id, m, &excluded());
         }
     };
     let tick = std::panic::AssertUnwindSafe(|| {
-        fetch::tick(&lib, &events, excluded, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::version(&program), landed)
+        fetch::tick(&lib, &events, excluded, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::session_version(&program), landed)
     });
     if std::panic::catch_unwind(tick).is_err() {
         eprintln!("fetch: the tick panicked");
     }
 }
 
-/// A fetch attempt's follow-up: a capture starts its summary (D15), in the background or, with `wait`, before this
-/// returns; a capture failure raises its toast (D29, D47).
-fn after_fetch(app: &AppHandle, id: &str, m: &library::Meeting, excluded: &[String], wait: bool) {
+/// A fetch attempt's follow-up: a capture starts its summary in the background (D15); a capture failure raises its
+/// toast (D29, D47).
+fn after_fetch(app: &AppHandle, id: &str, m: &library::Meeting, excluded: &[String]) {
     match m.state {
         library::State::TranscriptReady if !library::excluded(m, excluded) => {
-            let started = if wait { summary_job(app, id).map(|job| job()) } else { start_summary(app, id) };
-            if let Err(e) = started {
+            if let Err(e) = start_summary(app, id) {
                 eprintln!("summary not started for {id}: {e}");
             }
         }
-        library::State::CaptureFailed => {
-            let (click_app, click_id) = (app.clone(), id.to_string());
-            platform::toast(&summary::toast_title(m), fetch::CAPTURE_FAILED_BODY, move || open_from_toast(&click_app, click_id.clone()));
-        }
+        library::State::CaptureFailed => capture_failed(app, id, m),
         _ => {}
     }
 }
 
-/// Import from Teams' Search: one calendar search run over the picked dates (`YYYY-MM-DD`, local). Its eligible
-/// events wait for Import; returns how many there are and how many were left out. Nothing is fetched.
+fn capture_failed(app: &AppHandle, id: &str, m: &library::Meeting) {
+    let (click_app, click_id) = (app.clone(), id.to_string());
+    platform::toast(&summary::toast_title(m), fetch::CAPTURE_FAILED_BODY, move || open_from_toast(&click_app, click_id.clone()));
+}
+
+/// Import from Teams' Search: one calendar search run per picked date (`YYYY-MM-DD`, local). Its eligible events
+/// wait for Import; returns how many there are, how many were left out and how many couldn't be read. Nothing is
+/// fetched.
 #[tauri::command]
 async fn teams_search(app: AppHandle, from: String, to: String) -> Result<serde_json::Value, String> {
     let (start, end) = calendar::import_window(&from, &to, chrono::Local::now().date_naive())?;
@@ -376,21 +377,21 @@ async fn teams_search(app: AppHandle, from: String, to: String) -> Result<serde_
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
-        let events = calendar::search(start, end, |r| claude::run(&claude::program(), &runs, &home, r))?;
+        let program = claude::program();
+        let (events, unreadable) = calendar::search(start, end, |r| claude::run(&program, &runs, &home, r))?;
         let excluded = state.settings.lock().unwrap().excluded();
         let (found, left_out) = fetch::eligible(events, &lib, &excluded, |id| state.calendar.deleted(id), chrono::Utc::now());
         let n = found.len();
         state.teams.found(search, &from, &to, found);
-        Ok(serde_json::json!({ "found": n, "leftOut": left_out }))
+        Ok(serde_json::json!({ "found": n, "leftOut": left_out, "unreadable": unreadable }))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 /// Import from Teams' Import, for the dates the dialog shows: the latest Search's meetings if it searched those dates
-/// (else refused), one at a time on their own thread, each fetched and then
-/// summarised before the next (fetch::import). Progress goes out as teams-import ("Importing 3 of 7...", then null),
-/// each landed meeting as meeting-changed.
+/// (else refused), on their own thread: fetched several at once, each capture summarised as it lands (fetch::import).
+/// Progress goes out as teams-import ("Importing: 3 of 7 done...", then null), each landed meeting as meeting-changed.
 #[tauri::command]
 fn teams_import(app: AppHandle, from: String, to: String) -> Result<(), String> {
     let lib = library_path(&app)?;
@@ -407,13 +408,19 @@ fn teams_import(app: AppHandle, from: String, to: String) -> Result<(), String> 
                 |id| state.calendar.deleted(id),
                 chrono::Utc::now,
                 |r| claude::run(&program, &runs, &home, r),
-                || claude::version(&program),
+                || claude::session_version(&program),
                 |n, total| {
-                    let _ = app.emit("teams-import", Some(format!("Importing {n} of {total}\u{2026}")));
+                    let _ = app.emit("teams-import", Some(format!("Importing: {n} of {total} done\u{2026}")));
                 },
                 |id, m| {
                     let _ = app.emit("meeting-changed", id);
-                    after_fetch(&app, id, m, &excluded(), true);
+                    if m.state == library::State::CaptureFailed {
+                        capture_failed(&app, id, m);
+                    }
+                },
+                |id| match summary_job(&app, id) {
+                    Ok(job) => job(),
+                    Err(e) => eprintln!("summary not started for {id}: {e}"),
                 },
             )
         });

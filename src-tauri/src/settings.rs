@@ -34,7 +34,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             library_path: None,
-            summary_model: "opus".into(),
+            summary_model: "sonnet".into(),
             start_at_logon: true,
             excluded_series: vec![],
             appearance: "system".into(),
@@ -106,6 +106,7 @@ mod tests {
     fn missing_file_is_first_run_defaults() {
         let s = load(Path::new(r"Z:\definitely\not\here"));
         assert_eq!(s.library_path, None);
+        assert_eq!(s.summary_model, "sonnet", "half opus's cost for the same time (perf spike)");
         assert!(s.start_at_logon);
     }
 }

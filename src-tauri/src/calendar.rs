@@ -37,9 +37,10 @@ pub struct Event {
     pub meeting_transcript_url: Option<String>,
 }
 
-/// The refresh run (D8, D9): haiku, the two calendar tools, both captured.
-pub fn run_for(now: DateTime<Utc>) -> ClaudeRun {
-    run_window(now - LOOK_BACK, ahead(now))
+/// The refresh run (D8, D9): haiku, the two calendar tools, both captured. `cached` events aren't read again unless
+/// they moved.
+pub fn run_for(now: DateTime<Utc>, cached: &[Event]) -> ClaudeRun {
+    ClaudeRun { kind: "refresh", ..run_window(now - LOOK_BACK, ahead(now), cached) }
 }
 
 /// ... and that start before the end of the next working day in local time, so it lists as scheduled: tomorrow's
@@ -61,22 +62,54 @@ fn midnight<Tz: TimeZone>(d: NaiveDate, tz: &Tz) -> Option<DateTime<Utc>> {
     d.and_time(NaiveTime::MIN).and_local_timezone(tz.clone()).earliest().map(|t| t.with_timezone(&Utc))
 }
 
-/// The calendar search run over `from` to `to`: the refresh's, or Import from Teams' over the picked dates.
-pub fn run_window(from: DateTime<Utc>, to: DateTime<Utc>) -> ClaudeRun {
-    let fmt = |t: DateTime<Utc>| t.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+fn utc_text(t: DateTime<Utc>) -> String {
+    t.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Turns the tool search off: a run then skips the turn spent loading the MCP tools (~3.5 s a run, spike).
+pub const NO_TOOL_SEARCH: (&str, &str) = ("ENABLE_TOOL_SEARCH", "false");
+
+/// The calendar search run over `from` to `to`: the refresh's, or Import from Teams' over one day of the picked
+/// dates. All-day and cancelled events aren't read (they can't carry a transcript), nor are `cached` ones whose start
+/// and end haven't changed.
+pub fn run_window(from: DateTime<Utc>, to: DateTime<Utc>, cached: &[Event]) -> ClaudeRun {
+    let skip = if cached.is_empty() {
+        String::new()
+    } else {
+        let listed: Vec<String> = cached.iter().map(|e| format!("\"{}\" start {} end {}", e.uri, utc_text(e.start), utc_text(e.end))).collect();
+        format!(" Skip these events too, unless the search gives one a different start or end than listed here, already read: {}.", listed.join("; "))
+    };
     ClaudeRun {
+        kind: "search",
         prompt: format!(
             "Call outlook_calendar_search with query \"*\", afterDateTime {}, beforeDateTime {}, limit 25. While its last \
              object says moreResults is true, call it again with the same arguments and offset set to that nextOffset. \
-             Then call read_resource once on each event's uri, exactly as the search gave it. Reply DONE.",
-            fmt(from),
-            fmt(to),
+             Then call read_resource once on each event's uri, exactly as the search gave it, except events whose \
+             isAllDay or isCancelled is true.{skip} Reply DONE.",
+            utc_text(from),
+            utc_text(to),
         ),
         model: "haiku".into(),
         allowed_tools: TOOLS,
         capture: TOOLS,
         args: vec![],
-        env: &[],
+        env: &[NO_TOOL_SEARCH],
+        stdin: String::new(),
+        timeout: crate::claude::RUN_TIMEOUT,
+    }
+}
+
+/// The follow-up run reading again the events whose read failed (spike: 5-10 of 32 reads failed at random).
+pub fn read_run(uris: &[String]) -> ClaudeRun {
+    let quoted: Vec<String> = uris.iter().map(|u| format!("\"{u}\"")).collect();
+    ClaudeRun {
+        kind: "read retry",
+        prompt: format!("Call read_resource once on each of these uris, exactly as given: {}. Reply DONE.", quoted.join(" ")),
+        model: "haiku".into(),
+        allowed_tools: &[READ],
+        capture: &[READ],
+        args: vec![],
+        env: &[NO_TOOL_SEARCH],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -121,21 +154,27 @@ fn time(v: &Value) -> Option<DateTime<Utc>> {
 pub const NO_SEARCH: &str = "Claude didn't search the calendar. Check the Microsoft 365 connector is connected in claude.ai, then Refresh calendar.";
 pub const STOPPED: &str = "The calendar search stopped before its last page. Refresh calendar to try again.";
 
-/// The Teams events in the run's captured payloads (D9), from `now` - 2 h to `ahead(now)`. The search pages are
-/// followed from offset 0 through each `nextOffset` until a paging object no longer says `moreResults`; a missing
-/// page fails the whole refresh. An event counts only if its read has `onlineMeeting.joinUrl`; an event whose read
-/// is missing, failed or unreadable is left out, to be tried on the next refresh.
+/// What a calendar search found.
+#[derive(Debug, Default, PartialEq)]
+pub struct Found {
+    pub events: Vec<Event>,
+    /// Teams events left out because their time zone isn't one the app converts.
+    pub skipped: usize,
+    /// Events in the window whose read is missing or failed, by uri: whether they are Teams meetings isn't known.
+    pub unreadable: Vec<String>,
+}
+
+/// The Teams events in the run's captured payloads (D9), from `now` - 2 h to `ahead(now)`.
 pub fn parse(captured: &[Value], now: DateTime<Utc>) -> Result<Vec<Event>, String> {
-    counted(captured, now).map(|(events, _)| events)
+    counted_in(captured, now - LOOK_BACK, ahead(now), &[]).map(|f| f.events)
 }
 
-/// `parse`, plus how many Teams events were left out because their time zone isn't one the app converts.
-pub fn counted(captured: &[Value], now: DateTime<Utc>) -> Result<(Vec<Event>, usize), String> {
-    counted_in(captured, now - LOOK_BACK, ahead(now))
-}
-
-/// `counted` for the events overlapping `from` to `to`.
-pub fn counted_in(captured: &[Value], from: DateTime<Utc>, to: DateTime<Utc>) -> Result<(Vec<Event>, usize), String> {
+/// The Teams events overlapping `from` to `to` in a search run's captured payloads (D9). The search pages are
+/// followed from offset 0 through each `nextOffset` until a paging object no longer says `moreResults`; a missing
+/// page fails the whole search. An event counts only if its read has `onlineMeeting.joinUrl`. One in `cached` with the
+/// same start and end needs no read: its join and transcript URLs are the cached ones. All-day and cancelled events
+/// are left out; any other whose read is missing, failed or unreadable is counted as unreadable.
+pub fn counted_in(captured: &[Value], from: DateTime<Utc>, to: DateTime<Utc>, cached: &[Event]) -> Result<Found, String> {
     let mut pages: HashMap<u64, Vec<Value>> = HashMap::new();
     for p in captured.iter().filter(|p| ok(p, SEARCH) && p["tool_input"]["query"] == "*") {
         pages.entry(offset(&p["tool_input"]["offset"])).or_insert_with(|| values(&p["tool_response"]));
@@ -163,21 +202,35 @@ pub fn counted_in(captured: &[Value], from: DateTime<Utc>, to: DateTime<Utc>) ->
         }
     }
 
-    let (mut events, mut skipped): (Vec<Event>, usize) = (vec![], 0);
-    for e in found.into_iter().filter(|e| e["isCancelled"] != true) {
+    let mut out = Found::default();
+    for e in found.into_iter().filter(|e| e["isCancelled"] != true && e["isAllDay"] != true) {
         let uri = e["uri"].as_str().unwrap_or_default();
-        let Some(read) = reads.get(uri) else { continue };
-        let Some(join) = read["onlineMeeting"]["joinUrl"].as_str().filter(|j| !j.is_empty()) else { continue };
-        let (Some(start), Some(end)) = (time(&e["start"]), time(&e["end"])) else {
-            eprintln!("calendar: left out {uri}: start {} or end {} isn't a UTC time", e["start"], e["end"]);
-            skipped += 1;
-            continue;
-        };
-        if end <= from || start >= to || events.iter().any(|x| x.uri == uri) {
+        let times = (time(&e["start"]), time(&e["end"]));
+        if let (Some(start), Some(end)) = times {
+            if end <= from || start >= to {
+                continue;
+            }
+        }
+        if out.events.iter().any(|x| x.uri == uri) || out.unreadable.iter().any(|u| u == uri) {
             continue;
         }
+        let unmoved = cached.iter().find(|c| c.uri == uri && (Some(c.start), Some(c.end)) == times);
+        let (join, transcript): (Option<String>, Option<String>) = match (reads.get(uri), unmoved) {
+            (Some(read), _) => (read["onlineMeeting"]["joinUrl"].as_str().map(Into::into), read["meetingTranscriptUrl"].as_str().map(Into::into)),
+            (None, Some(c)) => (Some(c.join_url.clone()), c.meeting_transcript_url.clone()),
+            (None, None) => {
+                out.unreadable.push(uri.into());
+                continue;
+            }
+        };
+        let Some(join) = join.filter(|j| !j.is_empty()) else { continue };
+        let (Some(start), Some(end)) = times else {
+            eprintln!("calendar: left out {uri}: start {} or end {} isn't a UTC time", e["start"], e["end"]);
+            out.skipped += 1;
+            continue;
+        };
         let names = e["namedAttendees"].as_array().into_iter().flatten();
-        events.push(Event {
+        out.events.push(Event {
             uri: uri.into(),
             id: e["id"].as_str().unwrap_or(uri).into(),
             subject: e["subject"].as_str().unwrap_or_default().into(),
@@ -185,11 +238,31 @@ pub fn counted_in(captured: &[Value], from: DateTime<Utc>, to: DateTime<Utc>) ->
             end,
             organiser: e["organizerName"].as_str().or(e["organizer"].as_str()).map(Into::into),
             attendees: names.filter_map(|a| a["name"].as_str().or(a["address"].as_str()).map(Into::into)).collect(),
-            join_url: join.into(),
-            meeting_transcript_url: read["meetingTranscriptUrl"].as_str().map(Into::into),
+            join_url: join,
+            meeting_transcript_url: transcript,
         });
     }
-    Ok((events, skipped))
+    Ok(out)
+}
+
+/// One search run over `from` to `to` (`kind` for the run log), then, if any read failed, one run reading just those
+/// events again. Events still unreadable after it are counted, never silently dropped.
+fn search_run(from: DateTime<Utc>, to: DateTime<Utc>, kind: &'static str, cached: &[Event], run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>) -> Result<Found, String> {
+    let mut captured = run(&ClaudeRun { kind, ..run_window(from, to, cached) }).map_err(|e| run_failure(&e))?.captured;
+    let found = counted_in(&captured, from, to, cached)?;
+    if found.unreadable.is_empty() {
+        return Ok(found);
+    }
+    match run(&read_run(&found.unreadable)) {
+        Ok(o) => {
+            captured.extend(o.captured);
+            counted_in(&captured, from, to, cached)
+        }
+        Err(e) => {
+            eprintln!("calendar: the read retry failed: {e}");
+            Ok(found)
+        }
+    }
 }
 
 /// The calendar status line (D40).
@@ -204,6 +277,8 @@ pub struct Status {
     pub failure: Option<String>,
     /// Teams events the last good refresh left out for a time zone it can't convert, said in the status line.
     pub skipped: usize,
+    /// Events the last good refresh couldn't read, even on its retry, said in the status line.
+    pub unreadable: usize,
 }
 
 #[derive(Default)]
@@ -259,14 +334,42 @@ pub fn import_window(from: &str, to: &str, today: NaiveDate) -> Result<(DateTime
     Ok((midnight(from, &Local).ok_or("No local midnight on From.")?, midnight(to + Duration::days(1), &Local).ok_or("No local midnight after To.")?))
 }
 
-/// Import from Teams' search: one calendar search run over `from` to `to`, its Teams events as the refresh reads
-/// them. It touches neither the cache nor the status line; a failure says to search again.
-pub fn search(from: DateTime<Utc>, to: DateTime<Utc>, run: impl FnOnce(&ClaudeRun) -> io::Result<Output>) -> Result<Vec<Event>, String> {
-    run(&run_window(from, to))
-        .map_err(|e| run_failure(&e))
-        .and_then(|o| counted_in(&o.captured, from, to))
-        .map(|(events, _)| events)
-        .map_err(|e| e.replace("Refresh calendar to try again", "Search again").replace("then Refresh calendar", "then search again").replace("refresh the calendar", "search the calendar"))
+/// Import from Teams' search runs at most this many days at once.
+pub const SEARCHES: usize = 4;
+
+/// The local days from `from` to `to`, each as its own window.
+fn days(from: DateTime<Utc>, to: DateTime<Utc>) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
+    let mut out = vec![];
+    let mut at = from;
+    while at < to {
+        let next = at.with_timezone(&Local).date_naive() + Duration::days(1);
+        // ponytail: a zone whose clocks skip that midnight cuts at UTC midnight instead.
+        let end = midnight(next, &Local).unwrap_or_else(|| next.and_time(NaiveTime::MIN).and_utc()).min(to);
+        out.push((at, end));
+        at = end;
+    }
+    out
+}
+
+/// Import from Teams' search: one calendar search run per local day of `from` to `to`, at most `SEARCHES` at once,
+/// their Teams events merged (once each). Returns them with how many events couldn't be read. It touches neither
+/// the cache nor the status line; a failed day fails the search, which says to search again.
+pub fn search(from: DateTime<Utc>, to: DateTime<Utc>, run: impl Fn(&ClaudeRun) -> io::Result<Output> + Sync) -> Result<(Vec<Event>, usize), String> {
+    let mut all = Found::default();
+    for day in crate::claude::parallel(&days(from, to), SEARCHES, |(a, b)| search_run(*a, *b, "search", &[], &mut |r| run(r))) {
+        let day = day.map_err(|e| e.replace("Refresh calendar to try again", "Search again").replace("then Refresh calendar", "then search again").replace("refresh the calendar", "search the calendar"))?;
+        for e in day.events {
+            if !all.events.iter().any(|x| x.id == e.id) {
+                all.events.push(e);
+            }
+        }
+        for u in day.unreadable {
+            if !all.unreadable.contains(&u) {
+                all.unreadable.push(u);
+            }
+        }
+    }
+    Ok((all.events, all.unreadable.len()))
 }
 
 impl Calendar {
@@ -304,25 +407,27 @@ impl Calendar {
 
     /// One refresh through `run`, unless one is going (then nothing, and false). A good one replaces the cache; a
     /// failed one keeps it and records why (D9). `changed` is called as it starts and as it ends.
-    pub fn refresh(&self, now: DateTime<Utc>, run: impl FnOnce(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
-        {
+    pub fn refresh(&self, now: DateTime<Utc>, mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
+        let cached = {
             let mut i = self.0.lock().unwrap();
             if i.status.refreshing {
                 return false;
             }
             i.status.refreshing = true;
             i.last_start = Some(now);
-        }
+            i.events.clone()
+        };
         changed();
-        let attempt = std::panic::AssertUnwindSafe(|| run(&run_for(now)).map_err(|e| run_failure(&e)).and_then(|o| counted(&o.captured, now)));
+        let attempt = std::panic::AssertUnwindSafe(|| search_run(now - LOOK_BACK, ahead(now), "refresh", &cached, &mut run));
         let outcome = std::panic::catch_unwind(attempt).unwrap_or_else(|_| Err("The calendar refresh crashed. Refresh calendar to try again.".into()));
         {
             let mut i = self.0.lock().unwrap();
             i.status.refreshing = false;
             match outcome {
-                Ok((events, skipped)) => {
-                    i.events = events;
-                    i.status.skipped = skipped;
+                Ok(found) => {
+                    i.events = found.events;
+                    i.status.skipped = found.skipped;
+                    i.status.unreadable = found.unreadable.len();
                     i.status.updated = Some(now);
                     i.status.failure = None;
                 }
@@ -335,7 +440,7 @@ impl Calendar {
 
     /// The scheduler's look at the clock: a refresh at the first tick, then once `EVERY` has passed since the last
     /// one started, whatever started it.
-    pub fn tick(&self, now: DateTime<Utc>, run: impl FnOnce(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
+    pub fn tick(&self, now: DateTime<Utc>, run: impl FnMut(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
         let due = self.0.lock().unwrap().last_start.is_none_or(|t| now - t >= EVERY);
         due && self.refresh(now, run, changed)
     }
@@ -375,7 +480,7 @@ pub fn listed(events: &[Event], mut library: Vec<Listed>) -> Vec<Listed> {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::sync::{mpsc, Arc};
+    use std::sync::{mpsc, Arc, Mutex};
 
     const PAGE_0: &str = include_str!("../tests/fixtures/calendar/search-offset-0.txt");
     const PAGE_2: &str = include_str!("../tests/fixtures/calendar/search-offset-2.txt");
@@ -417,8 +522,20 @@ mod tests {
     fn subjects(events: &[Event]) -> Vec<&str> {
         events.iter().map(|e| e.subject.as_str()).collect()
     }
-    fn good(captured: Vec<Value>) -> impl FnOnce(&ClaudeRun) -> io::Result<Output> {
-        move |_| Ok(Output { stdout: String::new(), captured })
+    fn good(captured: Vec<Value>) -> impl FnMut(&ClaudeRun) -> io::Result<Output> {
+        move |_| Ok(Output { stdout: String::new(), captured: captured.clone() })
+    }
+    /// A read through the failure hook, as the spike saw 5-10 of 32 reads fail.
+    fn failed(n: u32) -> Value {
+        json!({ "hook_event_name": "PostToolUseFailure", "tool_name": READ, "tool_input": { "uri": format!("calendar:///events/SYNTH-EVENT-{n}") }, "error": "synthetic transient failure" })
+    }
+    /// A runner answering each run in turn with the next of `answers`, recording each run's kind and prompt.
+    fn runs<'a>(log: &'a std::cell::RefCell<Vec<(String, String)>>, answers: Vec<Vec<Value>>) -> impl FnMut(&ClaudeRun) -> io::Result<Output> + 'a {
+        let mut answers = answers.into_iter();
+        move |r| {
+            log.borrow_mut().push((r.kind.to_string(), r.prompt.clone()));
+            Ok(Output { stdout: String::new(), captured: answers.next().expect("no more runs expected") })
+        }
     }
 
     #[test]
@@ -450,7 +567,7 @@ mod tests {
         let mut tz = all_teams();
         tz[1] = search(Some(2), &other_zone);
         assert_eq!(subjects(&parse(&tz, now()).unwrap()), ["Backlog Refinement", "Focus"]);
-        assert_eq!(counted(&tz, now()).unwrap().1, 1, "and counted, for the status line");
+        assert_eq!(counted_in(&tz, now() - LOOK_BACK, ahead(now()), &[]).unwrap().skipped, 1, "and counted, for the status line");
         let cal = Calendar::default();
         cal.refresh(now(), good(tz), || {});
         assert_eq!(cal.status().skipped, 1);
@@ -604,7 +721,7 @@ mod tests {
         one[3] = read(2, None, false);
         cal.refresh(later, good(one), || {});
         assert_eq!(subjects(&cal.events()), ["Partner sync"]);
-        assert_eq!(cal.status(), Status { updated: Some(later), refreshing: false, failure: None, skipped: 0 });
+        assert_eq!(cal.status(), Status { updated: Some(later), refreshing: false, failure: None, skipped: 0, unreadable: 0 });
     }
 
     #[test]
@@ -627,7 +744,7 @@ mod tests {
 
     #[test]
     fn the_refresh_run_is_haiku_with_the_two_tools_captured_and_a_window_from_2_hours_ago_to_the_end_of_the_next_working_day() {
-        let r = run_for(now()); // Thursday the 5th, 12:00 UTC
+        let r = run_for(now(), &[]); // Thursday the 5th, 12:00 UTC
         assert_eq!(r.model, "haiku");
         assert_eq!(r.allowed_tools, ["mcp__claude_ai_Microsoft_365__outlook_calendar_search", "mcp__claude_ai_Microsoft_365__read_resource"]);
         assert_eq!(r.capture, r.allowed_tools);
@@ -652,22 +769,133 @@ mod tests {
     }
 
     #[test]
-    fn the_import_search_runs_once_over_its_range_and_keeps_the_teams_events_inside_it() {
-        let runs = std::cell::RefCell::new(vec![]);
+    fn the_import_search_runs_one_search_per_local_day_at_most_4_at_once_and_merges_their_teams_events_once_each() {
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let today = d("2026-11-20");
+        let day = |s: &str| import_window(s, s, today).unwrap();
+        // Ends 30 minutes into the 6th, local time, so the 5th's search and the 6th's both find it.
+        let midnight = day("2026-11-06").0;
+        let wall = |t: DateTime<Utc>| t.format("%Y-%m-%dT%H:%M:%S").to_string();
+        let late = json!({ "uri": "calendar:///events/SYNTH-EVENT-4", "id": "SYNTH-EVENT-4", "subject": "Late call",
+            "start": { "dateTime": wall(midnight - Duration::minutes(30)), "timeZone": "UTC" }, "end": { "dateTime": wall(midnight + Duration::minutes(30)), "timeZone": "UTC" } });
+        let mut captured = all_teams();
+        captured[1] = search(Some(2), &PAGE_2.replace(r#"{"moreResults":false"#, &format!(r#"{late}{{"moreResults":false"#)));
+        captured.push(read(4, Some("https://teams.example/l/meetup-join/late"), false));
+        let prompts = Mutex::new(vec![]);
         let run = |r: &ClaudeRun| {
-            runs.borrow_mut().push(r.prompt.clone());
+            prompts.lock().unwrap().push((r.kind, r.prompt.clone()));
+            Ok(Output { stdout: String::new(), captured: captured.clone() })
+        };
+        let (from, to) = import_window("2026-11-04", "2026-11-06", today).unwrap();
+        let (got, unreadable) = super::search(from, to, run).unwrap();
+        assert_eq!(subjects(&got), ["Backlog Refinement", "Focus", "Late call", "Partner sync"], "the late call once, not once per day");
+        assert_eq!(unreadable, 0);
+        let mut windows: Vec<String> = prompts.lock().unwrap().iter().map(|(kind, p)| {
+            assert_eq!(*kind, "search");
+            p.split("afterDateTime ").nth(1).unwrap().split(", limit").next().unwrap().to_string()
+        }).collect();
+        windows.sort();
+        let want: Vec<String> = ["2026-11-04", "2026-11-05", "2026-11-06"].iter().map(|s| {
+            let (a, b) = day(s);
+            format!("{}, beforeDateTime {}", utc_text(a), utc_text(b))
+        }).collect();
+        assert_eq!(windows, want, "one run per local day");
+
+        // Fourteen days: never more than SEARCHES (4) runs at once, and that many do run together.
+        let (going, most) = (std::sync::atomic::AtomicUsize::new(0), std::sync::atomic::AtomicUsize::new(0));
+        let slow = |_: &ClaudeRun| {
+            use std::sync::atomic::Ordering::SeqCst;
+            most.fetch_max(going.fetch_add(1, SeqCst) + 1, SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            going.fetch_sub(1, SeqCst);
             Ok(Output { stdout: String::new(), captured: all_teams() })
         };
-        // The 5th, 00:00 to 24:00 UTC: Partner sync (the 6th) is outside it.
-        let got = super::search(t("2026-11-05T00:00:00Z"), t("2026-11-06T00:00:00Z"), run).unwrap();
-        assert_eq!(subjects(&got), ["Backlog Refinement", "Focus"]);
-        assert_eq!(runs.borrow().len(), 1);
-        assert!(runs.borrow()[0].contains("afterDateTime 2026-11-05T00:00:00Z, beforeDateTime 2026-11-06T00:00:00Z"));
-        let failed = super::search(now(), now(), |_| Err(io::Error::new(io::ErrorKind::NotFound, "x"))).unwrap_err();
+        let (from, to) = import_window("2026-11-01", "2026-11-14", today).unwrap();
+        super::search(from, to, slow).unwrap();
+        assert_eq!((SEARCHES, most.load(std::sync::atomic::Ordering::SeqCst)), (4, 4));
+
+        // A failed day fails the search, saying to search again.
+        let failed = super::search(now(), now() + Duration::hours(1), |_| Err(io::Error::new(io::ErrorKind::NotFound, "x"))).unwrap_err();
         assert_eq!(failed, "Claude Code not found. Install it or add it to PATH, then search again.");
         let mut stopped = all_teams();
         stopped.remove(1);
-        assert_eq!(super::search(now(), now(), good(stopped)).unwrap_err(), "The calendar search stopped before its last page. Search again.");
-        assert_eq!(super::search(now(), now(), good(vec![])).unwrap_err(), "Claude didn't search the calendar. Check the Microsoft 365 connector is connected in claude.ai, then search again.");
+        assert_eq!(super::search(now(), now() + Duration::hours(1), good_sync(stopped)).unwrap_err(), "The calendar search stopped before its last page. Search again.");
+        assert_eq!(super::search(now(), now() + Duration::hours(1), good_sync(vec![])).unwrap_err(), "Claude didn't search the calendar. Check the Microsoft 365 connector is connected in claude.ai, then search again.");
+    }
+
+    fn good_sync(captured: Vec<Value>) -> impl Fn(&ClaudeRun) -> io::Result<Output> + Sync {
+        move |_| Ok(Output { stdout: String::new(), captured: captured.clone() })
+    }
+
+    #[test]
+    fn a_failed_read_is_retried_once_in_a_run_of_its_own_and_one_still_failing_is_counted_not_dropped() {
+        let first = vec![all_teams()[0].clone(), all_teams()[1].clone(), all_teams()[2].clone(), failed(2), failed(3)];
+        // The retry reads Focus; Partner sync fails again.
+        let log = std::cell::RefCell::new(vec![]);
+        let cal = Calendar::default();
+        cal.refresh(now(), runs(&log, vec![first.clone(), vec![all_teams()[3].clone(), failed(3)]]), || {});
+        let log = log.into_inner();
+        assert_eq!(log.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["refresh", "read retry"]);
+        assert_eq!(log[1].1, r#"Call read_resource once on each of these uris, exactly as given: "calendar:///events/SYNTH-EVENT-2" "calendar:///events/SYNTH-EVENT-3". Reply DONE."#);
+        assert_eq!(subjects(&cal.events()), ["Backlog Refinement", "Focus"]);
+        assert_eq!((cal.status().unreadable, cal.status().failure), (1, None), "said in the status line, the refresh good");
+
+        // A failed retry run leaves the count as the search found it; a clean search runs no retry.
+        let log = std::cell::RefCell::new(vec![]);
+        let mut answers = runs(&log, vec![first]);
+        let cal = Calendar::default();
+        cal.refresh(now(), |r| if r.kind == "read retry" { Err(io::Error::other("synthetic")) } else { answers(r) }, || {});
+        assert_eq!(cal.status().unreadable, 2);
+        let log = std::cell::RefCell::new(vec![]);
+        cal.refresh(now() + EVERY, runs(&log, vec![all_teams()]), || {});
+        assert_eq!((log.borrow().len(), cal.status().unreadable), (1, 0));
+
+        // The import search counts them too, once each.
+        let (got, unreadable) = super::search(now(), now() + Duration::hours(4), good_sync(vec![all_teams()[0].clone(), all_teams()[1].clone(), all_teams()[2].clone(), failed(2)])).unwrap();
+        assert_eq!((subjects(&got), unreadable), (vec!["Backlog Refinement"], 1));
+    }
+
+    #[test]
+    fn all_day_and_cancelled_events_and_cached_ones_that_havent_moved_are_not_read_and_a_moved_one_is() {
+        let r = run_for(now(), &[]);
+        assert!(r.prompt.contains("except events whose isAllDay or isCancelled is true. Reply DONE."), "{}", r.prompt);
+        // All-day or cancelled: never cached, nor counted unreadable, read or not.
+        for flag in ["isAllDay", "isCancelled"] {
+            let page = PAGE_2.replace(&format!(r#""{flag}":false"#), &format!(r#""{flag}":true"#));
+            let mut captured = all_teams();
+            captured[1] = search(Some(2), &page);
+            let f = counted_in(&captured, now() - LOOK_BACK, ahead(now()), &[]).unwrap();
+            assert_eq!((subjects(&f.events), f.unreadable.len()), (vec!["Backlog Refinement", "Focus"], 0), "{flag}");
+            captured.pop();
+            assert!(counted_in(&captured, now() - LOOK_BACK, ahead(now()), &[]).unwrap().unreadable.is_empty(), "{flag}, not read");
+        }
+
+        let cal = Calendar::default();
+        cal.refresh(now(), good(all_teams()), || {});
+        let cached = cal.events();
+        // The second refresh names the cached events with their times, for the run to skip ...
+        let log = std::cell::RefCell::new(vec![]);
+        let searches_only = vec![all_teams()[0].clone(), all_teams()[1].clone()];
+        cal.refresh(now() + EVERY, runs(&log, vec![searches_only.clone()]), || {});
+        let prompt = &log.borrow()[0].1;
+        assert!(prompt.contains(r#"already read: "calendar:///events/SYNTH-EVENT-1" start 2026-11-05T14:00:00Z end 2026-11-05T15:00:00Z; "calendar:///events/SYNTH-EVENT-2" start 2026-11-05T15:00:00Z end 2026-11-05T17:00:00Z; "calendar:///events/SYNTH-EVENT-3" start 2026-11-06T09:00:00Z end 2026-11-06T09:30:00Z."#), "{prompt}");
+        // ... and keeps them with no read and no retry.
+        assert_eq!(log.borrow().len(), 1);
+        assert_eq!((cal.events(), cal.status().unreadable), (cached.clone(), 0));
+
+        // Partner sync moves an hour later: unread (the run skipped it anyway), it is read on the retry and moves.
+        let moved = PAGE_2.replace("2026-11-06T09:00:00", "2026-11-06T10:00:00").replace("2026-11-06T09:30:00", "2026-11-06T10:30:00");
+        let log = std::cell::RefCell::new(vec![]);
+        cal.refresh(now() + EVERY * 2, runs(&log, vec![vec![all_teams()[0].clone(), search(Some(2), &moved)], vec![read(3, Some("https://teams.example/l/meetup-join/partner"), true)]]), || {});
+        assert_eq!(log.borrow()[1].1, r#"Call read_resource once on each of these uris, exactly as given: "calendar:///events/SYNTH-EVENT-3". Reply DONE."#);
+        assert_eq!(cal.events()[2].start, t("2026-11-06T10:00:00Z"));
+        assert_eq!(cal.status().unreadable, 0);
+    }
+
+    #[test]
+    fn the_refresh_search_and_fetch_runs_turn_the_tool_search_off() {
+        for r in [run_for(now(), &[]), run_window(now(), now(), &[]), read_run(&["calendar:///events/x".into()]), crate::fetch::run_for("meeting-transcript:///x")] {
+            assert!(r.env.contains(&("ENABLE_TOOL_SEARCH", "false")), "{}", r.kind);
+        }
     }
 }

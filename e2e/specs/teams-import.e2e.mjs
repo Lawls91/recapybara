@@ -3,8 +3,9 @@ import { Key } from "webdriverio";
 import fs from "node:fs";
 import { body, calendar, claudeRecords, event, fetchesOf, invoke, root, scenario, seed, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
 
-// Slice 08b: Import from Teams by date range. One calendar search over the picked dates, then, on Import, one fetch
-// and summary per eligible meeting. Every event is synthetic, in the connector's shape (Research, Calendar data shape).
+// Slice 08b: Import from Teams by date range. One calendar search per picked date, then, on Import, one fetch and
+// summary per eligible meeting, several at once (S1). Every event is synthetic, in the connector's shape (Research,
+// Calendar data shape).
 const daysAgo = (days, hh) => {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -19,12 +20,15 @@ const D = event(24, "Teams import captured", daysAgo(4, 9)); // already in the l
 const E = event(25, "Teams import unrecorded", daysAgo(3, 9)); // its read has no meetingTranscriptUrl
 const all = [A, B, C, D, E];
 
-// The window the dialog's default range (the last 7 days, ending today) searches: local midnights, in UTC.
+// The windows the dialog's default range (the last 7 days, ending today) searches, one per day: local midnights, in UTC.
 const utc = (d) => `${d.toISOString().slice(0, 19)}Z`;
 const today = new Date();
-const FROM = utc(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6));
-const TO = utc(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
-const rangeSearches = () => claudeRecords().filter((r) => r.argv.some((a) => a.includes(`afterDateTime ${FROM}, beforeDateTime ${TO}`)));
+const midnight = (days) => utc(new Date(today.getFullYear(), today.getMonth(), today.getDate() + days));
+const DAYS = [-6, -5, -4, -3, -2, -1, 0].map((d) => `afterDateTime ${midnight(d)}, beforeDateTime ${midnight(d + 1)}`);
+const daySearches = () => claudeRecords().filter((r) => r.argv.some((a) => DAYS.some((w) => a.includes(w))));
+/** The most of these runs that overlapped at one moment, from the fake's start and end times. */
+const mostAtOnce = (runs) => Math.max(...runs.map((r) => runs.filter((o) => o.startedMs < r.endedMs && r.startedMs < o.endedMs).length));
+const summaries = () => claudeRecords().filter((r) => r.argv.includes("--json-schema"));
 const transcriptReads = () => claudeRecords().filter((r) => r.argv.some((a) => all.some((e) => a.includes(transcriptUrl(e)))));
 
 const meetingOf = async (e) => (await invoke("list_meetings")).find((m) => m.eventId === e.id);
@@ -136,29 +140,28 @@ describe("import from Teams", () => {
     await setDate("teams-from", ymd(week));
   });
 
-  it("Search runs one calendar search over the range and counts what it found, and nothing is fetched before Import", async () => {
+  it("Search runs one calendar search per day of the range and counts what it found, and nothing is fetched before Import", async () => {
     await expect($("#teams")).toBeDisplayed();
     await $("#teams-search").click();
     await expect($("#teams-msg")).toHaveText("Found 3 Teams meetings with a transcript. 1 left out: already captured, skipped, deleted or excluded.", { wait: 20000 });
     await expect($("#teams-go")).toBeDisplayed();
     await shots("found");
-    expect(rangeSearches().length).toBe(1);
+    expect(DAYS.map((w) => daySearches().filter((r) => r.argv.some((a) => a.includes(w))).length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
     expect(transcriptReads().length).toBe(0);
     expect(fs.readdirSync(root("library"))).toEqual([SEEDED]);
   });
 
-  it("Import fetches and summarises each meeting in turn with progress in the status line; no transcript keeps a No transcript row, and the captured one is untouched", async () => {
+  it("Import fetches the meetings at once and summarises the captures at once, with progress in the status line; no transcript keeps a No transcript row, and the captured one is untouched", async () => {
     const before = seededJson();
-    scenario({ ...s, delayMs: 1500 }); // slow enough to watch the progress
+    scenario({ ...s, delayMs: 1500 }); // slow enough to watch the progress and see the runs overlap
     await $("#teams-go").click();
     await expect($("#teams")).not.toBeDisplayed();
-    await expect($("#calendar-status")).toHaveText("Importing 1 of 3…");
-    await expect($("#calendar-status")).toHaveText("Importing 2 of 3…", { wait: 20000 });
-    // The first meeting's row is in the list, summarised, before the second one's fetch.
-    const first = await meetingOf(A); // the search answered A first
-    expect(first.state).toBe("done");
-    await expect($(`.row[data-id="${first.id}"] .lbl`)).toHaveText("Summary ready");
+    await expect($("#calendar-status")).toHaveText("Importing: 0 of 3 done…");
+    // C's empty list is done once fetched; A and B once summarised too.
+    await expect($("#calendar-status")).toHaveText("Importing: 1 of 3 done…", { wait: 20000 });
     await browser.waitUntil(async () => !(await $("#calendar-status").getText()).startsWith("Importing"), { timeout: 40000, timeoutMsg: "the import never ended" });
+    expect(mostAtOnce([A, B, C].map((e) => fetchesOf(e)[0]))).toBe(3);
+    expect(mostAtOnce(summaries())).toBe(2);
 
     for (const [e, who] of [[A, "retro"], [B, "planning"]]) {
       const m = await meetingOf(e);
@@ -181,7 +184,7 @@ describe("import from Teams", () => {
     expect(fs.readdirSync(root("library")).length).toBe(4);
     expect(seededJson()).toBe(before);
     expect([A, B, C, D, E].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1, 0, 0]);
-    expect(rangeSearches().length).toBe(1);
+    expect(daySearches().length).toBe(7);
   });
 
   it("searching the same range again offers nothing, the no transcript meeting being in the library, and Cancel fetches nothing", async () => {
@@ -196,5 +199,22 @@ describe("import from Teams", () => {
     expect([A, B, C, D, E].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1, 0, 0]);
     expect(fs.readdirSync(root("library")).length).toBe(4);
     expect((await meetingOf(C)).state).toBe("noTranscript");
+  });
+
+  it("an event whose read fails is read again once, and one still failing is reported with Search again", async () => {
+    const F = event(26, "Teams import unreadable", daysAgo(1, 11));
+    const t = calendar([A, B, C, D, F], [A, B, C, D, F].map((e) => `https://teams.example/j/${e.id}`));
+    t.hooks = t.hooks.map((h) => (h.tool_input.uri === F.uri ? { event: "PostToolUseFailure", tool_name: h.tool_name, tool_input: h.tool_input, error: "synthetic transient failure" } : h));
+    scenario(t);
+    await $("#import-button").click();
+    await $("#import-teams").click();
+    await $("#teams-search").click();
+    await expect($("#teams-msg")).toHaveText(
+      "Found no Teams meetings with a transcript. 4 left out: already captured, skipped, deleted or excluded. 1 couldn't be read. Search again to retry.",
+      { wait: 20000 },
+    );
+    const retries = claudeRecords().filter((r) => r.argv[1] === `Call read_resource once on each of these uris, exactly as given: "${F.uri}". Reply DONE.`);
+    expect(retries.length).toBe(1);
+    await $("#teams-cancel").click();
   });
 });

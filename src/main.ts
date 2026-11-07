@@ -622,9 +622,9 @@ $("teams-search").onclick = async () => {
   $<HTMLButtonElement>("teams-search").disabled = true;
   teamsMessage("Searching your calendar\u2026");
   try {
-    const r = await invoke<{ found: number; leftOut: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
+    const r = await invoke<{ found: number; leftOut: number; unreadable: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
     if (at !== teamsSearch) return;
-    teamsMessage(foundText(r.found, r.leftOut));
+    teamsMessage(foundText(r.found, r.leftOut, r.unreadable));
     $("teams-go").hidden = r.found === 0;
     if (r.found) $("teams-go").focus();
   } catch (e) {
@@ -645,7 +645,7 @@ teams.addEventListener("close", () => {
   teamsSearch++;
   $("import-button").focus();
 });
-/** The import's progress ("Importing 3 of 7…"), shown in the calendar status line while it runs. */
+/** The import's progress ("Importing: 3 of 7 done…"), shown in the calendar status line while it runs. */
 let importing: string | null = null;
 listen<string | null>("teams-import", (e) => {
   importing = e.payload;

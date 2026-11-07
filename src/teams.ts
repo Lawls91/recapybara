@@ -23,8 +23,9 @@ export function rangeError(from: string, to: string, today: string): string | nu
 }
 
 /** The Search outcome. */
-export function foundText(found: number, leftOut: number) {
+export function foundText(found: number, leftOut: number, unreadable = 0) {
   const n = found === 0 ? "no" : String(found);
   const out = leftOut ? ` ${leftOut} left out: already captured, skipped, deleted or excluded.` : "";
-  return `Found ${n} Teams meeting${found === 1 ? "" : "s"} with a transcript.${out}`;
+  const unread = unreadable ? ` ${unreadable} couldn't be read. Search again to retry.` : "";
+  return `Found ${n} Teams meeting${found === 1 ? "" : "s"} with a transcript.${out}${unread}`;
 }

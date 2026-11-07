@@ -52,6 +52,8 @@ test("the calendar status line reads refreshing, else the failure with its fix, 
   expect(calendarLine({ updated: null, refreshing: false, failure: null }).text).toBe("Calendar not loaded");
   expect(calendarLine({ updated: at, refreshing: false, failure: null, skipped: 2 }).text).toBe("Updated 14:00 · 2 events skipped: unknown time zone");
   expect(calendarLine({ updated: at, refreshing: false, failure: null, skipped: 1 }).text).toBe("Updated 14:00 · 1 event skipped: unknown time zone");
+  expect(calendarLine({ updated: at, refreshing: false, failure: null, unreadable: 1 }).text).toBe("Updated 14:00 · 1 event couldn't be read");
+  expect(calendarLine({ updated: at, refreshing: false, failure: null, skipped: 2, unreadable: 3 }).text).toBe("Updated 14:00 · 2 events skipped: unknown time zone · 3 events couldn't be read");
 });
 
 test("the delete question names the meeting and its start, so two with one subject are told apart", () => {
