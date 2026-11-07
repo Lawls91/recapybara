@@ -17,6 +17,7 @@ import {
 } from "./meetings";
 import { byMeeting, markParts, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
 import { chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
+import { defaultRange, foundText, rangeError, ymd } from "./teams";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 // Stable element ids from the folder name (WebView2 exposes ids as UIA AutomationIds).
@@ -447,12 +448,26 @@ function openMenu(m: Meeting, x: number, y: number) {
           <i class="ic">${i.icon}</i><span>${i.label}</span><span class="k">${i.later ? "Later" : (i.key ?? "")}</span></button>`,
     )
     .join("");
+  placeMenu(menu, x, y);
+}
+
+/** Shows a menu at x, y, kept inside the window, with focus on its first item. */
+function placeMenu(menu: HTMLElement, x: number, y: number) {
   menu.hidden = false;
   const r = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
   menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
   menu.querySelector<HTMLElement>(".mi")?.focus();
 }
+// Up and Down move through a menu's items, wrapping.
+document.addEventListener("keydown", (e) => {
+  const menu = (e.target as HTMLElement).closest?.(".menu");
+  if (!menu || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+  const items = [...menu.querySelectorAll<HTMLButtonElement>(".mi:not(:disabled)")];
+  const at = items.indexOf(e.target as HTMLButtonElement);
+  items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+  e.preventDefault();
+});
 
 function closeMenu() {
   $("row-menu").hidden = true;
@@ -480,11 +495,16 @@ $("row-menu").addEventListener("click", async (e) => {
 });
 document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#row-menu, .kebab")) closeMenu();
+  if (!(e.target as HTMLElement).closest("#import-menu, #import-button")) closeImportMenu();
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     closeMenu();
     closePeek();
+    if (!$("import-menu").hidden) {
+      closeImportMenu();
+      $("import-button").focus();
+    }
   }
 });
 
@@ -539,7 +559,86 @@ async function importFiles(paths: string[], id: string | null) {
   for (const path of paths) await invoke("import_transcript", { path, id }).catch(() => {});
 }
 
-$("import-button").onclick = () => chooseFile(null);
+// The Import button's menu: a transcript file (D15) or Import from Teams.
+function closeImportMenu() {
+  $("import-menu").hidden = true;
+  $("import-button").setAttribute("aria-expanded", "false");
+}
+$("import-button").onclick = () => {
+  if (!$("import-menu").hidden) return closeImportMenu();
+  const r = $("import-button").getBoundingClientRect();
+  $("import-button").setAttribute("aria-expanded", "true");
+  placeMenu($("import-menu"), r.right - 210, r.bottom + 4);
+};
+$("import-file").onclick = () => {
+  closeImportMenu();
+  chooseFile(null);
+};
+$("import-teams").onclick = () => {
+  closeImportMenu();
+  openTeams();
+};
+
+// ---------- Import from Teams: one calendar search over the dates, then Import fetches and summarises each ----------
+
+const teams = $<HTMLDialogElement>("teams");
+const teamsFrom = $<HTMLInputElement>("teams-from");
+const teamsTo = $<HTMLInputElement>("teams-to");
+/** Bumped by every date change and close, so a search answering late is dropped. */
+let teamsSearch = 0;
+function teamsMessage(text: string, error = false) {
+  $("teams-msg").textContent = text;
+  $("teams-msg").classList.toggle("err", error);
+}
+function checkTeamsRange() {
+  teamsSearch++;
+  const error = rangeError(teamsFrom.value, teamsTo.value, ymd(new Date()));
+  teamsMessage(error ?? "", !!error);
+  $<HTMLButtonElement>("teams-search").disabled = !!error;
+  $("teams-go").hidden = true;
+  return !error;
+}
+function openTeams() {
+  const r = defaultRange(new Date());
+  [teamsFrom.value, teamsTo.value] = [r.from, r.to];
+  teamsFrom.max = teamsTo.max = r.to;
+  checkTeamsRange();
+  teams.showModal();
+}
+teamsFrom.oninput = teamsTo.oninput = checkTeamsRange;
+$("teams-search").onclick = async () => {
+  if (!checkTeamsRange()) return;
+  const at = teamsSearch;
+  const search = $<HTMLButtonElement>("teams-search");
+  search.disabled = true;
+  teamsMessage("Searching your calendar\u2026");
+  try {
+    const r = await invoke<{ found: number; leftOut: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
+    if (at !== teamsSearch) return;
+    teamsMessage(foundText(r.found, r.leftOut));
+    $("teams-go").hidden = r.found === 0;
+    if (r.found) $("teams-go").focus();
+  } catch (e) {
+    if (at === teamsSearch) teamsMessage(String(e), true);
+  } finally {
+    if (at === teamsSearch) search.disabled = false;
+  }
+};
+$("teams-go").onclick = () => {
+  teams.close();
+  invoke("teams_import").catch(failed);
+};
+$("teams-cancel").onclick = () => teams.close();
+teams.addEventListener("close", () => {
+  teamsSearch++;
+  $("import-button").focus();
+});
+/** The import's progress ("Importing 3 of 7…"), shown in the calendar status line while it runs. */
+let importing: string | null = null;
+listen<string | null>("teams-import", (e) => {
+  importing = e.payload;
+  loadCalendarStatus();
+});
 $("import-error-close").onclick = () => ($("import-error").hidden = true);
 
 listen<string>("meeting-changed", () => loadMeetings());
@@ -851,8 +950,8 @@ $<HTMLSelectElement>("appearance").onchange = (e) => save({ appearance: (e.targe
 async function loadCalendarStatus() {
   const line = calendarLine(await invoke<CalendarStatus>("calendar_status"));
   const el = $("calendar-status");
-  el.textContent = line.text;
-  el.classList.toggle("err", line.error);
+  el.textContent = importing ?? line.text;
+  el.classList.toggle("err", !importing && line.error);
 }
 $("refresh-button").onclick = () => invoke("refresh_calendar").catch(() => {});
 listen("calendar-changed", async () => {

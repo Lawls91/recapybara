@@ -1,0 +1,24 @@
+import { expect, test } from "vitest";
+import { defaultRange, foundText, rangeError } from "./teams";
+
+test("the range defaults to the last 7 days, ending today, across a month end", () => {
+  expect(defaultRange(new Date(2026, 10, 7, 15, 30))).toEqual({ from: "2026-11-01", to: "2026-11-07" });
+  expect(defaultRange(new Date(2026, 2, 3))).toEqual({ from: "2026-02-25", to: "2026-03-03" });
+});
+
+test("To can't pass today, From can't pass To, and the range is at most 31 days", () => {
+  const today = "2026-11-20";
+  expect(rangeError("2026-11-14", "2026-11-20", today)).toBeNull();
+  expect(rangeError("2026-10-21", "2026-11-20", today)).toBeNull(); // 31 days
+  expect(rangeError("2026-10-20", "2026-11-20", today)).toBe("Choose at most 31 days.");
+  expect(rangeError("2026-03-01", "2026-03-31", "2026-04-01")).toBeNull(); // 31 days over the spring clock change
+  expect(rangeError("2026-11-20", "2026-11-21", today)).toBe("To can't be later than today.");
+  expect(rangeError("2026-11-20", "2026-11-19", today)).toBe("From can't be later than To.");
+  expect(rangeError("", "2026-11-19", today)).toBe("Choose both dates.");
+});
+
+test("the Search outcome counts the meetings found and those left out", () => {
+  expect(foundText(3, 1)).toBe("Found 3 Teams meetings with a transcript. 1 left out: already captured, skipped, deleted or excluded.");
+  expect(foundText(1, 0)).toBe("Found 1 Teams meeting with a transcript.");
+  expect(foundText(0, 2)).toBe("Found no Teams meetings with a transcript. 2 left out: already captured, skipped, deleted or excluded.");
+});

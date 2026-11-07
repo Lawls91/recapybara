@@ -72,6 +72,24 @@ per-user MSI with the WiX 5.0.2 dotnet global tool, which it installs from NuGet
   (`%APPDATA%\com.lawls91.meetingcapture`) and the library stay.
 - The frozen values in `installer/wix/Package.wxs` (D50) are pinned by a test in `src-tauri/src/lib.rs`.
 
+## Import from Teams
+
+The list's Import button opens a menu: **Transcript file…** imports a `.vtt` you pick, and **From Teams…** fetches
+past meetings' transcripts by date range, for meetings the app wasn't running for.
+
+1. Pick From and To (the last 7 days by default). To can't be later than today, and the range is at most 31 days.
+2. **Search** runs one calendar search over those dates and says how many Teams meetings with a transcript it found
+   (those whose calendar entry has a transcript link and that have ended), and how many it left out because they are
+   already in the library (captured or skipped), deleted, or in an excluded series. Nothing is fetched yet.
+3. **Import** fetches and summarises each one in turn, exactly as after a meeting. The status line shows
+   "Importing 3 of 7…", and each meeting appears in the list as it lands. A meeting whose transcript list is empty
+   leaves no folder behind; "Not reachable" and "Capture failed" ones stay, so you can attach the transcript.
+
+**Cost:** one Claude run (haiku) for the search, then two per meeting: one fetch run (haiku) and one summary run (the
+summary model, Opus by default). Importing 7 meetings is 15 runs. Runs go one at a time and share the fetch lock with
+the regular 30-second tick, so an import never fetches a meeting twice; a calendar refresh can wait for at most one
+running fetch.
+
 ## Known limitations
 
 - Clicking a "Summary ready" or "Summary failed" toast opens its meeting only while the window is visible or
@@ -151,7 +169,7 @@ run ends (D7, D13). A key counts as found when a clean Jira read's response name
 The calendar refresh (D9) runs at start and every 30 minutes, one at a time, and on Refresh calendar (the list's status
 line, or the tray's Refresh calendar now). It is a haiku run allowed only `outlook_calendar_search` and `read_resource`,
 both captured by the hook. The app follows the captured search pages from offset 0 through each `nextOffset` (a missing
-page fails the refresh), and keeps the events from 2 hours ago to 24 hours ahead whose captured read has
+page fails the refresh), and keeps the events from 2 hours ago to 7 days ahead whose captured read has
 `onlineMeeting.joinUrl`. Claude's reply is ignored. The cache is in memory only (the refresh at start refills it), and
 lists each event as Scheduled, unless a library folder has its event id. Only UTC times (`timeZone: "UTC"`, what the
 connector returned) or times with an offset convert; an event in another zone is left out and logged. A failed refresh

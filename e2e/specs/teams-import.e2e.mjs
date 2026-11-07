@@ -1,0 +1,176 @@
+import { $, $$, browser, expect } from "@wdio/globals";
+import { Key } from "webdriverio";
+import fs from "node:fs";
+import { body, calendar, claudeRecords, event, fetchesOf, invoke, root, scenario, seed, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
+
+// Slice 08b: Import from Teams by date range. One calendar search over the picked dates, then, on Import, one fetch
+// and summary per eligible meeting. Every event is synthetic, in the connector's shape (Research, Calendar data shape).
+const daysAgo = (days, hh) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  d.setHours(hh, 0, 0, 0);
+  return d;
+};
+// All ended days ago, so the regular refresh's 2-hour look-back never caches them and only the import touches them.
+const A = event(21, "Teams import retro", daysAgo(2, 10));
+const B = event(22, "Teams import planning", daysAgo(3, 14));
+const C = event(23, "Teams import untranscribed", daysAgo(2, 15)); // its transcript list is empty
+const D = event(24, "Teams import captured", daysAgo(4, 9)); // already in the library
+const E = event(25, "Teams import unrecorded", daysAgo(3, 9)); // its read has no meetingTranscriptUrl
+const all = [A, B, C, D, E];
+
+// The window the dialog's default range (the last 7 days, ending today) searches: local midnights, in UTC.
+const utc = (d) => `${d.toISOString().slice(0, 19)}Z`;
+const today = new Date();
+const FROM = utc(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6));
+const TO = utc(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
+const rangeSearches = () => claudeRecords().filter((r) => r.argv.some((a) => a.includes(`afterDateTime ${FROM}, beforeDateTime ${TO}`)));
+const transcriptReads = () => claudeRecords().filter((r) => r.argv.some((a) => all.some((e) => a.includes(transcriptUrl(e)))));
+
+const meetingOf = async (e) => (await invoke("list_meetings")).find((m) => m.eventId === e.id);
+const focused = () => browser.execute(() => document.activeElement?.id);
+const setDate = (id, value) =>
+  browser.execute((i, v) => {
+    const el = document.getElementById(i);
+    el.value = v;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }, id, value);
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const SEEDED = "seed captured";
+/** With MC_SHOTS set, a screenshot there in light and in dark (QA's reference; nothing is asserted). */
+const shots = async (name) => {
+  if (!process.env.MC_SHOTS) return;
+  fs.mkdirSync(process.env.MC_SHOTS, { recursive: true });
+  for (const appearance of ["light", "dark"]) {
+    await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance } });
+    await browser.pause(300);
+    await browser.saveScreenshot(`${process.env.MC_SHOTS}/${name}-${appearance}.png`);
+  }
+  await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance: "light" } });
+};
+const seededJson = () => fs.readFileSync(root("library", SEEDED, "meeting.json"), "utf8");
+
+describe("import from Teams", () => {
+  let s;
+  before(async () => {
+    s = calendar(all, all.map((e) => `https://teams.example/j/${e.id}`), { structuredOutput: { overview: "Synthetic summary." } });
+    const readE = s.hooks.find((h) => h.tool_input.uri === E.uri);
+    const ev = JSON.parse(readE.tool_response[0].text);
+    delete ev.meetingTranscriptUrl;
+    readE.tool_response[0].text = JSON.stringify(ev);
+    s.hooks.push(transcriptRead(A, body(A, vtt("retro"))), transcriptRead(B, body(B, vtt("planning"))), transcriptRead(C, body(C, null)));
+    scenario(s);
+    seed(SEEDED, {
+      eventId: D.id, subject: D.subject, start: daysAgo(4, 9).toISOString(), end: daysAgo(4, 10).toISOString(), state: "done",
+      source: "connector", joinUrl: `https://teams.example/j/${D.id}`, transcriptUrl: transcriptUrl(D),
+    }, { "transcript.vtt": vtt("captured"), "summary.md": `# ${D.subject}\n` });
+    await browser.refresh();
+    await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance: "light" } });
+  });
+
+  it("the Import button opens a two-item menu that the keyboard can work, and From Teams… opens its dialog", async () => {
+    await expect($("#import-button")).toHaveAttribute("aria-haspopup", "menu");
+    await expect($("#import-button")).toHaveAttribute("aria-expanded", "false");
+    await $("#import-button").click();
+    await expect($("#import-menu")).toBeDisplayed();
+    await expect($("#import-button")).toHaveAttribute("aria-expanded", "true");
+    await expect($("#import-menu")).toHaveAttribute("role", "menu");
+    const items = await $$("#import-menu .mi");
+    expect(await items.map((i) => i.$("span").getText())).toEqual(["Transcript file…", "From Teams…"]);
+    expect(await items.map((i) => i.getAttribute("role"))).toEqual(["menuitem", "menuitem"]);
+    expect(await focused()).toBe("import-file");
+    await browser.keys(Key.ArrowDown);
+    expect(await focused()).toBe("import-teams");
+    await browser.keys(Key.ArrowDown);
+    expect(await focused()).toBe("import-file");
+    await shots("menu");
+    await browser.keys(Key.Escape);
+    await expect($("#import-menu")).not.toBeDisplayed();
+    await expect($("#import-button")).toHaveAttribute("aria-expanded", "false");
+    expect(await focused()).toBe("import-button");
+
+    // Enter opens it from the keyboard, and Enter on From Teams… opens its dialog; Esc closes that, back on the
+    // button. (Transcript file… opens the native file dialog, which E2E can't drive: import.e2e covers the import.)
+    await browser.keys(Key.Enter);
+    await expect($("#import-menu")).toBeDisplayed();
+    await browser.keys(Key.ArrowDown);
+    await browser.keys(Key.Enter);
+    await expect($("#import-menu")).not.toBeDisplayed();
+    await expect($("#teams")).toBeDisplayed();
+    await browser.keys(Key.Escape);
+    await expect($("#teams")).not.toBeDisplayed();
+    expect(await focused()).toBe("import-button");
+  });
+
+  it("From Teams… opens the dialog on the last 7 days ending today, and over 31 days says so inline", async () => {
+    await $("#import-button").click();
+    await $("#import-teams").click();
+    await expect($("#teams")).toBeDisplayed();
+    const t = new Date();
+    const week = new Date(t.getFullYear(), t.getMonth(), t.getDate() - 6);
+    await expect($("#teams-from")).toHaveValue(ymd(week));
+    await expect($("#teams-to")).toHaveValue(ymd(t));
+    await expect($("#teams-to")).toHaveAttribute("max", ymd(t));
+    await expect($("#teams-from")).toHaveAttribute("type", "date");
+
+    await setDate("teams-from", ymd(new Date(t.getFullYear(), t.getMonth(), t.getDate() - 31)));
+    await expect($("#teams-msg")).toHaveText("Choose at most 31 days.");
+    await expect($("#teams-search")).toBeDisabled();
+    await shots("over-31-days");
+    await setDate("teams-from", ymd(new Date(t.getFullYear(), t.getMonth(), t.getDate() - 30)));
+    await expect($("#teams-msg")).toHaveText("");
+    await expect($("#teams-search")).toBeEnabled();
+    await setDate("teams-from", ymd(week));
+  });
+
+  it("Search runs one calendar search over the range and counts what it found, and nothing is fetched before Import", async () => {
+    await expect($("#teams")).toBeDisplayed();
+    await $("#teams-search").click();
+    await expect($("#teams-msg")).toHaveText("Found 3 Teams meetings with a transcript. 1 left out: already captured, skipped, deleted or excluded.", { wait: 20000 });
+    await expect($("#teams-go")).toBeDisplayed();
+    await shots("found");
+    expect(rangeSearches().length).toBe(1);
+    expect(transcriptReads().length).toBe(0);
+    expect(fs.readdirSync(root("library"))).toEqual([SEEDED]);
+  });
+
+  it("Import fetches and summarises each meeting in turn with progress in the status line; no transcript leaves no folder, and the captured one is untouched", async () => {
+    const before = seededJson();
+    scenario({ ...s, delayMs: 1500 }); // slow enough to watch the progress
+    await $("#teams-go").click();
+    await expect($("#teams")).not.toBeDisplayed();
+    await expect($("#calendar-status")).toHaveText("Importing 1 of 3…");
+    await expect($("#calendar-status")).toHaveText("Importing 2 of 3…", { wait: 20000 });
+    // The first meeting's row is in the list, summarised, before the second one's fetch.
+    const first = await meetingOf(A); // the search answered A first
+    expect(first.state).toBe("done");
+    await expect($(`.row[data-id="${first.id}"] .lbl`)).toHaveText("Summary ready");
+    await browser.waitUntil(async () => !(await $("#calendar-status").getText()).startsWith("Importing"), { timeout: 40000, timeoutMsg: "the import never ended" });
+
+    for (const [e, who] of [[A, "retro"], [B, "planning"]]) {
+      const m = await meetingOf(e);
+      expect(m.state).toBe("done");
+      expect(fs.readFileSync(root("library", m.id, "transcript.vtt"), "utf8")).toBe(vtt(who));
+      await expect($(`.row[data-id="${m.id}"] .lbl`)).toHaveText("Summary ready");
+    }
+    expect(await meetingOf(C)).toBeUndefined(); // an empty list: no folder, no row
+    expect(await meetingOf(E)).toBeUndefined();
+    expect(fs.readdirSync(root("library")).length).toBe(3);
+    expect(seededJson()).toBe(before);
+    expect([A, B, C, D, E].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1, 0, 0]);
+    expect(rangeSearches().length).toBe(1);
+  });
+
+  it("Cancel after a Search fetches nothing; the meeting with no transcript is offered again", async () => {
+    await $("#import-button").click();
+    await $("#import-teams").click();
+    await $("#teams-search").click();
+    await expect($("#teams-msg")).toHaveText("Found 1 Teams meeting with a transcript. 3 left out: already captured, skipped, deleted or excluded.", { wait: 20000 });
+    await $("#teams-cancel").click();
+    await expect($("#teams")).not.toBeDisplayed();
+    expect(await focused()).toBe("import-button");
+    await browser.pause(2000);
+    expect([A, B, C, D, E].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1, 0, 0]);
+    expect(fs.readdirSync(root("library")).length).toBe(3);
+  });
+});

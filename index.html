@@ -14,7 +14,7 @@
             <input id="search" placeholder="Search meetings" aria-label="Search meetings" />
           </label>
           <span id="dev-badge" class="devbadge" title="A dev instance: its state is apart from the installed copy's" hidden>DEV</span>
-          <button id="import-button" class="ib" title="Import transcript" aria-label="Import transcript"><i class="ic">&#xE896;</i></button>
+          <button id="import-button" class="ib" title="Import transcript" aria-label="Import transcript" aria-haspopup="menu" aria-expanded="false" aria-controls="import-menu"><i class="ic">&#xE896;</i></button>
           <button id="settings-button" class="ib" title="Settings" aria-label="Settings"><i class="ic">&#xE713;</i></button>
         </div>
         <div class="status">
@@ -83,6 +83,25 @@
     </div>
 
     <div id="row-menu" class="menu" role="menu" hidden></div>
+    <div id="import-menu" class="menu" role="menu" aria-label="Import transcript" hidden>
+      <button class="mi" id="import-file" role="menuitem"><i class="ic">&#xE8E5;</i><span>Transcript file…</span></button>
+      <button class="mi" id="import-teams" role="menuitem"><i class="ic">&#xE787;</i><span>From Teams…</span></button>
+    </div>
+
+    <dialog id="teams" class="confirm teams" aria-labelledby="teams-title">
+      <h3 id="teams-title">Import from Teams</h3>
+      <p>Finds your Teams meetings with a transcript in these dates, then fetches and summarises each one.</p>
+      <div class="range">
+        <label>From <input type="date" id="teams-from" /></label>
+        <label>To <input type="date" id="teams-to" /></label>
+      </div>
+      <p id="teams-msg" class="tmsg" role="status" aria-live="polite"></p>
+      <div class="acts">
+        <button id="teams-cancel" class="btn">Cancel</button>
+        <button id="teams-search" class="btn">Search</button>
+        <button id="teams-go" class="btn pri" hidden>Import</button>
+      </div>
+    </dialog>
 
     <dialog id="confirm" class="confirm">
       <h3 id="confirm-title"></h3>
