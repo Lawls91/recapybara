@@ -147,7 +147,7 @@ describe("import from Teams", () => {
     expect(fs.readdirSync(root("library"))).toEqual([SEEDED]);
   });
 
-  it("Import fetches and summarises each meeting in turn with progress in the status line; no transcript leaves no folder, and the captured one is untouched", async () => {
+  it("Import fetches and summarises each meeting in turn with progress in the status line; no transcript keeps a No transcript row, and the captured one is untouched", async () => {
     const before = seededJson();
     scenario({ ...s, delayMs: 1500 }); // slow enough to watch the progress
     await $("#teams-go").click();
@@ -166,24 +166,35 @@ describe("import from Teams", () => {
       expect(fs.readFileSync(root("library", m.id, "transcript.vtt"), "utf8")).toBe(vtt(who));
       await expect($(`.row[data-id="${m.id}"] .lbl`)).toHaveText("Summary ready");
     }
-    expect(await meetingOf(C)).toBeUndefined(); // an empty list: no folder, no row
+    // An empty list: its folder stays, as a No transcript row offering Import transcript and Delete like any other.
+    const untranscribed = await meetingOf(C);
+    expect(untranscribed?.state).toBe("noTranscript");
+    const row = $(`.row[data-id="${untranscribed.id}"]`);
+    await expect(row.$(".lbl")).toHaveText("No transcript");
+    await row.$(".kebab").click();
+    await expect($("#row-menu")).toBeDisplayed();
+    const labels = await browser.execute(() => [...document.querySelectorAll("#row-menu .mi span:first-of-type")].map((s) => s.textContent));
+    expect(labels).toEqual(expect.arrayContaining(["Import transcript", "Delete"]));
+    await browser.keys("Escape");
+    await expect($("#row-menu")).not.toBeDisplayed();
     expect(await meetingOf(E)).toBeUndefined();
-    expect(fs.readdirSync(root("library")).length).toBe(3);
+    expect(fs.readdirSync(root("library")).length).toBe(4);
     expect(seededJson()).toBe(before);
     expect([A, B, C, D, E].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1, 0, 0]);
     expect(rangeSearches().length).toBe(1);
   });
 
-  it("Cancel after a Search fetches nothing; the meeting with no transcript is offered again", async () => {
+  it("searching the same range again offers nothing, the no transcript meeting being in the library, and Cancel fetches nothing", async () => {
     await $("#import-button").click();
     await $("#import-teams").click();
     await $("#teams-search").click();
-    await expect($("#teams-msg")).toHaveText("Found 1 Teams meeting with a transcript. 3 left out: already captured, skipped, deleted or excluded.", { wait: 20000 });
+    await expect($("#teams-msg")).toHaveText("Found no Teams meetings with a transcript. 4 left out: already captured, skipped, deleted or excluded.", { wait: 20000 });
     await $("#teams-cancel").click();
     await expect($("#teams")).not.toBeDisplayed();
     expect(await focused()).toBe("import-button");
     await browser.pause(2000);
     expect([A, B, C, D, E].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1, 0, 0]);
-    expect(fs.readdirSync(root("library")).length).toBe(3);
+    expect(fs.readdirSync(root("library")).length).toBe(4);
+    expect((await meetingOf(C)).state).toBe("noTranscript");
   });
 });

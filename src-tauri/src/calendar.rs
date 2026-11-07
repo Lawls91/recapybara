@@ -1,12 +1,13 @@
 //! Calendar refresh (D9): a haiku run searches and reads the calendar, its capture hook hands the raw responses to
-//! the app (D13), and the app keeps the Teams events from 2 hours ago to 7 days ahead. Claude's reply is ignored.
+//! the app (D13), and the app keeps the Teams events from 2 hours ago to the end of the next working day. Claude's
+//! reply is ignored.
 //! Import from Teams runs the same search over a date range the user picks.
 use crate::{
     claude::{ClaudeRun, Output},
     library::{Listed, Meeting, State},
     summary,
 };
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc, Weekday};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::Mutex};
@@ -19,8 +20,6 @@ pub const TOOLS: &[&str] = &[SEARCH, READ];
 pub const EVERY: Duration = Duration::minutes(30);
 /// The cache keeps events that ended less than this long ago (D9).
 pub const LOOK_BACK: Duration = Duration::hours(2);
-/// ... and that start less than this far ahead, so next week's meetings list as scheduled.
-pub const AHEAD: Duration = Duration::days(7);
 /// How often the scheduler looks at the clock. A sleeping laptop wakes to a due refresh within this.
 pub const TICK: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -40,7 +39,26 @@ pub struct Event {
 
 /// The refresh run (D8, D9): haiku, the two calendar tools, both captured.
 pub fn run_for(now: DateTime<Utc>) -> ClaudeRun {
-    run_window(now - LOOK_BACK, now + AHEAD)
+    run_window(now - LOOK_BACK, ahead(now))
+}
+
+/// ... and that start before the end of the next working day in local time, so it lists as scheduled: tomorrow's
+/// meetings Monday to Thursday, Monday's from Friday to Sunday. Monday to Friday are working days; no holidays.
+pub fn ahead(now: DateTime<Utc>) -> DateTime<Utc> {
+    working_day_end(now, &Local)
+}
+
+fn working_day_end<Tz: TimeZone>(now: DateTime<Utc>, tz: &Tz) -> DateTime<Utc> {
+    let today = now.with_timezone(tz).date_naive();
+    let next = today.iter_days().skip(1).find(|d| !matches!(d.weekday(), Weekday::Sat | Weekday::Sun)).unwrap();
+    let end = next + Duration::days(1);
+    // ponytail: a zone whose clocks skip that midnight ends at UTC midnight instead, a few hours off at worst.
+    midnight(end, tz).unwrap_or_else(|| end.and_time(NaiveTime::MIN).and_utc())
+}
+
+/// Local midnight starting `d`, in UTC. None where the clocks skip it.
+fn midnight<Tz: TimeZone>(d: NaiveDate, tz: &Tz) -> Option<DateTime<Utc>> {
+    d.and_time(NaiveTime::MIN).and_local_timezone(tz.clone()).earliest().map(|t| t.with_timezone(&Utc))
 }
 
 /// The calendar search run over `from` to `to`: the refresh's, or Import from Teams' over the picked dates.
@@ -103,7 +121,7 @@ fn time(v: &Value) -> Option<DateTime<Utc>> {
 pub const NO_SEARCH: &str = "Claude didn't search the calendar. Check the Microsoft 365 connector is connected in claude.ai, then Refresh calendar.";
 pub const STOPPED: &str = "The calendar search stopped before its last page. Refresh calendar to try again.";
 
-/// The Teams events in the run's captured payloads (D9), from `now` - 2 h to `now` + 7 days. The search pages are
+/// The Teams events in the run's captured payloads (D9), from `now` - 2 h to `ahead(now)`. The search pages are
 /// followed from offset 0 through each `nextOffset` until a paging object no longer says `moreResults`; a missing
 /// page fails the whole refresh. An event counts only if its read has `onlineMeeting.joinUrl`; an event whose read
 /// is missing, failed or unreadable is left out, to be tried on the next refresh.
@@ -113,7 +131,7 @@ pub fn parse(captured: &[Value], now: DateTime<Utc>) -> Result<Vec<Event>, Strin
 
 /// `parse`, plus how many Teams events were left out because their time zone isn't one the app converts.
 pub fn counted(captured: &[Value], now: DateTime<Utc>) -> Result<(Vec<Event>, usize), String> {
-    counted_in(captured, now - LOOK_BACK, now + AHEAD)
+    counted_in(captured, now - LOOK_BACK, ahead(now))
 }
 
 /// `counted` for the events overlapping `from` to `to`.
@@ -238,8 +256,7 @@ pub fn import_window(from: &str, to: &str, today: NaiveDate) -> Result<(DateTime
     if (to - from).num_days() + 1 > MAX_IMPORT_DAYS {
         return Err(format!("Choose at most {MAX_IMPORT_DAYS} days."));
     }
-    let midnight = |d: NaiveDate| d.and_time(NaiveTime::MIN).and_local_timezone(Local).earliest().map(|t| t.with_timezone(&Utc));
-    Ok((midnight(from).ok_or("No local midnight on From.")?, midnight(to + Duration::days(1)).ok_or("No local midnight after To.")?))
+    Ok((midnight(from, &Local).ok_or("No local midnight on From.")?, midnight(to + Duration::days(1), &Local).ok_or("No local midnight after To.")?))
 }
 
 /// Import from Teams' search: one calendar search run over `from` to `to`, its Teams events as the refresh reads
@@ -455,11 +472,33 @@ mod tests {
     }
 
     #[test]
-    fn the_cache_keeps_events_from_two_hours_ago_to_7_days_ahead() {
-        // Focus ends 17:00 on the 5th and Partner sync starts 09:00 on the 6th.
+    fn the_cache_keeps_events_from_two_hours_ago_to_the_end_of_the_next_working_day() {
+        // Refinement starts 14:00 and Focus ends 17:00 on Thursday the 5th; Partner sync starts 09:00 on Friday the 6th.
         assert_eq!(subjects(&parse(&all_teams(), t("2026-11-05T19:00:01Z")).unwrap()), ["Partner sync"], "ended over 2 h ago");
-        assert_eq!(subjects(&parse(&all_teams(), t("2026-11-05T09:00:00Z")).unwrap()), ["Backlog Refinement", "Focus", "Partner sync"], "a day ahead is in");
-        assert_eq!(subjects(&parse(&all_teams(), t("2026-10-30T09:00:00Z")).unwrap()), ["Backlog Refinement", "Focus"], "starts 7 days ahead");
+        assert_eq!(subjects(&parse(&all_teams(), t("2026-11-05T09:00:00Z")).unwrap()), ["Backlog Refinement", "Focus", "Partner sync"], "Thursday: Friday is in");
+        // Wednesday: Thursday is the next working day, so Friday's Partner sync is past it (for local offsets -9 h to +8 h).
+        assert_eq!(subjects(&parse(&all_teams(), t("2026-11-04T12:00:00Z")).unwrap()), ["Backlog Refinement", "Focus"], "Wednesday: Friday is out");
+    }
+
+    #[test]
+    fn the_next_working_day_is_tomorrow_monday_to_thursday_and_monday_from_friday_to_sunday_and_its_end_is_local_midnight() {
+        let utc = chrono::FixedOffset::east_opt(0).unwrap();
+        for (now, end) in [
+            ("2026-11-02T12:00:00Z", "2026-11-04T00:00:00Z"), // Monday: Tuesday
+            ("2026-11-03T12:00:00Z", "2026-11-05T00:00:00Z"), // Tuesday: Wednesday
+            ("2026-11-04T12:00:00Z", "2026-11-06T00:00:00Z"), // Wednesday: Thursday
+            ("2026-11-05T00:00:00Z", "2026-11-07T00:00:00Z"), // Thursday: Friday
+            ("2026-11-06T12:00:00Z", "2026-11-10T00:00:00Z"), // Friday: Monday
+            ("2026-11-07T12:00:00Z", "2026-11-10T00:00:00Z"), // Saturday: Monday
+            ("2026-11-08T23:59:59Z", "2026-11-10T00:00:00Z"), // Sunday: Monday
+        ] {
+            assert_eq!(working_day_end(t(now), &utc), t(end), "{now}");
+        }
+        // The local date counts, not the UTC one.
+        let east = chrono::FixedOffset::east_opt(10 * 3600).unwrap();
+        assert_eq!(working_day_end(t("2026-11-05T15:00:00Z"), &east), t("2026-11-09T14:00:00Z"), "Thursday in UTC, Friday 01:00 at +10: Monday");
+        let west = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
+        assert_eq!(working_day_end(t("2026-11-07T03:00:00Z"), &west), t("2026-11-10T05:00:00Z"), "Saturday in UTC, Friday 22:00 at -5: Monday");
     }
 
     #[test]
@@ -587,13 +626,15 @@ mod tests {
     }
 
     #[test]
-    fn the_refresh_run_is_haiku_with_the_two_tools_captured_and_a_window_from_2_hours_ago_to_7_days_ahead() {
-        let r = run_for(now());
+    fn the_refresh_run_is_haiku_with_the_two_tools_captured_and_a_window_from_2_hours_ago_to_the_end_of_the_next_working_day() {
+        let r = run_for(now()); // Thursday the 5th, 12:00 UTC
         assert_eq!(r.model, "haiku");
         assert_eq!(r.allowed_tools, ["mcp__claude_ai_Microsoft_365__outlook_calendar_search", "mcp__claude_ai_Microsoft_365__read_resource"]);
         assert_eq!(r.capture, r.allowed_tools);
         assert!(r.prompt.contains("afterDateTime 2026-11-05T10:00:00Z"));
-        assert!(r.prompt.contains("beforeDateTime 2026-11-12T12:00:00Z"));
+        let before = r.prompt.split("beforeDateTime ").nth(1).unwrap().split(',').next().unwrap();
+        let local = t(before).with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string();
+        assert_eq!(local, "2026-11-07 00:00", "the local midnight ending Friday");
     }
 
     #[test]

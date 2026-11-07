@@ -394,11 +394,6 @@ pub fn eligible(events: Vec<Event>, lib: &Path, excluded: &[String], deleted: im
     (keep, out.len())
 }
 
-/// The folder holds nothing but meeting.json.
-fn only_meta(dir: &Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|entries| entries.flatten().all(|e| e.file_name() == library::META))
-}
-
 /// Import from Teams between Search and Import: the latest search's result with the dates it searched, and whether an
 /// import is running. A search started later drops an earlier one's result, even one that lands after it, and Import
 /// takes the result only for the dates the dialog shows, so a stale search can never widen what Import fetches.
@@ -456,10 +451,10 @@ impl TeamsImport {
 
 /// Import from Teams: each event in turn gets a folder and one attempt through the tick's own fetch code (D13, D14),
 /// holding `FETCHING`, so it never overlaps a tick's fetch. Each is checked again under the lock, so one the tick, a
-/// Skip, a Delete or an Exclude took meanwhile is left alone. "No transcript" (an empty list, past the retries) leaves
-/// no folder; one that ended within the catch-up window stays "awaiting", for the tick's retries. `progress(n, total)`
-/// is called before each; `landed` after each attempt that kept its folder, with the lock released, so its follow-up
-/// (the summary) doesn't hold up the tick.
+/// Skip, a Delete or an Exclude took meanwhile is left alone. "No transcript" (an empty list, past the retries) keeps
+/// its folder and lists as a No transcript row, to Attach or Delete; one that ended within the catch-up window stays
+/// "awaiting", for the tick's retries. `progress(n, total)` is called before each; `landed` after each attempt, with
+/// the lock released, so its follow-up (the summary) doesn't hold up the tick.
 #[allow(clippy::too_many_arguments)]
 pub fn import(
     lib: &Path,
@@ -489,15 +484,7 @@ pub fn import(
         };
         let dir = lib.join(&id);
         match attempt(&dir, &m, now, &mut run, &version, &excluded) {
-            // Only a folder holding nothing but meeting.json goes. One My notes wrote into during the run stays, as
-            // "no transcript": checked first, then remove_dir refuses a file written since, and meeting.json is put back.
-            Ok(m) if m.state == State::NoTranscript && only_meta(&dir) && std::fs::remove_file(dir.join(library::META)).is_ok() && std::fs::remove_dir(&dir).is_ok() => {}
             Ok(m) => {
-                if !dir.join(library::META).exists() {
-                    if let Err(err) = library::save(&dir, &m) {
-                        eprintln!("import: {id} not kept: {err}");
-                    }
-                }
                 drop(one);
                 landed(&id, &m);
             }
@@ -997,7 +984,7 @@ mod tests {
     }
 
     #[test]
-    fn import_fetches_each_meeting_in_turn_and_leaves_a_folder_only_where_there_is_something_to_see_or_attach() {
+    fn import_fetches_each_meeting_in_turn_and_keeps_a_folder_for_each_no_transcript_included() {
         let lib = temp("import");
         let now = end() + Duration::days(3);
         let recent = event(6, now - Duration::minutes(80), now - Duration::minutes(30));
@@ -1018,6 +1005,7 @@ mod tests {
         assert_eq!(*steps.borrow(), [(1, 6, 0), (2, 6, 1), (3, 6, 2), (4, 6, 3), (5, 6, 4), (6, 6, 5)], "each step said before its run");
         let want = [
             ("Synthetic 1".to_string(), State::TranscriptReady),
+            ("Synthetic 2".into(), State::NoTranscript),
             ("Synthetic 3".into(), State::NotReachable),
             ("Synthetic 4".into(), State::CaptureFailed),
             ("Synthetic 5".into(), State::CaptureFailed),
@@ -1026,39 +1014,15 @@ mod tests {
         assert_eq!(*landed.borrow(), want);
         let mut folders: Vec<(String, State)> = library::list(&lib).into_iter().map(|l| (l.meeting.subject, l.meeting.state)).collect();
         folders.sort_by(|a, b| a.0.cmp(&b.0));
-        assert_eq!(folders, want, "the empty list left no folder");
+        assert_eq!(folders, want, "the empty list kept its folder, as No transcript");
         let recent = library::list(&lib).into_iter().find(|l| l.meeting.subject == "Synthetic 6").unwrap().meeting;
         assert_eq!(recent.next_attempt.map(DateTime::<Utc>::from), Some(now + Duration::minutes(90)), "the tick retries it at end + 120");
 
-        // A second import of the same range: the ones with folders are left alone, the empty one is tried again.
-        let again = RefCell::new(vec![]);
-        let run = |r: &ClaudeRun| {
-            again.borrow_mut().push(r.prompt.clone());
-            Ok(Output::default())
-        };
-        import(&lib, &events, Vec::new, |_| false, || now, run, none, |_, _| {}, |_, _| {});
-        assert_eq!(again.borrow().len(), 1);
-        assert!(again.borrow()[0].contains("SYNTH-2"));
-    }
-
-    #[test]
-    fn no_transcript_keeps_its_folder_when_my_notes_were_written_into_it_during_the_fetch() {
-        let lib = temp("importnotes");
-        let now = end() + Duration::days(3);
-        let run = |_: &ClaudeRun| {
-            let dir = lib.join(&library::list(&lib)[0].id);
-            fs::write(dir.join("notes.md"), "Synthetic notes typed during the fetch
-").unwrap();
-            Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=y", blocks(&body(&[])))] })
-        };
-        let landed = RefCell::new(vec![]);
-        import(&lib, &[event(1, start(), end())], Vec::new, |_| false, || now, run, none, |_, _| {}, |_, m| landed.borrow_mut().push(m.state));
-        let l = library::list(&lib);
-        assert_eq!(l.len(), 1, "the folder stays");
-        assert_eq!(l[0].meeting.state, State::NoTranscript);
-        assert_eq!(fs::read_to_string(lib.join(&l[0].id).join("notes.md")).unwrap(), "Synthetic notes typed during the fetch
-");
-        assert_eq!(*landed.borrow(), [State::NoTranscript], "and lands, so the list shows it");
+        // A second import of the same range: every one is in the library now, so nothing runs and nothing changes.
+        let again = RefCell::new(0);
+        import(&lib, &events, Vec::new, |_| false, || now, |_: &ClaudeRun| { *again.borrow_mut() += 1; Ok(Output::default()) }, none, |_, _| {}, |_, _| {});
+        assert_eq!(*again.borrow(), 0);
+        assert_eq!(library::list(&lib).len(), 6);
     }
 
     #[test]
