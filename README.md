@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14). v1 is single-user.
+Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes, search (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14, 15). v1 is single-user.
 
 ## Build and run
 
@@ -200,6 +200,14 @@ drops any text not yet saved. Keys typed there stay there: S, E and Del act only
 else writes `notes.md`: summary runs, re-runs and Replace transcript… leave it byte-identical. The tab shows on any
 meeting with a folder and no state card (so not on Scheduled, In call, Awaiting transcript or Skipped). To seed: put a
 `notes.md` in the meeting folder.
+
+Search (D28, D45): typing in the list's search box filters the list in place to the meetings whose `summary.md`,
+`transcript.md` or `notes.md` hold the query (a plain scan on each keystroke pause, case ignored, the whole query as one
+phrase). Under each meeting, up to 3 snippet lines: the tab, a transcript line's turn time, and the line with the match in
+the lavender mark. Clicking a snippet opens the meeting on that tab; a transcript hit scrolls to its turn and marks the
+match. No hits reads `No matches for "<q>"`. Esc in the box clears it. Search works inside the series filter. A meeting
+summarised before has a `transcript.md`; one never summarised is found only by its notes. To seed: write those files
+into a meeting folder (`transcript.md` turns read `**[hh:mm:ss] Speaker:** text`).
 
 Every claude run is stopped after 10 minutes, and `claude --version` after 30 seconds (the child is killed); a
 stopped run fails like any other, so a fetch retries on schedule and a summary shows "Summary failed" with the reason.
