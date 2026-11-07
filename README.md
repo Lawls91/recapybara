@@ -150,9 +150,15 @@ fetched at once, an upcoming one when it ends, and an older one becomes "No tran
 Exclude series is keyed by the Teams join URL all occurrences share, stored in `settings.json` as
 `"excludedSeries": [{ "joinUrl": "…", "subject": "…" }]` and listed in Settings, each with Remove. Every occurrence
 without a transcript lists as Skipped (its card offers Include series); one already captured keeps its state and summary.
+An exclusion made while a fetch runs still holds: its capture is dropped and no summary starts. A folder not yet
+captured (Skipped, or waiting) takes its cached event's current start, end and transcript URL when the meeting moves.
 Show all in this series (meetings with a join URL) filters the list to that join URL, newest first, under a chip
 "Series: <subject> ×"; × clears it. To seed: a skipped folder is `"state": "skipped"` (plus `"skipped": true`, and
 `end` and `transcriptUrl` for Unskip to fetch); a series is folders sharing one `joinUrl`.
+
+Every claude run is stopped after 10 minutes, and `claude --version` after 30 seconds (the child is killed); a
+stopped run fails like any other, so a fetch retries on schedule and a summary shows "Summary failed" with the reason.
+The fake claude's `delayMs` and `versionDelayMs` make a run or `--version` slow.
 
 Without `MEETING_CAPTURE_CLAUDE`, the app runs the first `claude.exe` (or `claude.cmd` shim) on PATH. The list reads every folder with a `meeting.json`; every field
 defaults, so a test or a QA run can seed a state by hand:
