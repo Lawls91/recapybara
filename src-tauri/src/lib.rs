@@ -1,5 +1,5 @@
 //! Tauri shell: window, tray, single instance, autostart, first run, commands.
-use std::{ffi::OsString, path::PathBuf, sync::Mutex};
+use std::{ffi::OsString, path::{Path, PathBuf}, sync::Mutex};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -14,6 +14,7 @@ pub mod fetch;
 pub mod library;
 mod platform;
 pub mod settings;
+mod skill;
 pub mod summary;
 
 use settings::Settings;
@@ -26,6 +27,8 @@ pub const AUMID: &str = "com.lawls91.meetingcapture";
 struct AppState {
     data_dir: PathBuf,
     home: PathBuf,
+    /// Where the skill goes (D33), if anywhere: see `skill_home`.
+    skill_home: Option<PathBuf>,
     settings: Mutex<Settings>,
     logon_item: Mutex<Option<CheckMenuItem<Wry>>>,
     /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
@@ -38,6 +41,21 @@ struct AppState {
 /// Env override (set and non-empty), else the real folder (D37).
 pub fn dir_from_env(var: &str, real: PathBuf) -> PathBuf {
     std::env::var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or(real)
+}
+
+/// The home the skill is installed in (D33): a dev instance installs only into an overridden home, so it never
+/// points the installed copy's skill at a dev library.
+fn skill_home(dev: bool, home_overridden: bool, home: &Path) -> Option<PathBuf> {
+    (!dev || home_overridden).then(|| home.to_path_buf())
+}
+
+/// Installs the skill for `library` when it is missing or differs (D33). Best effort: a failure is logged.
+fn install_skill(home: Option<&Path>, library: Option<&str>) {
+    if let (Some(home), Some(library)) = (home, library) {
+        if let Err(e) = skill::install(home, library) {
+            eprintln!("skill: {e}");
+        }
+    }
 }
 
 /// Dev mode, resolved only here: `--dev <dir>`, else `MEETING_CAPTURE_DEV` (empty counts as unset). All state goes
@@ -82,6 +100,9 @@ fn apply_settings(app: &AppHandle, new: Settings) -> Result<(), String> {
         if new.start_at_logon { al.enable() } else { al.disable() }.map_err(|e| e.to_string())?;
     }
     settings::save(&state.data_dir, &new).map_err(|e| e.to_string())?;
+    if cur.library_path != new.library_path {
+        install_skill(state.skill_home.as_deref(), new.library_path.as_deref());
+    }
     if let Some(item) = state.logon_item.lock().unwrap().as_ref() {
         let _ = item.set_checked(new.start_at_logon);
     }
@@ -439,12 +460,14 @@ pub fn run() {
             }
             claude::sweep_captures(&data_dir.join("runs"));
             claude::sweep_project(&home, &data_dir.join("runs"));
+            let skill_home = skill_home(dev.is_some(), std::env::var_os("MEETING_CAPTURE_HOME").is_some_and(|v| !v.is_empty()), &home);
+            install_skill(skill_home.as_deref(), s.library_path.as_deref());
             let first = s.library_path.is_none();
             if let Some(lib) = &s.library_path {
                 library::recover(std::path::Path::new(lib));
             }
             let logon = s.start_at_logon;
-            app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar: Default::default(), dev: dev.is_some() });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar: Default::default(), dev: dev.is_some() });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -537,6 +560,15 @@ mod tests {
         assert_eq!(dev_dir(&args(&["mc.exe", "--dev"]), None), None, "a flag with no dir");
         let rel = dev_dir(&args(&["mc.exe", "--dev", "rel"]), None).unwrap();
         assert_eq!(rel, std::env::current_dir().unwrap().join("rel"), "made absolute: claude runs in other dirs");
+    }
+
+    #[test]
+    fn a_dev_instance_installs_the_skill_only_into_an_overridden_home() {
+        let home = Path::new(r"C:\Users\u");
+        assert_eq!(skill_home(false, false, home).as_deref(), Some(home), "the installed copy: the real home");
+        assert_eq!(skill_home(false, true, home).as_deref(), Some(home));
+        assert_eq!(skill_home(true, true, home).as_deref(), Some(home), "dev with MEETING_CAPTURE_HOME (E2E, run-dev -Claude)");
+        assert_eq!(skill_home(true, false, home), None, "dev on the real home: leave the installed copy's skill alone");
     }
 
     #[test]
