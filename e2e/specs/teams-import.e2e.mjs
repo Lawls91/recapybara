@@ -116,6 +116,8 @@ describe("import from Teams", () => {
     await expect($("#teams")).toBeDisplayed();
     await browser.keys(Key.Escape);
     await expect($("#teams")).not.toBeDisplayed();
+    // The dialog hides at once; its close handler focuses the button on a later task.
+    await browser.waitUntil(async () => (await focused()) === "import-button", { timeout: 3000 }).catch(() => {});
     expect(await focused()).toBe("import-button");
   });
 
@@ -194,6 +196,8 @@ describe("import from Teams", () => {
     await expect($("#teams-msg")).toHaveText("Found no Teams meetings with a transcript. 4 left out: already captured, skipped, deleted or excluded.", { wait: 60000 }); // 7 day runs, 4 at once
     await $("#teams-cancel").click();
     await expect($("#teams")).not.toBeDisplayed();
+    // The dialog hides at once; its close handler focuses the button on a later task.
+    await browser.waitUntil(async () => (await focused()) === "import-button", { timeout: 3000 }).catch(() => {});
     expect(await focused()).toBe("import-button");
     await browser.pause(2000);
     expect([A, B, C, D, E].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1, 0, 0]);
