@@ -26,17 +26,20 @@ if ($Build -or -not (Test-Path -LiteralPath $built)) {
     $env:PATH = "$HOME\.cargo\bin;$env:PATH"
     Push-Location $repo
     try {
-        npx tauri build --debug --no-bundle | Out-Host
+        # stdout carries only the JSON line, so everything else goes to stderr.
+        npx tauri build --debug --no-bundle 2>&1 | ForEach-Object { [Console]::Error.WriteLine($_) }
         if ($LASTEXITCODE) { throw "build failed (exit $LASTEXITCODE)" }
     } finally { Pop-Location }
 }
 
 $exe = Join-Path $StateDir 'bin\meeting-capture.exe'
 $pidFile = Join-Path $StateDir 'dev.pid'
-if (Test-Path -LiteralPath $pidFile) {
-    $old = Get-Process -Id ([int](Get-Content -LiteralPath $pidFile -Raw)) -ErrorAction SilentlyContinue
+$oldId = 0
+# A missing or corrupt dev.pid means no previous instance.
+if ((Test-Path -LiteralPath $pidFile) -and [int]::TryParse("$(Get-Content -LiteralPath $pidFile -Raw)".Trim(), [ref]$oldId)) {
+    $old = Get-Process -Id $oldId -ErrorAction SilentlyContinue
     if ($old -and $old.Path -and ([IO.Path]::GetFullPath($old.Path) -ieq $exe)) {
-        Write-Host "run-dev: stopping this dir's previous instance (pid $($old.Id))"
+        [Console]::Error.WriteLine("run-dev: stopping this dir's previous instance (pid $($old.Id))")
         Stop-Process -Id $old.Id -Force
         $old.WaitForExit(10000) | Out-Null
     }
