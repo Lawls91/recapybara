@@ -9,7 +9,7 @@ use crate::{
 };
 use chrono::{DateTime, Duration, Local, NaiveDateTime, Utc};
 use serde_json::Value;
-use std::{io, path::Path};
+use std::{io, path::Path, sync::Mutex};
 
 /// Attempt times, in minutes from event end (D12). After the last, the meeting is "no transcript".
 pub const RETRIES: [i64; 5] = [0, 2, 10, 30, 120];
@@ -17,6 +17,10 @@ pub const RETRIES: [i64; 5] = [0, 2, 10, 30, 120];
 pub const CATCH_UP: Duration = Duration::minutes(120);
 /// Transcripts created this long before the event's start still belong to it (D14).
 pub const EARLY: Duration = Duration::minutes(30);
+
+/// One fetch at a time, whoever starts it: the scheduler's tick, an Unskip's, or Import from Teams. So no meeting
+/// gets two attempts for one due time.
+pub static FETCHING: Mutex<()> = Mutex::new(());
 
 pub const CAPTURE_FAILED_BODY: &str = "Capture failed: no transcript was saved. Import it from the Teams recap.";
 
@@ -376,6 +380,67 @@ pub fn tick(
         }
     }
     done
+}
+
+/// Import from Teams' choice from the searched events: those with a `meetingTranscriptUrl` that have ended. Ones
+/// already in the library (captured, skipped or any other state), deleted (D30) or in an excluded series (D17) are
+/// left out, and counted.
+pub fn eligible(events: Vec<Event>, lib: &Path, excluded: &[String], deleted: impl Fn(&str) -> bool, now: DateTime<Utc>) -> (Vec<Event>, usize) {
+    let known = library::list(lib);
+    let (keep, out): (Vec<Event>, Vec<Event>) = events
+        .into_iter()
+        .filter(|e| e.meeting_transcript_url.as_deref().is_some_and(|u| !u.is_empty()) && e.end <= now)
+        .partition(|e| !known.iter().any(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) && !excluded.contains(&e.join_url) && !deleted(&e.id));
+    (keep, out.len())
+}
+
+/// Import from Teams: each event in turn gets a folder and one attempt through the tick's own fetch code (D13, D14),
+/// holding `FETCHING`, so it never overlaps a tick's fetch. Each is checked again under the lock, so one the tick, a
+/// Skip, a Delete or an Exclude took meanwhile is left alone. "No transcript" (an empty list, past the retries) leaves
+/// no folder; one that ended within the catch-up window stays "awaiting", for the tick's retries. `progress(n, total)`
+/// is called before each; `landed` after each attempt that kept its folder, with the lock released, so its follow-up
+/// (the summary) doesn't hold up the tick.
+#[allow(clippy::too_many_arguments)]
+pub fn import(
+    lib: &Path,
+    events: &[Event],
+    excluded: impl Fn() -> Vec<String>,
+    deleted: impl Fn(&str) -> bool,
+    now: impl Fn() -> DateTime<Utc>,
+    mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>,
+    version: impl Fn() -> Option<String>,
+    mut progress: impl FnMut(usize, usize),
+    mut landed: impl FnMut(&str, &Meeting),
+) {
+    for (n, e) in events.iter().enumerate() {
+        progress(n + 1, events.len());
+        let one = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
+        let now = now();
+        if eligible(vec![e.clone()], lib, &excluded(), &deleted, now).0.is_empty() {
+            continue;
+        }
+        let m = folder_for(e, now);
+        let id = match library::create(lib, &m) {
+            Ok(id) => id,
+            Err(err) => {
+                eprintln!("import: no folder for {}: {err}", e.subject);
+                continue;
+            }
+        };
+        let dir = lib.join(&id);
+        match attempt(&dir, &m, now, &mut run, &version, &excluded) {
+            Ok(m) if m.state == State::NoTranscript => {
+                if let Err(err) = std::fs::remove_dir_all(&dir) {
+                    eprintln!("import: {id} not removed: {err}");
+                }
+            }
+            Ok(m) => {
+                drop(one);
+                landed(&id, &m);
+            }
+            Err(err) => eprintln!("import: {id} not updated: {err}"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -834,6 +899,109 @@ mod tests {
         assert!(library::attach(&lib, &id, &src).unwrap_err().contains("skipped"));
         fs::write(lib.join(&id).join(library::VTT), VTT_A).unwrap();
         assert!(summary::begin(&lib.join(&id)).unwrap_err().contains("skipped"));
+    }
+
+    // --- Import from Teams ---
+
+    #[test]
+    fn only_ended_meetings_with_a_transcript_url_are_eligible_and_known_deleted_or_excluded_ones_are_counted_out() {
+        let lib = temp("eligible");
+        let now = end() + Duration::days(3);
+        let mut no_url = event(2, start(), end());
+        no_url.meeting_transcript_url = None;
+        let mut series = event(5, start(), end());
+        series.join_url = "https://teams.example/j/excluded".into();
+        let events = vec![
+            event(1, start(), end()),
+            no_url,
+            event(3, now - Duration::minutes(30), now + Duration::minutes(30)), // not ended yet
+            event(4, start(), end()),                                           // deleted
+            series,
+            event(6, start(), end()), // captured
+            event(7, start(), end()), // skipped
+            event(8, start(), end()),
+        ];
+        let captured = library::create(&lib, &folder_for(&events[5], now)).unwrap();
+        fs::write(lib.join(&captured).join(library::VTT), VTT_A).unwrap();
+        skip(&lib, &events[6].uri, &events, now).unwrap();
+        let (keep, out) = eligible(events, &lib, &["https://teams.example/j/excluded".into()], |id| id == "SYNTH-4", now);
+        assert_eq!(keep.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["SYNTH-1", "SYNTH-8"]);
+        assert_eq!(out, 4, "deleted, excluded, captured and skipped");
+    }
+
+    #[test]
+    fn import_fetches_each_meeting_in_turn_and_leaves_a_folder_only_where_there_is_something_to_see_or_attach() {
+        let lib = temp("import");
+        let now = end() + Duration::days(3);
+        let recent = event(6, now - Duration::minutes(80), now - Duration::minutes(30));
+        let events = [event(1, start(), end()), event(2, start(), end()), event(3, start(), end()), event(4, start(), end()), event(5, start(), end()), recent];
+        let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
+        let run = runner(&log, &minute, |n| match n {
+            1 => blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])),
+            3 => blocks(r#"{"error":"Request failed with status 403"}"#),
+            4 => blocks(r"Error: result (1 line) exceeds maximum allowed tokens. Output has been saved to C:\synthetic.txt"),
+            5 => blocks("Error: synthetic transient failure"),
+            _ => blocks(&body(&[])), // 2 and the recent one: an empty list
+        });
+        let (steps, landed) = (RefCell::new(vec![]), RefCell::new(vec![]));
+        import(&lib, &events, Vec::new, |_| false, || now, run, none, |n, total| steps.borrow_mut().push((n, total, log.borrow().len())), |_, m| {
+            landed.borrow_mut().push((m.subject.clone(), m.state))
+        });
+        assert_eq!(ran(&log), [1, 2, 3, 4, 5, 6], "one run each, in turn");
+        assert_eq!(*steps.borrow(), [(1, 6, 0), (2, 6, 1), (3, 6, 2), (4, 6, 3), (5, 6, 4), (6, 6, 5)], "each step said before its run");
+        let want = [
+            ("Synthetic 1".to_string(), State::TranscriptReady),
+            ("Synthetic 3".into(), State::NotReachable),
+            ("Synthetic 4".into(), State::CaptureFailed),
+            ("Synthetic 5".into(), State::CaptureFailed),
+            ("Synthetic 6".into(), State::AwaitingTranscript),
+        ];
+        assert_eq!(*landed.borrow(), want);
+        let mut folders: Vec<(String, State)> = library::list(&lib).into_iter().map(|l| (l.meeting.subject, l.meeting.state)).collect();
+        folders.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(folders, want, "the empty list left no folder");
+        let recent = library::list(&lib).into_iter().find(|l| l.meeting.subject == "Synthetic 6").unwrap().meeting;
+        assert_eq!(recent.next_attempt.map(DateTime::<Utc>::from), Some(now + Duration::minutes(90)), "the tick retries it at end + 120");
+
+        // A second import of the same range: the ones with folders are left alone, the empty one is tried again.
+        let again = RefCell::new(vec![]);
+        let run = |r: &ClaudeRun| {
+            again.borrow_mut().push(r.prompt.clone());
+            Ok(Output::default())
+        };
+        import(&lib, &events, Vec::new, |_| false, || now, run, none, |_, _| {}, |_, _| {});
+        assert_eq!(again.borrow().len(), 1);
+        assert!(again.borrow()[0].contains("SYNTH-2"));
+    }
+
+    #[test]
+    fn import_waits_for_a_running_fetch_and_then_leaves_alone_a_meeting_taken_meanwhile() {
+        let lib = temp("importlock");
+        let now = end() + Duration::days(3);
+        let events = vec![event(1, start(), end()), event(2, start(), end()), event(3, start(), end())];
+        let held = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
+        let ran = std::sync::Arc::new(Mutex::new(vec![]));
+        let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker = {
+            let (lib, events, ran, gone) = (lib.clone(), events.clone(), ran.clone(), gone.clone());
+            std::thread::spawn(move || {
+                let run = |r: &ClaudeRun| {
+                    ran.lock().unwrap().push(r.prompt.clone());
+                    Ok(Output::default())
+                };
+                import(&lib, &events, Vec::new, |id| id == "SYNTH-3" && gone.load(std::sync::atomic::Ordering::SeqCst), || now, run, || None, |_, _| {}, |_, _| {});
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(ran.lock().unwrap().is_empty(), "no run while a tick's fetch holds the lock");
+        // That tick gave meeting 1 its folder, and meeting 3 was deleted meanwhile.
+        library::create(&lib, &folder_for(&events[0], now)).unwrap();
+        gone.store(true, std::sync::atomic::Ordering::SeqCst);
+        drop(held);
+        worker.join().unwrap();
+        let ran = ran.lock().unwrap();
+        assert_eq!(ran.len(), 1);
+        assert!(ran[0].contains("SYNTH-2"));
     }
 
     #[test]

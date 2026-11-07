@@ -34,6 +34,8 @@ struct AppState {
     /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
     pending_open: Mutex<Option<String>>,
     calendar: calendar::Calendar,
+    /// Import from Teams: the last Search's eligible events, which Import takes.
+    teams_found: Mutex<Vec<calendar::Event>>,
     /// A dev instance: never touches the Run key.
     dev: bool,
 }
@@ -160,9 +162,8 @@ async fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         library::delete(&lib, &id, owner, |m| {
             let Some(event) = &m.event_id else { return Ok(()) };
-            let now = chrono::Utc::now();
-            let end = m.end.map_or(now, Into::into);
-            app.state::<AppState>().calendar.forget(event, end, now).map_err(|e| format!("{id} wasn't deleted: {e}"))
+            let end = m.end.map_or_else(chrono::Utc::now, Into::into);
+            app.state::<AppState>().calendar.forget(event, end).map_err(|e| format!("{id} wasn't deleted: {e}"))
         })
         .map(|_| ())
     })
@@ -258,6 +259,12 @@ fn import_transcript(app: AppHandle, path: String, id: Option<String>) -> Result
 /// Marks the meeting "summarising" and runs its summary in the background. Outcomes arrive as
 /// meeting-changed events, plus one toast (D29).
 fn start_summary(app: &AppHandle, id: &str) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(summary_job(app, id)?);
+    Ok(())
+}
+
+/// Marks the meeting "summarising" and returns its summary run, for the caller to run on a blocking thread.
+fn summary_job(app: &AppHandle, id: &str) -> Result<impl FnOnce() + Send + 'static, String> {
     let dir = library::meeting_dir(&library_path(app)?, id)?;
     let m = summary::begin(&dir)?;
     let _ = app.emit("meeting-changed", id);
@@ -265,7 +272,7 @@ fn start_summary(app: &AppHandle, id: &str) -> Result<(), String> {
     let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
     let model = state.settings.lock().unwrap().summary_model.clone();
     let (app, id) = (app.clone(), id.to_string());
-    tauri::async_runtime::spawn_blocking(move || {
+    Ok(move || {
         let outcome = summary::summarise(&dir, &model, |run| claude::run(&claude::program(), &runs, &home, run));
         let body = match &outcome {
             Ok(s) => summary::ready_body(s),
@@ -277,8 +284,7 @@ fn start_summary(app: &AppHandle, id: &str) -> Result<(), String> {
         let _ = app.emit("meeting-changed", &id);
         let (click_app, click_id) = (app.clone(), id.clone());
         platform::toast(&summary::toast_title(&m), &body, move || open_from_toast(&click_app, click_id.clone()));
-    });
-    Ok(())
+    })
 }
 
 /// Run summary / Re-run summary (D49).
@@ -319,9 +325,8 @@ fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
 /// Fetches every meeting that is due (D12): a folder for each cached event that just ended, then each due attempt,
 /// one at a time. A capture starts its summary (D15); a capture failure raises its toast (D29, D47).
 fn fetch_due(app: &AppHandle) {
-    // One tick at a time (the scheduler's and an Unskip's), so no meeting gets two attempts for one due time.
-    static FETCHING: Mutex<()> = Mutex::new(());
-    let _one = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
+    // One fetch at a time (the scheduler's, an Unskip's and Import from Teams'), so no meeting gets two attempts.
+    let _one = fetch::FETCHING.lock().unwrap_or_else(|e| e.into_inner());
     let Ok(lib) = library_path(app) else { return };
     let state = app.state::<AppState>();
     let (runs, home, events) = (state.data_dir.join("runs"), state.home.clone(), state.calendar.events());
@@ -331,17 +336,8 @@ fn fetch_due(app: &AppHandle) {
     // Each attempt's follow-up runs as it lands, so quitting during a later attempt loses none.
     let landed = |id: &str, m: Option<&library::Meeting>| {
         let _ = app.emit("meeting-changed", id);
-        match m.map(|m| (m, m.state)) {
-            Some((m, library::State::TranscriptReady)) if !library::excluded(m, &excluded()) => {
-                if let Err(e) = start_summary(app, id) {
-                    eprintln!("summary not started for {id}: {e}");
-                }
-            }
-            Some((m, library::State::CaptureFailed)) => {
-                let (click_app, click_id) = (app.clone(), id.to_string());
-                platform::toast(&summary::toast_title(m), fetch::CAPTURE_FAILED_BODY, move || open_from_toast(&click_app, click_id.clone()));
-            }
-            _ => {}
+        if let Some(m) = m {
+            after_fetch(app, id, m, &excluded(), false);
         }
     };
     let tick = std::panic::AssertUnwindSafe(|| {
@@ -350,6 +346,87 @@ fn fetch_due(app: &AppHandle) {
     if std::panic::catch_unwind(tick).is_err() {
         eprintln!("fetch: the tick panicked");
     }
+}
+
+/// A fetch attempt's follow-up: a capture starts its summary (D15), in the background or, with `wait`, before this
+/// returns; a capture failure raises its toast (D29, D47).
+fn after_fetch(app: &AppHandle, id: &str, m: &library::Meeting, excluded: &[String], wait: bool) {
+    match m.state {
+        library::State::TranscriptReady if !library::excluded(m, excluded) => {
+            let started = if wait { summary_job(app, id).map(|job| job()) } else { start_summary(app, id) };
+            if let Err(e) = started {
+                eprintln!("summary not started for {id}: {e}");
+            }
+        }
+        library::State::CaptureFailed => {
+            let (click_app, click_id) = (app.clone(), id.to_string());
+            platform::toast(&summary::toast_title(m), fetch::CAPTURE_FAILED_BODY, move || open_from_toast(&click_app, click_id.clone()));
+        }
+        _ => {}
+    }
+}
+
+/// Import from Teams' Search: one calendar search run over the picked dates (`YYYY-MM-DD`, local). Its eligible
+/// events wait for Import; returns how many there are and how many were left out. Nothing is fetched.
+#[tauri::command]
+async fn teams_search(app: AppHandle, from: String, to: String) -> Result<serde_json::Value, String> {
+    let (start, end) = calendar::import_window(&from, &to, chrono::Local::now().date_naive())?;
+    let lib = library_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
+        let events = calendar::search(start, end, |r| claude::run(&claude::program(), &runs, &home, r))?;
+        let excluded = state.settings.lock().unwrap().excluded();
+        let (found, left_out) = fetch::eligible(events, &lib, &excluded, |id| state.calendar.deleted(id), chrono::Utc::now());
+        let n = found.len();
+        *state.teams_found.lock().unwrap() = found;
+        Ok(serde_json::json!({ "found": n, "leftOut": left_out }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Import from Teams' Import: the last Search's meetings, one at a time on their own thread, each fetched and then
+/// summarised before the next (fetch::import). Progress goes out as teams-import ("Importing 3 of 7...", then null),
+/// each landed meeting as meeting-changed.
+#[tauri::command]
+fn teams_import(app: AppHandle) -> Result<(), String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static IMPORTING: AtomicBool = AtomicBool::new(false);
+    let lib = library_path(&app)?;
+    if IMPORTING.swap(true, Ordering::SeqCst) {
+        return Err("An import from Teams is already running.".into());
+    }
+    let events = std::mem::take(&mut *app.state::<AppState>().teams_found.lock().unwrap());
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let (runs, home, program) = (state.data_dir.join("runs"), state.home.clone(), claude::program());
+        let excluded = || state.settings.lock().unwrap().excluded();
+        let job = std::panic::AssertUnwindSafe(|| {
+            fetch::import(
+                &lib,
+                &events,
+                excluded,
+                |id| state.calendar.deleted(id),
+                chrono::Utc::now,
+                |r| claude::run(&program, &runs, &home, r),
+                || claude::version(&program),
+                |n, total| {
+                    let _ = app.emit("teams-import", Some(format!("Importing {n} of {total}\u{2026}")));
+                },
+                |id, m| {
+                    let _ = app.emit("meeting-changed", id);
+                    after_fetch(&app, id, m, &excluded(), true);
+                },
+            )
+        });
+        if std::panic::catch_unwind(job).is_err() {
+            eprintln!("import: panicked");
+        }
+        IMPORTING.store(false, Ordering::SeqCst);
+        let _ = app.emit("teams-import", None::<String>);
+    });
+    Ok(())
 }
 
 /// The list's refresh button and the tray's Refresh calendar now (D47). Returns when the refresh has ended, or at
@@ -490,8 +567,8 @@ pub fn run() {
             }
             let logon = s.start_at_logon;
             let calendar = calendar::Calendar::default();
-            calendar.load_deleted(data_dir.join("deleted-events.json"), chrono::Utc::now());
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, dev: dev.is_some() });
+            calendar.load_deleted(data_dir.join("deleted-events.json"));
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams_found: Mutex::new(vec![]), dev: dev.is_some() });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -545,6 +622,8 @@ pub fn run() {
             skip_meeting,
             unskip_meeting,
             delete_meeting,
+            teams_search,
+            teams_import,
             is_dev
         ])
         .run(tauri::generate_context!())
