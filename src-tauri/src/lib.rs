@@ -325,8 +325,11 @@ fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
 /// One calendar refresh (D9) through the user's claude. `scheduled`: only if 30 minutes have passed since the last.
 /// Never two at once; the page follows along through calendar-changed.
 fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
-    if library_path(app).is_err() {
-        return; // nothing can be captured into a missing library, so no claude run for it (D45)
+    // A chosen library that can't be read: nothing can be captured into it, so no claude run for it (D45). With none
+    // chosen yet (first run) the calendar still loads.
+    let chosen = app.state::<AppState>().settings.lock().unwrap().library_path.clone();
+    if chosen.is_some_and(|l| library::check(Path::new(&l)).is_err()) {
+        return;
     }
     let state = app.state::<AppState>();
     let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
