@@ -380,7 +380,9 @@ pub fn tick(
     mut changed: impl FnMut(&str, Option<&Meeting>),
 ) -> Vec<(String, Meeting)> {
     for l in library::list(lib).into_iter().filter(|l| !l.has_transcript) {
-        let mut m = l.meeting;
+        // Read again once taken, so a fetch landing meanwhile isn't overwritten; one being fetched moves next tick.
+        let Some(_one) = claim(lib, l.meeting.event_id.as_deref().unwrap_or(&l.id)) else { continue };
+        let Ok(mut m) = library::load(&lib.join(&l.id)) else { continue };
         if follow(&mut m, events) {
             if let Err(e) = library::save(&lib.join(&l.id), &m) {
                 eprintln!("fetch: {} not moved: {e}", l.id);
@@ -991,6 +993,20 @@ mod tests {
     }
 
     #[test]
+    fn a_meeting_being_fetched_moves_only_once_its_fetch_has_landed() {
+        let lib = temp("movedclaim");
+        let now = start() - Duration::hours(3);
+        let id = skip(&lib, &event(36, start(), end()).uri, &[event(36, start(), end())], now).unwrap();
+        let moved = event(36, start() + Duration::hours(1), end() + Duration::hours(1));
+        let held = claim(&lib, "SYNTH-36").unwrap();
+        tick(&lib, std::slice::from_ref(&moved), Vec::new, now, |_| panic!("not due"), none, |_, _| {});
+        assert_eq!(library::load(&lib.join(&id)).unwrap().start.map(DateTime::<Utc>::from), Some(start()), "left to its fetch");
+        drop(held);
+        tick(&lib, std::slice::from_ref(&moved), Vec::new, now, |_| panic!("not due"), none, |_, _| {});
+        assert_eq!(library::load(&lib.join(&id)).unwrap().start.map(DateTime::<Utc>::from), Some(moved.start));
+    }
+
+    #[test]
     fn a_skipped_meeting_is_neither_summarised_nor_attached_to() {
         let lib = temp("skipguard");
         let id = skip(&lib, &event(1, start(), end()).uri, &[event(1, start(), end())], start()).unwrap();
@@ -1043,7 +1059,7 @@ mod tests {
         fn during<R>(&self, f: impl FnOnce() -> R) -> R {
             use std::sync::atomic::Ordering::SeqCst;
             self.most.fetch_max(self.going.fetch_add(1, SeqCst) + 1, SeqCst);
-            std::thread::sleep(std::time::Duration::from_millis(80));
+            std::thread::sleep(std::time::Duration::from_millis(200));
             let r = f();
             self.going.fetch_sub(1, SeqCst);
             r

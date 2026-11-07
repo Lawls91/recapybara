@@ -526,7 +526,7 @@ mod tests {
         let items: Vec<u32> = (1..=9).collect();
         let out = parallel(&items, 3, |n| {
             most.fetch_max(going.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(60));
+            std::thread::sleep(Duration::from_millis(200));
             going.fetch_sub(1, Ordering::SeqCst);
             n * 10
         });

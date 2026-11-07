@@ -69,6 +69,9 @@ fn utc_text(t: DateTime<Utc>) -> String {
 /// Turns the tool search off: a run then skips the turn spent loading the MCP tools (~3.5 s a run, spike).
 pub const NO_TOOL_SEARCH: (&str, &str) = ("ENABLE_TOOL_SEARCH", "false");
 
+/// The most characters of cached events a refresh prompt lists for the run to skip.
+const SKIP_LIST: usize = 12_000;
+
 /// The calendar search run over `from` to `to`: the refresh's, or Import from Teams' over one day of the picked
 /// dates. All-day and cancelled events aren't read (they can't carry a transcript), nor are `cached` ones whose start
 /// and end haven't changed.
@@ -76,7 +79,14 @@ pub fn run_window(from: DateTime<Utc>, to: DateTime<Utc>, cached: &[Event]) -> C
     let skip = if cached.is_empty() {
         String::new()
     } else {
-        let listed: Vec<String> = cached.iter().map(|e| format!("\"{}\" start {} end {}", e.uri, utc_text(e.start), utc_text(e.end))).collect();
+        // ponytail: past SKIP_LIST characters the rest are read again, so a crowded calendar can't push the prompt
+        // past Windows' 32,767-character command line.
+        let mut room = SKIP_LIST;
+        let listed: Vec<String> = cached
+            .iter()
+            .map(|e| format!("\"{}\" start {} end {}", e.uri, utc_text(e.start), utc_text(e.end)))
+            .take_while(|l| room.checked_sub(l.len() + 2).map(|r| room = r).is_some())
+            .collect();
         format!(" Skip these events too, unless the search gives one a different start or end than listed here, already read: {}.", listed.join("; "))
     };
     ClaudeRun {
@@ -806,7 +816,7 @@ mod tests {
         let slow = |_: &ClaudeRun| {
             use std::sync::atomic::Ordering::SeqCst;
             most.fetch_max(going.fetch_add(1, SeqCst) + 1, SeqCst);
-            std::thread::sleep(std::time::Duration::from_millis(80));
+            std::thread::sleep(std::time::Duration::from_millis(200));
             going.fetch_sub(1, SeqCst);
             Ok(Output { stdout: String::new(), captured: all_teams() })
         };
@@ -859,6 +869,10 @@ mod tests {
     fn all_day_and_cancelled_events_and_cached_ones_that_havent_moved_are_not_read_and_a_moved_one_is() {
         let r = run_for(now(), &[]);
         assert!(r.prompt.contains("except events whose isAllDay or isCancelled is true. Reply DONE."), "{}", r.prompt);
+        // A crowded calendar's skip list stops short of the command-line limit; the rest are read.
+        let crowded: Vec<Event> = (0..200).map(|n| Event { uri: format!("calendar:///events/{}{n}", "A".repeat(300)), ..parse(&all_teams(), now()).unwrap()[0].clone() }).collect();
+        let prompt = run_for(now(), &crowded).prompt;
+        assert!(prompt.len() < 13_000 && prompt.contains(&crowded[0].uri) && !prompt.contains(&crowded[199].uri), "{}", prompt.len());
         // All-day or cancelled: never cached, nor counted unreadable, read or not.
         for flag in ["isAllDay", "isCancelled"] {
             let page = PAGE_2.replace(&format!(r#""{flag}":false"#), &format!(r#""{flag}":true"#));
