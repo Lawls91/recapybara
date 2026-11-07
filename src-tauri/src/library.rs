@@ -240,6 +240,14 @@ pub fn load(dir: &Path) -> io::Result<Meeting> {
     Ok(serde_json::from_slice(&fs::read(dir.join(META))?)?)
 }
 
+/// The library folder as it is now (D45): one that can't be read (missing, a drive unplugged, not yet synced) is refused,
+/// so nothing lists as gone and nothing is written into a folder made anew; the page shows this with Choose folder.
+pub fn check(library: &Path) -> Result<(), String> {
+    fs::read_dir(library)
+        .map(|_| ())
+        .map_err(|_| format!("Library folder not found or can't be read: {}. Reconnect the drive it's on, or choose another folder.", library.display()))
+}
+
 /// Every folder holding a readable `meeting.json`, newest first (D26).
 pub fn list(library: &Path) -> Vec<Listed> {
     let mut out: Vec<Listed> = fs::read_dir(library)
@@ -589,6 +597,19 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn a_library_that_is_missing_or_not_a_folder_is_refused_naming_its_path() {
+        let lib = temp("check");
+        assert_eq!(check(&lib), Ok(()));
+        let gone = lib.join("gone");
+        let err = check(&gone).unwrap_err();
+        assert!(err.starts_with("Library folder not found or can't be read: "), "{err}");
+        assert!(err.contains(&gone.display().to_string()), "{err}");
+        assert!(!gone.exists(), "checking never makes it");
+        fs::write(lib.join("file"), "x").unwrap();
+        assert!(check(&lib.join("file")).is_err(), "a file isn't a library");
     }
 
     /// A source file named `name` with `body`, modified at 2026-11-05 14:30 local time.

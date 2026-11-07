@@ -65,3 +65,6 @@ export function markQuote(text: string, quote: string): string {
   if (!m) return esc(text);
   return `${esc(text.slice(0, m.index))}<mark>${esc(m[0])}</mark>${esc(text.slice(m.index + m[0].length))}`;
 }
+
+/** Copy actions: one line per action item, its owner first as in summary.md (D21); "" when there are none. */
+export const actionsText = (s: Summary | null) => (s?.actions ?? []).map((a) => `- ${a.owner ?? "Unassigned"}: ${a.text}`).join("\n");

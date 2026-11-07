@@ -43,7 +43,8 @@ Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins; an empt
 `dev_dir` in `src-tauri/src/lib.rs`. In dev mode:
 
 - All state is under the dir: settings and `runs` in `<dir>\data`, the WebView2 profile in `<dir>\webview`, and the
-  library defaults to `<dir>\library` (so there is no first-run folder prompt). `MEETING_CAPTURE_DATA_DIR` and
+  library defaults to `<dir>\library` (so there is no first-run folder prompt; it is made at start only when no
+  library is set, so a chosen one that has gone stays gone and shows the missing-library banner). `MEETING_CAPTURE_DATA_DIR` and
   `MEETING_CAPTURE_HOME` still win where set. The home is the real one, so the real claude finds the
   installed copy's skill. A dev instance installs the skill only with `MEETING_CAPTURE_HOME` set, so it never points
   the installed copy's skill at the dev library.
@@ -230,9 +231,31 @@ Exclude series is keyed by the Teams join URL all occurrences share, stored in `
 without a transcript lists as Skipped (its card offers Include series); one already captured keeps its state and summary.
 An exclusion made while a fetch runs still holds: its capture is dropped and no summary starts. A folder not yet
 captured (Skipped, or waiting) takes its cached event's current start, end and transcript URL when the meeting moves.
-Show all in this series (meetings with a join URL) filters the list to that join URL, newest first, under a chip
+Show all in this series (meetings with a join URL) filters the list to that join URL (upcoming first, then earlier), under a chip
 "Series: <subject> ×"; × clears it. To seed: a skipped folder is `"state": "skipped"` (plus `"skipped": true`, and
 `end` and `transcriptUrl` for Unskip to fetch); a series is folders sharing one `joinUrl`.
+
+The list (D40): an Upcoming section of the meetings not yet ended, the one in progress first and then the next, each
+day in time order (Today, Tomorrow, then the dates); then the "Earlier" divider and the ended meetings, days newest
+first and each day newest first. With nothing upcoming there is no section label or divider. Day headers stay pinned
+while their day scrolls. Search and the series filter keep this layout. The status line wraps a long refresh error
+and pushes the list down rather than covering it.
+
+The Awaiting transcript card says when it checks next (local time) and how many attempts are left ("Next check at
+11:30, 3 attempts left.", from `nextAttempt` and `attempts`), and its Import transcript attaches a `.vtt` now.
+
+A meeting with a summary has Copy summary (`summary.md` as Markdown) and Copy actions (one line per action item,
+"- Owner: action", or "Unassigned") in its `...` menu; each copies to the clipboard and confirms in a short notice.
+
+When the library folder is missing or can't be read (a drive unplugged, OneDrive not yet synced, the folder renamed),
+the list is replaced by a red banner naming the path, with Choose folder. Until a folder is chosen (or the folder is
+back and chosen again), every command that reads or writes the library is refused, and fetches, skips and imports
+are paused, so nothing lands in a folder made anew.
+
+Keyboard and screen readers (D42): Esc closes the open menu, peek sheet or Settings, and focus goes back to what
+opened it (a row's menu to its row, the detail menu to its `...` button, the peek to its chip, Settings to its
+button); opening Settings focuses its Back link. Tabs carry `aria-selected`. The status line (refresh state and
+Import from Teams progress), the banners and the copy notice are polite live regions.
 
 My notes (D27): the meeting's My notes tab edits its `notes.md` directly (plain text, written atomically). It saves after
 a 500 ms pause in typing, and at once on a tab or meeting switch, on opening Settings, on the tray's Quit (which waits
@@ -245,10 +268,12 @@ else writes `notes.md`: summary runs, re-runs and Replace transcript… leave it
 meeting with a folder and no state card (so not on Scheduled, In call, Awaiting transcript or Skipped). To seed: put a
 `notes.md` in the meeting folder.
 
-Search (D28, D45): typing in the list's search box filters the list in place to the meetings whose `summary.md`,
-`transcript.md` or `notes.md` hold the query (a plain scan on each keystroke pause, case ignored, the whole query as one
-phrase). Under each meeting, up to 3 snippet lines: the tab, a transcript line's turn time, and the line with the match in
-the lavender mark. Clicking a snippet opens the meeting on that tab; a transcript hit scrolls to its turn and marks the
+Search (D28, D45): typing in the list's search box filters the list in place to the meetings whose title, organiser
+or attendees, or whose `summary.md`, `transcript.md` or `notes.md`, hold the query (a plain scan on each keystroke
+pause, case ignored, the whole query as one phrase). Under each meeting, its title and people hits first, labelled
+Title, Organiser or Attendees (the matching names), then up to 3 file snippet lines: the tab, a transcript line's turn
+time, and the line with the match in the lavender mark (solid, with its own ink, so it meets AA in both themes).
+A title or people hit opens the meeting. Clicking a snippet opens the meeting on that tab; a transcript hit scrolls to its turn and marks the
 match. No hits reads `No matches for "<q>"`. Esc in the box clears it. Search works inside the series filter. The
 app's own boilerplate is never a hit: `summary.md`'s title, date line and headings, and `transcript.md`'s Corrections
 applied list. The list stays one Tab stop (the selected row, or the first row when a search hides it); the arrows move

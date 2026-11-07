@@ -30,6 +30,9 @@ export interface Meeting {
   excluded?: boolean;
   /** Why the last summary run failed (shown on the Summary failed card). */
   summaryError?: string | null;
+  /** Fetch attempts made so far, and when the next one is due (D12). */
+  attempts?: number;
+  nextAttempt?: string | null;
 }
 
 /** D41: dot family and label for each state. */
@@ -70,22 +73,54 @@ export function deletePrompt(m: Meeting): string {
   return `Delete “${m.subject || m.id}”${d ? ` (${dayFmt.format(d)} ${timeFmt.format(d)})` : ""}?`;
 }
 
-/** Groups an already newest-first list by local day: "Today", "Yesterday", "Tomorrow", else the weekday. */
-export function dayGroups(meetings: Meeting[], now: Date): { label: string; date: string; items: Meeting[] }[] {
+export interface DayGroup {
+  label: string;
+  date: string;
+  items: Meeting[];
+  /** The section this group starts: "Upcoming" over the first upcoming day, "Earlier" (the divider) over the first
+   * past day. Neither when nothing is upcoming. */
+  section?: "Upcoming" | "Earlier";
+}
+
+/** The list's layout: an Upcoming section of the meetings not yet ended, in time order (one in progress first, the next
+ * one after it), then Earlier: the ended ones, newest first; each grouped by local day under "Today", "Yesterday",
+ * "Tomorrow" or the date. Meetings with no date go last. */
+export function dayGroups(meetings: Meeting[], now: Date): DayGroup[] {
   const named = new Map<string, string>();
   for (const [off, name] of [[-1, "Yesterday"], [0, "Today"], [1, "Tomorrow"]] as const) {
     named.set(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + off)), name);
   }
-  const groups: { label: string; date: string; items: Meeting[] }[] = [];
-  for (const m of meetings) {
-    const d = m.start ? new Date(m.start) : null;
-    const date = d ? dayFmt.format(d).replace(",", "") : "";
-    const label = d ? (named.get(dayKey(d)) ?? date) : "No date";
-    const last = groups.at(-1);
-    if (last && last.label === label) last.items.push(m);
-    else groups.push({ label, date: label === date ? "" : date, items: [m] });
+  const t = (iso: string | null) => (iso ? new Date(iso).getTime() : -Infinity);
+  const upcoming = meetings.filter((m) => m.start && t(m.end ?? m.start) > now.getTime()).sort((a, b) => t(a.start) - t(b.start));
+  const ended = meetings.filter((m) => !upcoming.includes(m)).sort((a, b) => t(b.start) - t(a.start));
+  const byDay = (list: Meeting[]) => {
+    const groups: DayGroup[] = [];
+    for (const m of list) {
+      const d = m.start ? new Date(m.start) : null;
+      const date = d ? dayFmt.format(d).replace(",", "") : "";
+      const label = d ? (named.get(dayKey(d)) ?? date) : "No date";
+      const last = groups.at(-1);
+      if (last && last.label === label) last.items.push(m);
+      else groups.push({ label, date: label === date ? "" : date, items: [m] });
+    }
+    return groups;
+  };
+  const [up, past] = [byDay(upcoming), byDay(ended)];
+  if (up.length) {
+    up[0].section = "Upcoming";
+    if (past.length) past[0].section = "Earlier";
   }
-  return groups;
+  return [...up, ...past];
+}
+
+/** D12's schedule: the first attempt and four retries (fetch::RETRIES). */
+export const ATTEMPTS = 5;
+
+/** The Awaiting transcript card's schedule line: when it checks next, local time, and the attempts left. */
+export function awaitingLine(m: Meeting): string {
+  const left = Math.max(0, ATTEMPTS - (m.attempts ?? 0));
+  const next = m.nextAttempt ? `Next check at ${timeFmt.format(new Date(m.nextAttempt))}` : "No more checks";
+  return `${next}, ${left} ${left === 1 ? "attempt" : "attempts"} left.`;
 }
 
 export interface MenuItem {
@@ -109,6 +144,8 @@ export function menuFor(m: Meeting): MenuItem[] {
   else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "" });
   if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "" });
   // A meeting from the calendar cache has no folder until it is captured (D25).
+  // Copy to the clipboard: summary.md as Markdown, or the summary's action items.
+  if (m.hasSummary) items.push({ id: "copy-summary", label: "Copy summary", icon: "" }, { id: "copy-actions", label: "Copy actions", icon: "" });
   if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "" });
   const group: MenuItem[] = [];
   // Skip stops a capture (D17), so only a meeting not yet captured has it.

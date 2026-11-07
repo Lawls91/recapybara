@@ -128,9 +128,13 @@ async fn pick_library_folder(app: AppHandle) -> Option<String> {
     app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
 }
 
+/// The library folder, refused while it can't be read (D45): every command, fetch and import goes through here, so none
+/// lists an empty history or writes into a folder made anew until the user chooses one.
 fn library_path(app: &AppHandle) -> Result<PathBuf, String> {
     let lib = app.state::<AppState>().settings.lock().unwrap().library_path.clone();
-    lib.map(PathBuf::from).ok_or_else(|| "Choose a library folder in Settings first.".into())
+    let lib = lib.map(PathBuf::from).ok_or_else(|| "Choose a library folder in Settings first.".to_string())?;
+    library::check(&lib)?;
+    Ok(lib)
 }
 
 #[tauri::command]
@@ -291,6 +295,12 @@ fn summary_job(app: &AppHandle, id: &str) -> Result<impl FnOnce() + Send + 'stat
 #[tauri::command]
 fn summarise(app: AppHandle, id: String) -> Result<(), String> {
     start_summary(&app, &id)
+}
+
+/// Copy summary: `summary.md` as it is (D21).
+#[tauri::command]
+fn get_summary_md(app: AppHandle, id: String) -> Result<String, String> {
+    std::fs::read_to_string(library::meeting_dir(&library_path(&app)?, &id)?.join(library::SUMMARY_MD)).map_err(|e| e.to_string())
 }
 
 /// The checked summary for the Summary tab, or none before the first one (D43).
@@ -558,8 +568,12 @@ pub fn run() {
             let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
             let mut s = settings::load(&data_dir);
             if let Some(dir) = &dev {
+                // Only the dev dir's own default library is made; a chosen one that has gone stays gone (D45).
+                let chosen = s.library_path.is_some();
                 s = settings::for_dev(s, dir);
-                std::fs::create_dir_all(s.library_path.as_deref().unwrap_or_default())?;
+                if !chosen {
+                    std::fs::create_dir_all(s.library_path.as_deref().unwrap_or_default())?;
+                }
             }
             claude::sweep_captures(&data_dir.join("runs"));
             claude::sweep_project(&home, &data_dir.join("runs"));
@@ -622,6 +636,7 @@ pub fn run() {
             open_folder,
             summarise,
             get_summary,
+            get_summary_md,
             take_pending_meeting,
             skip_meeting,
             unskip_meeting,

@@ -67,8 +67,9 @@ describe("search", () => {
       { tab: "Transcript 00:18:05", line: "Speaker C: Orbit is different on v2 versus v1", marks: ["Orbit"] },
     ]);
     expect(await snips(STANDUP)).toEqual([{ tab: "My notes", line: "Follow up on Orbit with Katya", marks: ["Orbit"] }]);
-    // The highlight is the lavender mark (D45, --mc-mark #EBDAFF in light).
-    expect(await browser.execute(() => getComputedStyle(document.querySelector(".snip mark")).backgroundColor)).toBe("rgb(235, 218, 255)");
+    // The highlight is the lavender mark (D45, --mc-mark #5B43C0 with white ink in light, for AA contrast).
+    expect(await browser.execute(() => getComputedStyle(document.querySelector(".snip mark")).backgroundColor)).toBe("rgb(91, 67, 192)");
+    expect(await browser.execute(() => getComputedStyle(document.querySelector(".snip mark")).color)).toBe("rgb(255, 255, 255)");
   });
 
   it("clicking a snippet opens that meeting on the tab the match came from", async () => {

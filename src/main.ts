@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { libraryLabel, type Settings } from "./settings";
 import {
+  awaitingLine,
   calendarLine,
   dayGroups,
   deletePrompt,
@@ -15,8 +16,8 @@ import {
   type CalendarStatus,
   type Meeting,
 } from "./meetings";
-import { byMeeting, markParts, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
-import { chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
+import { byMeeting, FIELDS, markParts, metaHits, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
+import { actionsText, chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 import { defaultRange, foundText, rangeError, ymd } from "./teams";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -47,6 +48,12 @@ let cursor: string | null = null;
 let refocus = false;
 /** Settings' Remove that was pressed, so focus lands on the next Remove once the list redraws. */
 let removing: number | null = null;
+/** Why the library folder can't be read (D45), while it can't: the list is then empty under its banner. */
+let libraryMissing: string | null = null;
+/** What focus goes back to when a menu or the peek closes (D42): a control's id; null for the row menu, whose opener
+ * is its row (the keyboard cursor). */
+let menuFrom: string | null = null;
+let peekFrom: string | null = null;
 
 // ---------- My notes (D27) ----------
 
@@ -215,6 +222,21 @@ function keepFocus(within: HTMLElement[], render: () => void) {
   regain(had);
 }
 
+/** Focus back on the control with this id when it is still drawn, else on the cursor row (D42). */
+function backTo(id: string | null) {
+  const el = id ? document.getElementById(id) : null;
+  if (el && !el.closest("[hidden]")) el.focus();
+  else focusCursor();
+}
+
+/** A short confirmation in the live region (D42), cleared after a few seconds. */
+let noticeTimer: number | undefined;
+function notify(text: string) {
+  $("notice").textContent = text;
+  clearTimeout(noticeTimer);
+  noticeTimer = window.setTimeout(() => ($("notice").textContent = ""), 4000);
+}
+
 function failed(e: unknown) {
   $("import-error-text").textContent = String(e);
   $("import-error").hidden = false;
@@ -255,10 +277,13 @@ async function save(change: Partial<Settings>) {
   });
 }
 
+/** Opening Settings focuses its Back link; leaving it gives focus back to the Settings button (D42). */
 function show(view: "list" | "settings") {
   flushNotes();
+  const was = $("settings-view").hidden ? "list" : "settings";
   $("list-view").hidden = view !== "list";
   $("settings-view").hidden = view !== "settings";
+  if (view !== was) $(view === "settings" ? "settings-back" : "settings-button").focus();
 }
 
 // ---------- list (D40, D41) ----------
@@ -273,7 +298,10 @@ function mark(m: Meeting) {
 }
 
 async function loadMeetings() {
-  meetings = current.libraryPath ? await invoke<Meeting[]>("list_meetings") : [];
+  libraryMissing = null;
+  meetings = current.libraryPath ? await invoke<Meeting[]>("list_meetings").catch((e) => ((libraryMissing = String(e)), [])) : [];
+  $("library-missing").hidden = !libraryMissing;
+  $("library-missing-text").textContent = libraryMissing ?? "";
   if (selected && !meetings.some((m) => m.id === selected)) selected = null;
   await runSearch();
   renderList();
@@ -286,8 +314,9 @@ async function loadMeetings() {
 async function runSearch() {
   const n = ++searches;
   const q = query;
-  const found = q && current.libraryPath ? await invoke<Hit[]>("search", { query: q }).catch((e) => (failed(e), [])) : null;
-  if (n === searches) hits = found && byMeeting(found);
+  const found = q && current.libraryPath && !libraryMissing ? await invoke<Hit[]>("search", { query: q }).catch((e) => (failed(e), [])) : null;
+  // A meeting's title and people first, then its files (D45).
+  if (n === searches) hits = found && byMeeting([...metaHits(meetings, q), ...found]);
 }
 
 let searchTimer: number | undefined;
@@ -326,7 +355,9 @@ function drawList() {
   const inSeries = series ? meetings.filter((m) => m.joinUrl === series!.joinUrl) : meetings;
   const shown = hits ? inSeries.filter((m) => hits!.has(m.id)) : inSeries;
   if (!shown.length) {
-    list.innerHTML = hits
+    list.innerHTML = libraryMissing
+      ? ""
+      : hits
       ? `<div class="empty" id="no-matches"><div class="emt">No matches for “${esc(query)}”</div><p class="ems">Try fewer words, such as Orbit, or a person’s name.</p></div>`
       : `<div class="empty"><div class="emt">No meetings yet</div><p class="ems">Import a Teams transcript, and meetings from your calendar will show here as they happen.</p></div>`;
     return;
@@ -334,6 +365,8 @@ function drawList() {
   list.innerHTML = dayGroups(shown, new Date())
     .map(
       (g) =>
+        // The section labels, Upcoming and the Earlier divider: headings like the day headers, never options (D42).
+        (g.section ? `<div class="sect" id="sect-${g.section.toLowerCase()}">${g.section}</div>` : "") +
         `<div class="gh">${esc(g.label)}${g.date ? ` <span>${esc(g.date)}</span>` : ""}</div>` +
         g.items
           .map((m) => {
@@ -358,7 +391,7 @@ const snippets = (id: string) =>
   (hits?.get(id) ?? [])
     .map(
       (h, i) =>
-        `<div class="snip" role="option" tabindex="-1" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i class="ic">${TABS[h.tab].icon}</i>${TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></div>`,
+        `<div class="snip" role="option" tabindex="-1" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i class="ic">${h.field ? FIELDS[h.field] : TABS[h.tab].icon}</i>${h.field ?? TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></div>`,
     )
     .join("");
 
@@ -392,14 +425,14 @@ $("meeting-list").addEventListener("click", (e) => {
   if (!row) return;
   if ((e.target as HTMLElement).closest(".kebab")) {
     const r = (e.target as HTMLElement).closest(".kebab")!.getBoundingClientRect();
-    openMenu(byId(row.dataset.id)!, r.right - 210, r.bottom + 4);
+    openMenu(byId(row.dataset.id)!, r.right - 210, r.bottom + 4, null);
   } else open(row.dataset.id!);
 });
 $("meeting-list").addEventListener("contextmenu", (e) => {
   const row = rowOf(e);
   if (!row) return;
   e.preventDefault();
-  openMenu(byId(row.dataset.id)!, e.clientX, e.clientY);
+  openMenu(byId(row.dataset.id)!, e.clientX, e.clientY, null);
 });
 // Keys act on the keyboard-cursor row only, so they do nothing when no row has focus (D42).
 $("meeting-list").addEventListener("keydown", (e) => {
@@ -436,8 +469,10 @@ $("meeting-list").addEventListener("keydown", (e) => {
 
 // ---------- row menu (D42, D49) ----------
 
-function openMenu(m: Meeting, x: number, y: number) {
+/** The row's or the detail pane's ... menu; `from` is the opener's id when it isn't the row. */
+function openMenu(m: Meeting, x: number, y: number, from: string | null) {
   menuMeeting = m;
+  menuFrom = from;
   cursor = m.id; // the menu's action hands focus back to its meeting's row
   const menu = $("row-menu");
   menu.innerHTML = menuFor(m)
@@ -490,22 +525,38 @@ $("row-menu").addEventListener("click", async (e) => {
   else if (action === "series") {
     series = { joinUrl: m.joinUrl!, subject: m.subject };
     renderList();
-  }
-  if (lost()) focusCursor();
+  } else if (action === "copy-summary" || action === "copy-actions") await copy(m, action === "copy-summary");
+  if (lost()) backTo(menuFrom);
 });
+
+/** Copy summary (`summary.md` as Markdown) or Copy actions (one line each), confirmed in the live region. */
+async function copy(m: Meeting, summary: boolean) {
+  try {
+    const text = summary ? await invoke<string>("get_summary_md", { id: m.id }) : actionsText(await invoke<Summary | null>("get_summary", { id: m.id }));
+    if (!text) return notify("This summary has no actions to copy.");
+    await navigator.clipboard.writeText(text);
+    notify(summary ? "Summary copied." : "Actions copied.");
+  } catch (e) {
+    failed(e);
+  }
+}
 document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#row-menu, .kebab")) closeMenu();
   if (!(e.target as HTMLElement).closest("#import-menu, #import-button")) closeImportMenu();
 });
+// Esc closes what is open, and focus goes back to what opened it (D42).
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
+  if (e.key !== "Escape") return;
+  if (!$("row-menu").hidden) {
     closeMenu();
+    backTo(menuFrom);
+  } else if (document.getElementById("peek")) {
     closePeek();
-    if (!$("import-menu").hidden) {
-      closeImportMenu();
-      $("import-button").focus();
-    }
-  }
+    backTo(peekFrom);
+  } else if (!$("import-menu").hidden) {
+    closeImportMenu();
+    $("import-button").focus();
+  } else if (!$("settings-view").hidden) show("list");
 });
 
 let deleting: Meeting | null = null;
@@ -783,6 +834,7 @@ function closePeek() {
 
 function openPeek(chip: HTMLElement) {
   closePeek();
+  peekFrom = chip.id;
   const c = citeIndex[Number(chip.dataset.cite)];
   const turn = c.turn !== null ? shown.transcript?.turns[c.turn] : undefined;
   const reason = peekReason(c);
@@ -876,9 +928,18 @@ async function renderDetail() {
 
   const card = STATE_CARDS[m.state];
   if (card) {
+    // Awaiting transcript: when it checks next and the attempts left, and its transcript can be imported now.
+    const action =
+      m.state === "awaitingTranscript"
+        ? `<p id="next-check">${esc(awaitingLine(m))}</p><button id="import-now" class="btn">Import transcript</button>`
+        : m.state !== "skipped"
+          ? ""
+          : m.excluded
+            ? `<button id="include-series" class="btn">Include series</button>`
+            : `<button id="unskip" class="btn">Unskip</button>`;
     det.innerHTML = `${head}<div id="state-card" class="card state">
       <h5>${mark(m)}</h5><p id="state-sentence">${card}</p>
-      ${m.state !== "skipped" ? "" : m.excluded ? `<button id="include-series" class="btn">Include series</button>` : `<button id="unskip" class="btn">Unskip</button>`}</div>`;
+      ${action}</div>`;
   } else {
     const sumStatus =
       m.state === "summarising" ? `<i class="spin"></i>` : m.state === "summaryFailed" ? `<span class="tq err">Failed</span>` : m.hasSummary ? "" : `<span class="tq">Not run</span>`;
@@ -887,7 +948,7 @@ async function renderDetail() {
       ["transcript", "Transcript", `<span class="tq">${t ? `${t.minutes} min` : "None"}</span>`],
       ["notes", "My notes", `<span class="tq${notSaved.has(m.id) ? " err" : ""}" id="notes-status">${notesState(m.id)}</span>`],
     ]
-      .map(([id, label, st]) => `<button class="tab${tab === id ? " on" : ""}" id="tab-${id}" data-tab="${id}" role="tab">${label}${st}</button>`)
+      .map(([id, label, st]) => `<button class="tab${tab === id ? " on" : ""}" id="tab-${id}" data-tab="${id}" role="tab" aria-selected="${tab === id}">${label}${st}</button>`)
       .join("");
     const top = `${head}<div class="tabs" role="tablist">${tabs}</div>`;
     // The notes box drawn for this meeting stays as it is, so a redraw keeps the caret, scroll and undo.
@@ -919,7 +980,7 @@ async function renderDetail() {
   if (un) un.onclick = () => unskip(m);
   const inc = document.getElementById("include-series");
   if (inc) inc.onclick = () => include(m.joinUrl!);
-  const choose = document.getElementById("attach-choose");
+  const choose = document.getElementById("attach-choose") ?? document.getElementById("import-now");
   if (choose) choose.onclick = () => chooseFile(m.id);
   const action = document.getElementById("summary-action");
   if (action) action.onclick = () => runSummary(m.id);
@@ -942,7 +1003,7 @@ async function renderDetail() {
   }
   $("detail-menu").onclick = (e) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    openMenu(m, r.right - 210, r.bottom + 4);
+    openMenu(m, r.right - 210, r.bottom + 4, "detail-menu");
   };
   regain(had);
 }
@@ -951,7 +1012,8 @@ async function renderDetail() {
 
 $("settings-button").onclick = () => show("settings");
 $("settings-back").onclick = () => show("list");
-$("change-folder").onclick = async () => {
+// Change folder in Settings, and Choose folder on the library-missing banner (D45).
+$("change-folder").onclick = $("library-choose").onclick = async () => {
   const picked = await invoke<string | null>("pick_library_folder");
   if (picked) await save({ libraryPath: picked });
 };

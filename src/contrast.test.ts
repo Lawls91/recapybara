@@ -56,11 +56,15 @@ const PAIRS: [string, string[], number][] = [
   ["mc-txt2", ["mc-peek"], TEXT],
   ["mc-txt3", ["mc-peek"], TEXT],
   ["mc-acctxt", ["mc-peek"], TEXT],
-  ["mc-read", ["mc-peek", "mc-mark"], TEXT],
+  ["mc-read", ["mc-peek"], TEXT],
   ["tr-warn", ["mc-peek"], TEXT],
   ["mc-focus", ["mc-peek"], UI],
-  // a search snippet's line on its lavender mark (D45)
-  ["mc-txt", ["mc-mark"], TEXT],
+  // the lavender mark (D45): its text, and the mark itself as a non-text indicator against every surface it sits on
+  // (a snippet on the list and a hovered one, a transcript turn on the card and a hit turn's tint, the peek)
+  ["mc-markink", ["mc-mark"], TEXT],
+  // the copy confirmation: inverse ink
+  ["mc-card", ["mc-txt"], TEXT],
+  ["mc-mark", ["mc-win", "mc-hover", "mc-card", "mc-accsoft", "mc-peek"], UI],
   // the series filter chip (D17)
   ["mc-acctxt", ["mc-accsoft"], TEXT],
   ["mc-focus", ["mc-accsoft"], UI],
@@ -86,4 +90,9 @@ test("positive control: light tertiary #858B97 fails on the selected row #DCE1F7
   expect(failures({ ...light, "mc-txt3": "#858B97" })).toContainEqual(expect.stringMatching(/^mc-txt3 #858B97 on mc-sel #DCE1F7: /));
   expect(failures({ ...light, "mc-txt3": "#5F6570" })).toEqual([]);
   expect(ratio("#5F6570", "#DCE1F7")).toBeCloseTo(4.51, 2); // D38's table
+});
+
+test("positive control: the old pale mark #EBDAFF stood out under 2:1 from the list, so it fails 3:1", () => {
+  const { light } = readSets();
+  expect(failures({ ...light, "mc-mark": "#EBDAFF" })).toContainEqual(expect.stringMatching(/^mc-mark #EBDAFF on mc-win #F4F5F8: 1\.\d\d < 3$/));
 });

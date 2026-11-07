@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { chipLabel, lists, markQuote, peekReason, type Citation, type Item } from "./summary";
+import { actionsText, chipLabel, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 
 const cite = (check: Citation["check"], at = "00:00:10"): Citation => ({
   at,
@@ -44,4 +44,12 @@ test("lists follow D21's order and leave empty ones out", () => {
     questions: [it],
   }).map((l) => l.title);
   expect(titles).toEqual(["Rollout", "Actions", "Open questions"]);
+});
+
+test("Copy actions copies one line per action, owner first, Unassigned when it has none", () => {
+  const act = (text: string, owner: string | null): Item => ({ text, owner, citations: [cite("verified")], inferred: false, ticketKeys: [], missingKeys: [], verified: true });
+  const s: Summary = { overview: "o", sections: [], decisions: [act("Not an action.", null)], actions: [act("Write up the retry limit.", "Speaker A"), act("Ship it on Friday.", null)], questions: [] };
+  expect(actionsText(s)).toBe("- Speaker A: Write up the retry limit.\n- Unassigned: Ship it on Friday.");
+  expect(actionsText({ ...s, actions: [] })).toBe("");
+  expect(actionsText(null)).toBe("");
 });

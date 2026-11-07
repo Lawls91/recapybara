@@ -9,6 +9,21 @@ export interface Hit {
   line: string;
   /** A transcript hit's turn time, hh:mm:ss. */
   at: string | null;
+  /** A title or people hit: what matched, shown in place of the tab. */
+  field?: Field;
+}
+
+export type Field = "Title" | "Organiser" | "Attendees";
+export const FIELDS: Record<Field, string> = { Title: "&#xE8EC;", Organiser: "&#xE77B;", Attendees: "&#xE716;" };
+
+/** Title and people hits, from what the list already holds, ahead of the file hits: one per field that holds `q`
+ * (ignoring case, as the backend does), the matching attendees joined. They open the meeting's Summary tab. */
+export function metaHits(meetings: { id: string; subject: string; organiser: string | null; attendees: string[] }[], q: string): Hit[] {
+  const has = (s: string | null) => !!q && !!s?.toLowerCase().includes(q.toLowerCase());
+  return meetings.flatMap((m) => {
+    const fields: [Field, string | null][] = [["Title", m.subject], ["Organiser", m.organiser], ["Attendees", m.attendees.filter(has).join(", ")]];
+    return fields.filter(([, v]) => has(v)).map(([field, line]) => ({ id: m.id, tab: "summary" as Tab, line: line!, at: null, field }));
+  });
 }
 
 /** A run of text; `was` is what Teams heard where a correction replaced it (D45). */

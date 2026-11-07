@@ -48,10 +48,12 @@
   --tr-infbg: light-dark(#EEE9FA, #332C4D);
   --tr-err: light-dark(#B73629, #FF8E80);
   --tr-errbg: light-dark(#FBECEA, #3A2624);
-  /* lavender: the data banner and search marks only */
+  /* lavender: the data banner and search marks only. The mark is solid with its own ink, so it stands out 3:1 from
+     every surface it sits on and its text reads 4.5:1 (AA, non-text and text). */
   --mc-lav: light-dark(#F2EEFF, #322C4A);
   --mc-lavicon: light-dark(#5B43C0, #B9A6FF);
-  --mc-mark: light-dark(#EBDAFF, #55468A);
+  --mc-mark: light-dark(#5B43C0, #B9A6FF);
+  --mc-markink: light-dark(#FFFFFF, #1B1E25);
   --mc-shadow: light-dark(rgba(27, 30, 37, 0.16), rgba(0, 0, 0, 0.5));
   --mc-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --mc-disp: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
