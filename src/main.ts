@@ -14,7 +14,7 @@ import {
   type CalendarStatus,
   type Meeting,
 } from "./meetings";
-import { byMeeting, markParts, snippet, TABS, type Hit, type Part, type Tab } from "./search";
+import { byMeeting, markParts, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
 import { chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -31,7 +31,7 @@ let renders = 0;
 let shown: { transcript: Transcript | null; summary: Summary | null } = { transcript: null, summary: null };
 let scrollToTurn: number | null = null;
 /** A transcript search hit just clicked (D45): the Transcript tab scrolls to the turn at this time and marks `q`. */
-let hitTurn: { at: string; q: string } | null = null;
+let hitTurn: { at: string; line: string; q: string } | null = null;
 /** The search box's query, trimmed (D45), and its hits by meeting; null when the box is empty. */
 let query = "";
 let hits: Map<string, Hit[]> | null = null;
@@ -189,6 +189,7 @@ function focusCursor() {
     refocus = true;
     return;
   }
+  document.querySelectorAll<HTMLElement>("#meeting-list .snip").forEach((s) => (s.tabIndex = -1));
   rows.forEach((r) => (r.tabIndex = -1));
   row.tabIndex = 0;
   row.focus({ preventScroll: true });
@@ -345,15 +346,17 @@ function drawList() {
           .join(""),
     )
     .join("");
-  if (!selected) list.querySelector<HTMLElement>(".row")?.setAttribute("tabindex", "0");
+  // The list is one tab stop (D42): the selected row, or the first row when there is none or a search hides it.
+  if (!list.querySelector('[tabindex="0"]')) list.querySelector<HTMLElement>(".row")?.setAttribute("tabindex", "0");
 }
 
-/** A matching meeting's hits under its row (D45): tab icon, tab name, a transcript hit's time, the line marked. */
+/** A matching meeting's hits under its row (D45): tab icon, tab name, a transcript hit's time, the line marked. Options
+ * of the list like the rows, reached with the arrows, so the list stays one tab stop (D42). */
 const snippets = (id: string) =>
   (hits?.get(id) ?? [])
     .map(
       (h, i) =>
-        `<button class="snip" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i class="ic">${TABS[h.tab].icon}</i>${TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></button>`,
+        `<div class="snip" role="option" tabindex="-1" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i class="ic">${TABS[h.tab].icon}</i>${TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></div>`,
     )
     .join("");
 
@@ -372,15 +375,17 @@ async function open(id: string, on?: Tab) {
   await renderDetail();
 }
 
+/** A snippet clicked or Entered: its meeting on its tab; a transcript hit at its turn, the match marked (D45). */
+function openSnip(snip: HTMLElement) {
+  const h = hits?.get(snip.dataset.id!)?.[Number(snip.dataset.hit)];
+  if (!h) return;
+  hitTurn = h.at ? { at: h.at, line: h.line, q: query } : null;
+  open(h.id, h.tab);
+}
+
 $("meeting-list").addEventListener("click", (e) => {
   const snip = (e.target as HTMLElement).closest<HTMLElement>(".snip");
-  if (snip) {
-    const h = hits?.get(snip.dataset.id!)?.[Number(snip.dataset.hit)];
-    if (!h) return;
-    hitTurn = h.at ? { at: h.at, q: query } : null;
-    open(h.id, h.tab);
-    return;
-  }
+  if (snip) return openSnip(snip);
   const row = rowOf(e);
   if (!row) return;
   if ((e.target as HTMLElement).closest(".kebab")) {
@@ -396,22 +401,34 @@ $("meeting-list").addEventListener("contextmenu", (e) => {
 });
 // Keys act on the keyboard-cursor row only, so they do nothing when no row has focus (D42).
 $("meeting-list").addEventListener("keydown", (e) => {
-  const row = rowOf(e);
+  const item = (e.target as HTMLElement).closest<HTMLElement>(".row, .snip");
+  // Arrows move through rows and their snippets alike; on a snippet only Enter acts.
+  if (item && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    const items = [...document.querySelectorAll<HTMLElement>("#meeting-list .row, #meeting-list .snip")];
+    const next = items[items.indexOf(item) + (e.key === "ArrowDown" ? 1 : -1)];
+    if (next) {
+      item.tabIndex = -1;
+      next.tabIndex = 0;
+      next.focus();
+    }
+    e.preventDefault();
+    return;
+  }
+  if (item?.classList.contains("snip")) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      openSnip(item);
+    }
+    return;
+  }
+  const row = item;
   if (!row) return;
   const m = byId(row.dataset.id)!;
   if (e.key === "Enter") open(m.id);
   else if (e.key === "Delete") askDelete(m);
   else if ((e.key === "s" || e.key === "S") && menuFor(m).some((i) => i.id === "skip")) skip(m);
   else if ((e.key === "e" || e.key === "E") && menuFor(m).some((i) => i.id === "exclude")) exclude(m);
-  else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-    const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")];
-    const next = rows[rows.indexOf(row) + (e.key === "ArrowDown" ? 1 : -1)];
-    if (next) {
-      row.tabIndex = -1;
-      next.tabIndex = 0;
-      next.focus();
-    }
-  } else return;
+  else return;
   e.preventDefault();
 });
 
@@ -745,7 +762,7 @@ async function renderDetail() {
     } else {
       // A clicked transcript hit: the turn at its time, the match marked (D45).
       const q = tab === "transcript" && hitTurn && t ? hitTurn.q : "";
-      if (q) scrollToTurn = t!.turns.findIndex((u) => u.at === hitTurn!.at);
+      if (q) scrollToTurn = turnOfHit(t!.turns, hitTurn!.at, hitTurn!.line);
       hitTurn = null;
       const body = tab === "summary" ? summaryBody(m) : transcriptBody(t, q);
       det.innerHTML = `${top}<div class="body" id="tab-body">${body}</div>`;

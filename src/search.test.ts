@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { byMeeting, markParts, snippet, type Hit } from "./search";
+import { byMeeting, markParts, snippet, turnOfHit, type Hit } from "./search";
 
 test("a snippet marks every match, ignoring case, and escapes the file's text", () => {
   expect(snippet("Follow up on Orbit, then Orbit <b>again</b>", "Orbit")).toBe(
@@ -34,4 +34,20 @@ test("hits group by meeting in the order found", () => {
     ["B", ["1", "3"]],
     ["A", ["2"]],
   ]);
+});
+
+test("a transcript hit finds its own turn when two start in the same second", () => {
+  const turn = (at: string, who: string, text: string) => ({ at, speakerParts: [{ text: who, was: null }], parts: [{ text, was: null }] });
+  const turns = [
+    turn("00:18:04", "Speaker A", "Earlier."),
+    turn("00:18:05", "Speaker B", "Yes."),
+    turn("00:18:05", "Speaker C", "Orbit is different on v2"),
+  ];
+  expect(turnOfHit(turns, "00:18:05", "Speaker C: Orbit is different on v2")).toBe(2);
+  // The line read from a stale transcript.md: the first turn at that time.
+  expect(turnOfHit(turns, "00:18:05", "Speaker C: something else")).toBe(1);
+  expect(turnOfHit(turns, "00:30:00", "Speaker C: Orbit")).toBe(-1);
+  // A corrected word: the hit's line holds the corrected text, as transcript.md does.
+  const fixed = [{ at: "00:00:03", speakerParts: [{ text: "Katya", was: "Katia" }], parts: [{ text: "keep the ", was: null }, { text: "filter", was: "felter" }] }];
+  expect(turnOfHit([turn("00:00:03", "Speaker A", "x"), ...fixed], "00:00:03", "Katya: keep the filter")).toBe(1);
 });

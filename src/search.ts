@@ -59,6 +59,14 @@ export function snippet(line: string, q: string): string {
   return markParts([{ text, was: null }], q);
 }
 
+/** The turn a transcript hit came from: the one at its time whose "Speaker: text" is the hit's line (two turns can
+ * start in the same second), else the first at that time; -1 when none is. */
+export function turnOfHit(turns: { at: string; speakerParts: Part[]; parts: Part[] }[], at: string, line: string): number {
+  const said = (ps: Part[]) => ps.map((p) => p.text).join("").trim();
+  const exact = turns.findIndex((u) => u.at === at && `${said(u.speakerParts)}: ${said(u.parts)}` === line);
+  return exact >= 0 ? exact : turns.findIndex((u) => u.at === at);
+}
+
 /** Hits by meeting, in the order the backend found them. */
 export function byMeeting(hits: Hit[]): Map<string, Hit[]> {
   const out = new Map<string, Hit[]>();

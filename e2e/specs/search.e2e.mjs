@@ -128,4 +128,38 @@ describe("search", () => {
     await expect($("#search")).toHaveValue("");
     await browser.waitUntil(async () => (await ids()).length === 5, { timeout: 5000, timeoutMsg: "Esc never restored the list" });
   });
+
+  it("with the selected row filtered out, Tab from the search box reaches a result row, and arrows reach its snippets (D42)", async () => {
+    await $(`.row[data-id="${SPRINT}"]`).click(); // selected, and holds no Orbit
+    await typeQuery("Orbit");
+    await browser.waitUntil(async () => (await ids()).length === 3, { timeout: 5000 });
+    // One tab stop for the whole list: the first Tab into it lands on a row, never a snippet.
+    let into = null;
+    for (let i = 0; i < 6 && !into; i++) {
+      await browser.keys("Tab");
+      into = await browser.execute(() => {
+        const a = document.activeElement;
+        if (!a?.closest("#meeting-list")) return null;
+        return a.classList.contains("row") ? `row ${a.dataset.id}` : `not a row: ${a.className}`;
+      });
+    }
+    expect(into).toBe(`row ${REL}`);
+    expect(await browser.execute(() => document.querySelectorAll('#meeting-list [tabindex="0"]').length)).toBe(1);
+    // The snippets are options of the list, reached with the arrows; Enter opens one on its tab.
+    expect(await browser.execute(() => [...document.querySelectorAll(".snip")].every((s) => s.getAttribute("role") === "option"))).toBe(true);
+    await browser.keys("ArrowDown");
+    await browser.keys("ArrowDown");
+    expect(await browser.execute(() => document.activeElement?.id)).toBe((await snip(REL, 1).getAttribute("id")));
+    await browser.keys("Enter");
+    await expect($("#tab-transcript")).toHaveElementClass("on");
+    await expect($("#detail-title")).toHaveText("Release review");
+    // S and Del on a snippet act on nothing.
+    await browser.keys("ArrowDown");
+    await browser.keys("ArrowDown");
+    expect(await browser.execute(() => document.activeElement?.classList.contains("snip"))).toBe(true);
+    await browser.keys("s");
+    await browser.keys("Delete");
+    await expect($("#confirm")).not.toBeDisplayed();
+    expect((await invoke("list_meetings")).filter((m) => m.state === "skipped")).toEqual([]);
+  });
 });
