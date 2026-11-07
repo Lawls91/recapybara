@@ -504,6 +504,23 @@ button {
   overflow-y: auto;
   padding-top: 16px;
 }
+/* My notes (D27): the whole tab body is the editor */
+.body.nb {
+  display: flex;
+  overflow: hidden;
+}
+.notes {
+  flex: 1;
+  resize: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--mc-read);
+  font: var(--mc-readwt) 14px/1.6 var(--mc-ui);
+}
+.notes::placeholder {
+  color: var(--mc-txt3);
+}
 .detempty {
   flex: 1;
   display: flex;

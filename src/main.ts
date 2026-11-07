@@ -39,6 +39,56 @@ let refocus = false;
 /** Settings' Remove that was pressed, so focus lands on the next Remove once the list redraws. */
 let removing: number | null = null;
 
+// ---------- My notes (D27) ----------
+
+/** The notes last loaded or typed, for one meeting. `dirty`: typed since the last save was sent. */
+let notes: { id: string; text: string; dirty: boolean } | null = null;
+let notesTimer: number | undefined;
+/** Saves run one after another, so an older text never lands after a newer one. */
+let notesSaving: Promise<unknown> = Promise.resolve();
+const NOTES_PAUSE = 500;
+
+function notesStatus(text: string, error = false) {
+  const el = document.getElementById("notes-status");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("err", error);
+}
+
+/** Sends any unsaved notes now. Called after a typing pause, and on anything that could lose them: a tab or meeting
+ * switch, a redraw, Settings, and the window losing focus, hiding or closing. */
+function flushNotes() {
+  clearTimeout(notesTimer);
+  if (!notes?.dirty) return notesSaving;
+  const n = notes;
+  const { id, text } = n;
+  n.dirty = false;
+  notesSaving = notesSaving
+    .then(() => invoke("save_notes", { id, text }))
+    .then(
+      () => notes === n && !n.dirty && notesStatus("Saved"),
+      (e) => {
+        if (notes === n) n.dirty = true; // the next pause or switch tries again
+        notesStatus("Not saved", true);
+        failed(e);
+      },
+    );
+  return notesSaving;
+}
+
+function notesTyped(e: Event) {
+  if (!notes) return;
+  notes.text = (e.target as HTMLTextAreaElement).value;
+  notes.dirty = true;
+  notesStatus("Saving…");
+  clearTimeout(notesTimer);
+  notesTimer = window.setTimeout(flushNotes, NOTES_PAUSE);
+}
+
+window.addEventListener("blur", () => flushNotes());
+window.addEventListener("pagehide", () => flushNotes());
+document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushNotes());
+
 // ---------- settings and appearance (D46) ----------
 
 function applyTheme(appearance: string) {
@@ -165,6 +215,7 @@ async function save(change: Partial<Settings>) {
 }
 
 function show(view: "list" | "settings") {
+  flushNotes();
   $("list-view").hidden = view !== "list";
   $("settings-view").hidden = view !== "settings";
 }
@@ -567,7 +618,18 @@ async function renderDetail() {
   const t = m.hasTranscript ? await invoke<Transcript>("get_transcript", { id: m.id }) : null;
   const wantSummary = tab === "summary" && m.hasSummary && m.state !== "summarising" && m.state !== "summaryFailed";
   const s = wantSummary ? await invoke<Summary | null>("get_summary", { id: m.id }) : null;
+  // My notes: the typed text stays in `notes` across redraws; another meeting's are saved, then this one's read.
+  flushNotes();
+  let loaded: string | null = null;
+  if (tab === "notes" && notes?.id !== m.id) {
+    await notesSaving;
+    loaded = await invoke<string>("get_notes", { id: m.id });
+  }
   if (n !== renders) return; // a newer render started while this one waited
+  if (loaded !== null) {
+    flushNotes(); // typed into the old box while this one loaded
+    notes = { id: m.id, text: loaded, dirty: false };
+  }
   const had = focusIn([det]); // a tab comes back; Unskip, Include series: the redraw drops the button
   shown = { transcript: t, summary: s };
   const d = m.start ? new Date(m.start) : null;
@@ -591,12 +653,25 @@ async function renderDetail() {
     const tabs = [
       ["summary", "Summary", sumStatus],
       ["transcript", "Transcript", `<span class="tq">${t ? `${t.minutes} min` : "None"}</span>`],
-      ["notes", "My notes", ""],
+      ["notes", "My notes", `<span class="tq" id="notes-status">${notes?.id === m.id && notes.dirty ? "Saving…" : "Saved"}</span>`],
     ]
       .map(([id, label, st]) => `<button class="tab${tab === id ? " on" : ""}" id="tab-${id}" data-tab="${id}" role="tab">${label}${st}</button>`)
       .join("");
-    const body = tab === "summary" ? summaryBody(m) : tab === "transcript" ? transcriptBody(t) : `<p class="muted">No notes yet.</p>`;
-    det.innerHTML = `${head}<div class="tabs" role="tablist">${tabs}</div><div class="body" id="tab-body">${body}</div>`;
+    const top = `${head}<div class="tabs" role="tablist">${tabs}</div>`;
+    // The notes box drawn for this meeting stays as it is, so a redraw keeps the caret, scroll and undo.
+    const keep = tab === "notes" ? det.querySelector<HTMLTextAreaElement>("#notes") : null;
+    if (keep && keep.dataset.id === m.id) {
+      [...det.children].forEach((c) => c.id !== "tab-body" && c.remove());
+      keep.closest("#tab-body")!.insertAdjacentHTML("beforebegin", top);
+    } else if (tab === "notes") {
+      det.innerHTML = `${top}<div class="body nb" id="tab-body"><textarea id="notes" class="notes" data-id="${esc(m.id)}" aria-label="My notes" placeholder="Your notes for this meeting. They save as you type." spellcheck="true"></textarea></div>`;
+      const box = $<HTMLTextAreaElement>("notes");
+      box.value = notes!.text;
+      box.oninput = notesTyped;
+    } else {
+      const body = tab === "summary" ? summaryBody(m) : transcriptBody(t);
+      det.innerHTML = `${top}<div class="body" id="tab-body">${body}</div>`;
+    }
   }
   det.querySelectorAll<HTMLElement>(".tab").forEach(
     (b) =>
