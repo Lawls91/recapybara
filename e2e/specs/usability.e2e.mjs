@@ -92,7 +92,7 @@ describe("usability quick wins", () => {
       state: "noTranscript",
       organiser: "Robin Sample",
       attendees: ["Speaker A", "Katya Lane"],
-    });
+    }, { "notes.md": "Ask Robin about the audit log\n" });
     seed(AWAIT, { subject: "Partner sync", start: at(-1, 9), end: at(-1, 10), state: "awaitingTranscript", attempts: 2, nextAttempt: at(1, 11, 30), organiser: "Robin Sample" });
     FILLERS.forEach((f, i) => seed(f, { subject: `Filler ${i}`, start: at(-3 - i, 9), end: at(-3 - i, 10), state: "noTranscript", organiser: "Speaker B" }));
     const iso = (ms) => new Date(Date.now() + ms).toISOString();
@@ -132,6 +132,7 @@ describe("usability quick wins", () => {
   for (const appearance of ["light", "dark"]) {
     it(`the Earlier divider's label reads 4.5:1 and its rule stands out 3:1 from the list (${appearance})`, async () => {
       await theme(appearance);
+      await expect($("#sect-earlier")).toBeDisplayed();
       const list = ["#meeting-list", "behind"];
       const c = {
         text: await contrast(["#sect-earlier", "color"], list),
@@ -159,6 +160,7 @@ describe("usability quick wins", () => {
     expect(await snips(PARTNER)).toEqual([
       { tab: "Organiser", line: "Robin Sample", marks: ["Robin"] },
       { tab: "Attendees", line: "Katya Lane", marks: ["Robin"] },
+      { tab: "My notes", line: "Ask Robin about the audit log", marks: ["Robin"] },
     ]);
     // A title or people snippet opens the meeting.
     await $(`.snip[data-id="${PARTNER}"]`).click();
@@ -181,6 +183,7 @@ describe("usability quick wins", () => {
     await typeQuery("");
     await $(`.row[data-id="${AWAIT}"]`).click();
     await expect($("#state-sentence")).toHaveText("Waiting for Teams to publish the transcript");
+    await expect($("#next-check")).toBeExisting();
     await expect($("#next-check")).toHaveText("Next check at 11:30, 3 attempts left.");
     await expect($("#import-now")).toHaveText("Import transcript");
     scenario({ structuredOutput: SUMMARY });
@@ -194,12 +197,17 @@ describe("usability quick wins", () => {
       window.__copied = [];
       navigator.clipboard.writeText = (t) => (window.__copied.push(t), Promise.resolve());
     });
-    await $(`.row[data-id="${AWAIT}"]`).click();
+    // Its own summarised meeting, imported through the command the file picker feeds.
+    scenario({ structuredOutput: SUMMARY });
+    const id = await invoke("import_transcript", { path: freshFixture("Felter review.vtt"), id: null });
+    await expect($(`.row[data-id="${id}"] .lbl`)).toHaveText("Summary ready", { wait: 20000 });
+    await $(`.row[data-id="${id}"]`).click();
     await expect($("#summary")).toBeDisplayed();
     await $("#detail-menu").click();
+    await expect($("#menu-copy-summary")).toBeDisplayed();
     await $("#menu-copy-summary").click();
     await expect($("#notice")).toHaveText("Summary copied.");
-    const md = fs.readFileSync(root("library", AWAIT, "summary.md"), "utf8");
+    const md = fs.readFileSync(root("library", id, "summary.md"), "utf8");
     expect(md).toContain("Go with the retry limit.");
     expect(await browser.execute(() => window.__copied)).toEqual([md]);
     // Focus is back on the menu's button.
@@ -293,6 +301,7 @@ describe("usability quick wins", () => {
   it("a missing library folder shows a red banner with its path and Choose folder, lists nothing, and writes nothing", async () => {
     const lib = root("library");
     const gone = root("gone-library");
+    const rows = (await ids()).length;
     const settings = await invoke("get_settings");
     await invoke("save_settings", { settings: { ...settings, libraryPath: gone } });
     await expect($("#library-missing")).toBeDisplayed();
@@ -310,6 +319,6 @@ describe("usability quick wins", () => {
     await pickerAnswers(lib);
     await $("#library-choose").click();
     await expect($("#library-missing")).not.toBeDisplayed();
-    await browser.waitUntil(async () => (await ids()).length === ROWS, { timeout: 5000, timeoutMsg: "the meetings never came back" });
+    await browser.waitUntil(async () => (await ids()).length === rows, { timeout: 5000, timeoutMsg: "the meetings never came back" });
   });
 });
