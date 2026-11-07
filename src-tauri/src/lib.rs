@@ -376,9 +376,14 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
     match &dev {
         // A dev instance takes neither the installed copy's single-instance lock nor its Run key. Its WebView2
-        // profile moves too: sharing the installed one fails when the two start the browser with different options.
+        // profile moves too (sharing the installed one fails when the two start the browser with different options),
+        // unless one is set already: msedgedriver sets its own and waits for the browser there.
         // ponytail: two dev instances on one dir both run; key a lock on the dir if that ever bites.
-        Some(dir) => std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir.join("webview")),
+        Some(dir) => {
+            if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_none() {
+                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir.join("webview"));
+            }
+        }
         None => {
             builder = builder
                 .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))

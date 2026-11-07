@@ -21,6 +21,35 @@ cargo build -p fake-claude         # the fake claude: <target>/debug/fake-claude
 
 `<target>` is `$CARGO_TARGET_DIR` if set, else `target/` at the repo root.
 
+## Dev instances
+
+A dev instance runs beside the installed copy (and beside other dev instances) without touching its state:
+
+```
+pwsh -File scripts\run-dev.ps1 [-StateDir <dir>] [-Build] [-Claude <exe>] [-Scenario <file>]
+```
+
+It builds the debug exe if missing (or with `-Build`), copies it to `<StateDir>\bin` so the build output stays
+unlocked, stops that dir's previous instance (by its recorded PID, and only if that PID still runs the copy), launches
+the copy with `MEETING_CAPTURE_DEV=<StateDir>` and prints `{"pid":…,"stateDir":"…"}`. The default dir is
+`%LOCALAPPDATA%\MeetingCapture-dev\default`. Stop it by that PID (`Stop-Process -Id <pid>`), never by name: that
+would take the installed copy down too. Its output goes to `<StateDir>\dev.log` and `dev.log.err`. `-Claude` and
+`-Scenario` set `MEETING_CAPTURE_CLAUDE` and `FAKE_CLAUDE_SCENARIO`, for runs against the fake claude.
+
+Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins; an empty value is unset), resolved in
+`dev_dir` in `src-tauri/src/lib.rs`. In dev mode:
+
+- All state is under the dir: settings and `runs` in `<dir>\data`, the WebView2 profile in `<dir>\webview`, and the
+  library defaults to `<dir>\library` (so there is no first-run folder prompt). `MEETING_CAPTURE_DATA_DIR` and
+  `MEETING_CAPTURE_HOME` still win where set. The home is the real one, so the real claude finds its skill.
+- No single-instance lock: it neither focuses nor is blocked by the installed copy. Two dev instances on one dir
+  both run, so give each its own dir.
+- It never reads or writes the Run key: Start at logon is off, and disabled in Settings and the tray.
+- The window title and tray tooltip say "Meeting capture (DEV)", and the list's top bar has a DEV badge.
+- Toasts still show, under the installed copy's AUMID, so they carry its name and icon (and appear only if the MSI is
+  installed). A click goes to the process that raised the toast, so a dev instance's toast opens the meeting in the
+  dev instance, not in the installed copy, though the two look alike. Otherwise clicks have the limits below.
+
 ## Install
 
 `npm run msi` (needs PowerShell 7 and the .NET SDK) builds the release app with `npx tauri build --no-bundle`, then a
@@ -52,13 +81,15 @@ per-user MSI with the WiX 5.0.2 dotnet global tool, which it installs from NuGet
 (fails under 80% Rust line coverage, `MC_COVERAGE_MIN` overrides the threshold), Vitest, the debug
 build, the fake claude, then the WebdriverIO E2E suite (`npm run e2e`, or `node e2e/run.mjs <spec-name>`).
 It installs `llvm-tools-preview` and `cargo-llvm-cov` if missing; `@wdio/tauri-service` installs
-`tauri-driver` and a matching `msedgedriver` on first run. Close any running Meeting capture first
-(single instance).
+`tauri-driver` and a matching `msedgedriver` on first run. Each spec's app is a dev instance
+(`MEETING_CAPTURE_DEV`), so a running Meeting capture doesn't collide with it, except in the `single-instance` and
+`real-folders` specs, which test the installed copy's path: close Meeting capture before those.
 
 Test-only env vars (D36, D37):
 
 | Var | Effect |
 | --- | --- |
+| `MEETING_CAPTURE_DEV` | dev mode: all state under that dir (see Dev instances); `--dev <dir>` wins over it |
 | `MEETING_CAPTURE_DATA_DIR` | replaces `%APPDATA%\com.lawls91.meetingcapture` (settings, `runs`) |
 | `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |

@@ -1,5 +1,6 @@
 // Runs each E2E spec in its own wdio process, so each gets its own temp library,
-// app-data and home folders through the D37 env vars (tauri-driver inherits the launcher's env).
+// app-data and home folders through the D37 env vars (tauri-driver inherits the launcher's env),
+// and runs as a dev instance (MEETING_CAPTURE_DEV), so an installed or running real copy can't collide with it.
 // Needs a debug build first: `npx tauri build --debug --no-bundle`.
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -79,9 +80,14 @@ for (const spec of specs) {
     FAKE_CLAUDE_SCENARIO: scenario,
     MEETING_CAPTURE_DATA_DIR: data,
     MEETING_CAPTURE_HOME: home,
+    // Its own WebView2 profile and no single-instance lock or Run key. Apart from root\data, so the specs show that
+    // MEETING_CAPTURE_DATA_DIR still wins over the dev dir.
+    MEETING_CAPTURE_DEV: path.join(root, "dev"),
     // The app must strip it from every claude it runs (D6); the fake's record shows whether it did.
     ANTHROPIC_API_KEY: "sk-e2e-parent-key-must-not-leak",
   };
+  // These two test the installed copy's own path, so they run without dev mode.
+  if (name === "real-folders" || name === "single-instance") delete env.MEETING_CAPTURE_DEV;
   if (name === "real-folders") {
     delete env.MEETING_CAPTURE_DATA_DIR;
     delete env.MEETING_CAPTURE_HOME;
