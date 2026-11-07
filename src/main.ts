@@ -41,50 +41,79 @@ let removing: number | null = null;
 
 // ---------- My notes (D27) ----------
 
-/** The notes last loaded or typed, for one meeting. `dirty`: typed since the last save was sent. */
-let notes: { id: string; text: string; dirty: boolean } | null = null;
+/** Typed text not yet confirmed on disk, by meeting: kept until its save lands, so a failed save is retried by every
+ * flush, even after a switch. The box on screen is the only other copy; anything else is read from disk. */
+const unsaved = new Map<string, string>();
+/** The text each meeting's save in flight carries, so a flush doesn't queue the same save twice. */
+const sending = new Map<string, string>();
+/** Meetings whose last save failed. */
+const notSaved = new Set<string>();
 let notesTimer: number | undefined;
 /** Saves run one after another, so an older text never lands after a newer one. */
 let notesSaving: Promise<unknown> = Promise.resolve();
 const NOTES_PAUSE = 500;
 
-function notesStatus(text: string, error = false) {
+const notesState = (id: string) => (notSaved.has(id) ? "Not saved" : unsaved.has(id) ? "Saving…" : "Saved");
+/** The tab status of the meeting whose box is on screen (D44). */
+function paintNotesStatus() {
+  const id = document.querySelector<HTMLTextAreaElement>("#notes")?.dataset.id;
   const el = document.getElementById("notes-status");
-  if (!el) return;
-  el.textContent = text;
-  el.classList.toggle("err", error);
+  if (!id || !el) return;
+  el.textContent = notesState(id);
+  el.classList.toggle("err", notSaved.has(id));
 }
 
-/** Sends any unsaved notes now. Called after a typing pause, and on anything that could lose them: a tab or meeting
- * switch, a redraw, Settings, and the window losing focus, hiding or closing. */
+/** Sends every unsaved text now. Called after a typing pause, and on anything that could lose them: a tab or meeting
+ * switch, a redraw, Settings, Quit, and the window losing focus, hiding or closing. */
 function flushNotes() {
   clearTimeout(notesTimer);
-  if (!notes?.dirty) return notesSaving;
-  const n = notes;
-  const { id, text } = n;
-  n.dirty = false;
-  notesSaving = notesSaving
-    .then(() => invoke("save_notes", { id, text }))
-    .then(
-      () => notes === n && !n.dirty && notesStatus("Saved"),
-      (e) => {
-        if (notes === n) n.dirty = true; // the next pause or switch tries again
-        notesStatus("Not saved", true);
-        failed(e);
-      },
-    );
+  for (const [id, text] of unsaved) {
+    if (sending.get(id) === text) continue;
+    sending.set(id, text);
+    notesSaving = notesSaving
+      .then(() => invoke("save_notes", { id, text }))
+      .then(
+        () => {
+          notSaved.delete(id);
+          if (unsaved.get(id) === text) unsaved.delete(id);
+        },
+        (e) => {
+          notSaved.add(id); // still in `unsaved`: the next flush tries again
+          failed(e);
+        },
+      )
+      .finally(() => {
+        if (sending.get(id) === text) sending.delete(id);
+        paintNotesStatus();
+      });
+  }
   return notesSaving;
 }
 
 function notesTyped(e: Event) {
-  if (!notes) return;
-  notes.text = (e.target as HTMLTextAreaElement).value;
-  notes.dirty = true;
-  notesStatus("Saving…");
+  const box = e.target as HTMLTextAreaElement;
+  unsaved.set(box.dataset.id!, box.value);
+  paintNotesStatus();
   clearTimeout(notesTimer);
   notesTimer = window.setTimeout(flushNotes, NOTES_PAUSE);
 }
 
+/** Another library: its folders may share ids with this one's, so nothing typed or drawn for the old one carries over. */
+let notesLibrary: string | null | undefined;
+function libraryIs(path: string | null) {
+  if (notesLibrary !== undefined && path !== notesLibrary) {
+    unsaved.clear();
+    notSaved.clear();
+    document.getElementById("notes")?.remove();
+  }
+  notesLibrary = path;
+}
+
+// Tray Quit: the backend waits (up to 1 s) for this page to save, then exits.
+listen("quitting", async () => {
+  await flushNotes();
+  await invoke("quit");
+});
 window.addEventListener("blur", () => flushNotes());
 window.addEventListener("pagehide", () => flushNotes());
 document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushNotes());
@@ -103,6 +132,7 @@ function applyTheme(appearance: string) {
 
 async function loadSettings() {
   current = await invoke<Settings>("get_settings");
+  libraryIs(current.libraryPath);
   applyTheme(current.appearance);
   $("library-path").textContent = libraryLabel(current.libraryPath);
   $<HTMLSelectElement>("summary-model").value = current.summaryModel;
@@ -609,6 +639,7 @@ async function renderDetail() {
   const det = $("detail");
   const m = byId(selected ?? undefined);
   const n = ++renders;
+  flushNotes();
   if (!m) {
     keepFocus([det], () => {
       det.innerHTML = `<div class="detempty">${meetings.length ? "Choose a meeting to see it here." : "Summaries you capture appear here."}</div>`;
@@ -618,18 +649,10 @@ async function renderDetail() {
   const t = m.hasTranscript ? await invoke<Transcript>("get_transcript", { id: m.id }) : null;
   const wantSummary = tab === "summary" && m.hasSummary && m.state !== "summarising" && m.state !== "summaryFailed";
   const s = wantSummary ? await invoke<Summary | null>("get_summary", { id: m.id }) : null;
-  // My notes: the typed text stays in `notes` across redraws; another meeting's are saved, then this one's read.
-  flushNotes();
-  let loaded: string | null = null;
-  if (tab === "notes" && notes?.id !== m.id) {
-    await notesSaving;
-    loaded = await invoke<string>("get_notes", { id: m.id });
-  }
+  // My notes: this meeting's box on screen keeps its text; otherwise its unsaved text, else notes.md as it is now.
+  const onScreen = () => det.querySelector<HTMLTextAreaElement>("#notes")?.dataset.id === m.id;
+  const loaded = tab !== "notes" || onScreen() ? null : (unsaved.get(m.id) ?? (await invoke<string>("get_notes", { id: m.id })));
   if (n !== renders) return; // a newer render started while this one waited
-  if (loaded !== null) {
-    flushNotes(); // typed into the old box while this one loaded
-    notes = { id: m.id, text: loaded, dirty: false };
-  }
   const had = focusIn([det]); // a tab comes back; Unskip, Include series: the redraw drops the button
   shown = { transcript: t, summary: s };
   const d = m.start ? new Date(m.start) : null;
@@ -653,20 +676,19 @@ async function renderDetail() {
     const tabs = [
       ["summary", "Summary", sumStatus],
       ["transcript", "Transcript", `<span class="tq">${t ? `${t.minutes} min` : "None"}</span>`],
-      ["notes", "My notes", `<span class="tq" id="notes-status">${notes?.id === m.id && notes.dirty ? "Saving…" : "Saved"}</span>`],
+      ["notes", "My notes", `<span class="tq${notSaved.has(m.id) ? " err" : ""}" id="notes-status">${notesState(m.id)}</span>`],
     ]
       .map(([id, label, st]) => `<button class="tab${tab === id ? " on" : ""}" id="tab-${id}" data-tab="${id}" role="tab">${label}${st}</button>`)
       .join("");
     const top = `${head}<div class="tabs" role="tablist">${tabs}</div>`;
     // The notes box drawn for this meeting stays as it is, so a redraw keeps the caret, scroll and undo.
-    const keep = tab === "notes" ? det.querySelector<HTMLTextAreaElement>("#notes") : null;
-    if (keep && keep.dataset.id === m.id) {
+    if (tab === "notes" && loaded === null) {
       [...det.children].forEach((c) => c.id !== "tab-body" && c.remove());
-      keep.closest("#tab-body")!.insertAdjacentHTML("beforebegin", top);
+      $("tab-body").insertAdjacentHTML("beforebegin", top);
     } else if (tab === "notes") {
       det.innerHTML = `${top}<div class="body nb" id="tab-body"><textarea id="notes" class="notes" data-id="${esc(m.id)}" aria-label="My notes" placeholder="Your notes for this meeting. They save as you type." spellcheck="true"></textarea></div>`;
       const box = $<HTMLTextAreaElement>("notes");
-      box.value = notes!.text;
+      box.value = unsaved.get(m.id) ?? loaded!; // typed into while notes.md was read
       box.oninput = notesTyped;
     } else {
       const body = tab === "summary" ? summaryBody(m) : transcriptBody(t);

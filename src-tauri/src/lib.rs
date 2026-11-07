@@ -166,6 +166,12 @@ fn save_notes(app: AppHandle, id: String, text: String) -> Result<(), String> {
     library::write_notes(&library::meeting_dir(&library_path(&app)?, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))
 }
 
+/// Tray Quit's second half: the page has saved its notes.
+#[tauri::command]
+fn quit(app: AppHandle) {
+    app.exit(0);
+}
+
 /// Add to glossary on an applied correction (D23).
 #[tauri::command]
 fn add_to_glossary(app: AppHandle, from: String, to: String) -> Result<(), String> {
@@ -371,7 +377,15 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
                 s.start_at_logon = !s.start_at_logon;
                 let _ = apply_settings(app, s);
             }
-            "quit" => app.exit(0),
+            // The page saves any unsaved notes, then calls quit; it gets 1 s.
+            "quit" => {
+                let _ = app.emit("quitting", ());
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    app.exit(0);
+                });
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, e| {
@@ -465,6 +479,7 @@ pub fn run() {
             add_to_glossary,
             get_notes,
             save_notes,
+            quit,
             pick_transcript_file,
             import_transcript,
             open_folder,

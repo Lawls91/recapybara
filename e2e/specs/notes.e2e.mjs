@@ -10,8 +10,14 @@ const notesOf = (id) => {
   const f = root("library", id, "notes.md");
   return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null;
 };
-const onDisk = (id, text) =>
-  browser.waitUntil(() => notesOf(id) === text, { timeoutMsg: `${id} notes.md never read ${JSON.stringify(text)}, got ${JSON.stringify(notesOf(id))}` });
+/** `timeout` under the 500 ms typing pause proves a save that didn't wait for the pause. */
+const onDisk = (id, text, timeout = 10000) =>
+  browser.waitUntil(() => notesOf(id) === text, {
+    timeout,
+    interval: 20,
+    timeoutMsg: `${id} notes.md never read ${JSON.stringify(text)}, got ${JSON.stringify(notesOf(id))}`,
+  });
+const SOON = 300;
 const openNotes = async (id) => {
   await $(`.row[data-id="${id}"]`).click();
   await $("#tab-notes").click();
@@ -70,18 +76,63 @@ describe("my notes", () => {
     await expect($("#notes")).toHaveValue("one two");
   });
 
-  it("switching meeting or tab saves at once, and each meeting keeps its own notes", async () => {
+  it("switching meeting or tab saves at once, without waiting for the typing pause, and each meeting keeps its own notes", async () => {
     await openNotes(A);
     await $("#notes").click();
     await browser.keys(["End", ..." (done)".split("")]);
-    await openNotes(C); // another meeting opens on Summary, like any row click
-    await expect($("#notes")).toHaveValue("one two");
-    await onDisk(A, "Follow up on Orbit\nAsk Speaker B about the rollout (done)");
+    await $(`.row[data-id="${C}"]`).click(); // another meeting opens on Summary, like any row click
+    await onDisk(A, "Follow up on Orbit\nAsk Speaker B about the rollout (done)", SOON);
+    await $("#tab-notes").click();
+    await expect($(`#notes[data-id="${C}"]`)).toHaveValue("one two");
     await $("#notes").click();
     await browser.keys(" three".split(""));
     await $("#tab-summary").click();
-    await onDisk(C, "one two three");
+    await onDisk(C, "one two three", SOON);
     await openNotes(A);
     await expect($("#notes")).toHaveValue("Follow up on Orbit\nAsk Speaker B about the rollout (done)");
+  });
+
+  it("notes.md edited outside the app shows when My notes is opened again", async () => {
+    await openNotes(A);
+    await $("#tab-summary").click();
+    fs.writeFileSync(root("library", A, "notes.md"), "Edited in another editor");
+    await $("#tab-notes").click();
+    await expect($(`#notes[data-id="${A}"]`)).toHaveValue("Edited in another editor");
+    await $(`.row[data-id="${C}"]`).click();
+    fs.writeFileSync(root("library", A, "notes.md"), "Edited again");
+    await openNotes(A);
+    await expect($("#notes")).toHaveValue("Edited again");
+  });
+
+  it("a failed save shows Not saved on that meeting only, and is retried after a switch until it lands", async () => {
+    const file = root("library", A, "notes.md");
+    fs.writeFileSync(file, "Locked\n");
+    fs.chmodSync(file, 0o444); // read-only: the atomic rename onto it fails
+    try {
+      await openNotes(C); // so A's box is drawn again, from disk
+      await openNotes(A);
+      await expect($("#notes")).toHaveValue("Locked");
+      await $("#notes").click();
+      await browser.keys(["End", ..."and typed".split("")]);
+      await expect($("#notes-status")).toHaveText("Not saved");
+      await openNotes(C);
+      await expect($("#notes-status")).toHaveText("Saved");
+    } finally {
+      fs.chmodSync(file, 0o666);
+    }
+    await $("#tab-summary").click(); // any redraw retries
+    await onDisk(A, "Locked\nand typed");
+    await openNotes(A);
+    await expect($("#notes")).toHaveValue("Locked\nand typed");
+    await expect($("#notes-status")).toHaveText("Saved");
+  });
+
+  // Last: the app exits. Tray Quit emits this event; the page saves, then asks the backend to exit.
+  it("Quit saves what was just typed before the app exits", async () => {
+    await openNotes(C);
+    await $("#notes").click();
+    await browser.keys(["End", ..." bye".split("")]);
+    await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "quitting", payload: null })).catch(() => {});
+    await onDisk(C, "one two three bye", SOON);
   });
 });
