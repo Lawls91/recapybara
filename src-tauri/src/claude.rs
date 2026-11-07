@@ -280,7 +280,11 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
         let input = run.stdin.clone();
         let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
         let out = finish(child, run.timeout);
-        let _ = writer.join();
+        // A stopped run's writer may still be blocked on a pipe a grandchild holds (the claude.cmd shim's node):
+        // left to end on its own.
+        if out.is_ok() {
+            let _ = writer.join();
+        }
         out
     });
     let captured = if run.capture.is_empty() { vec![] } else { take_captured(&capture_dir) };

@@ -86,24 +86,42 @@ document.addEventListener("focusin", (e) => {
   if (row) cursor = row.dataset.id!;
   refocus = false;
 });
-const lost = () => !document.activeElement || document.activeElement === document.body;
-/** Focuses the cursor row, or the first row when there is none; waits (refocus) when it isn't drawn yet. */
+/** Focus is nowhere: on the body, or on something just hidden (the closed row menu). */
+const lost = () => {
+  const a = document.activeElement;
+  return !a || a === document.body || !!a.closest("[hidden]");
+};
+/** Focuses the cursor row; waits (refocus) when it isn't drawn yet. With no cursor row, nothing: keys then do nothing
+ * (D42). */
 function focusCursor() {
+  if (!cursor) return;
   const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")];
-  const row = cursor ? rows.find((r) => r.dataset.id === cursor) : rows[0];
+  const row = rows.find((r) => r.dataset.id === cursor);
   if (!row || row.closest("[hidden]")) {
     refocus = true;
     return;
   }
   rows.forEach((r) => (r.tabIndex = -1));
   row.tabIndex = 0;
-  row.focus();
+  row.focus({ preventScroll: true });
 }
-/** Runs `render`, giving focus back to the cursor row if `render` took it from `within`. */
+/** The id of the focused element when it is inside `within` ("" when it has none), else null. */
+const focusIn = (within: HTMLElement[]) => {
+  const a = document.activeElement as HTMLElement | null;
+  return a && within.some((el) => el.contains(a)) ? a.id : null;
+};
+/** After a redraw: focus back on the same control (a tab) if it is drawn again, else on the cursor row. */
+function regain(had: string | null) {
+  if (!lost()) return;
+  const same = had ? document.getElementById(had) : null;
+  if (same && !same.closest("[hidden]")) same.focus({ preventScroll: true });
+  else if (had !== null || refocus) focusCursor();
+}
+/** Runs `render`, giving focus back if `render` took it from `within`. */
 function keepFocus(within: HTMLElement[], render: () => void) {
-  const had = within.some((el) => el.contains(document.activeElement));
+  const had = focusIn(within);
   render();
-  if ((had || refocus) && lost()) focusCursor();
+  regain(had);
 }
 
 function failed(e: unknown) {
@@ -550,7 +568,7 @@ async function renderDetail() {
   const wantSummary = tab === "summary" && m.hasSummary && m.state !== "summarising" && m.state !== "summaryFailed";
   const s = wantSummary ? await invoke<Summary | null>("get_summary", { id: m.id }) : null;
   if (n !== renders) return; // a newer render started while this one waited
-  const had = det.contains(document.activeElement); // Unskip, Include series: the redraw drops the button
+  const had = focusIn([det]); // a tab comes back; Unskip, Include series: the redraw drops the button
   shown = { transcript: t, summary: s };
   const d = m.start ? new Date(m.start) : null;
   const when = d
@@ -616,7 +634,7 @@ async function renderDetail() {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     openMenu(m, r.right - 210, r.bottom + 4);
   };
-  if ((had || refocus) && lost()) focusCursor();
+  regain(had);
 }
 
 // ---------- wiring ----------

@@ -49,4 +49,27 @@ describe("show all in this series", () => {
     expect(await menuLabels()).toContain("Show all in this series");
     await browser.keys("Escape");
   });
+
+  it("Show all in this series keeps focus on the row it was opened from", async () => {
+    await row("ref week 2").click();
+    await row("ref week 2").$(".kebab").click();
+    await $("#menu-series").click();
+    await expect($("#series-chip")).toBeDisplayed();
+    expect(await browser.execute(() => document.activeElement?.dataset.id ?? null)).toBe("ref week 2");
+    await $("#series-clear").click();
+  });
+
+  it("with no cursor row, a redraw from the detail pane focuses no row, so S and Del do nothing (D42)", async () => {
+    await browser.refresh(); // a fresh page: no row has had focus
+    await expect($$("#meeting-list .row")).toBeElementsArrayOfSize(6);
+    await invoke("import_transcript", { path: freshFixture(), id: null }); // opens the new meeting, no row click
+    await expect($("#tab-transcript")).toBeDisplayed();
+    await $("#tab-transcript").click(); // the tab redraws the pane
+    await expect($("#tab-transcript")).toHaveElementClass("on");
+    expect(await browser.execute(() => !!document.activeElement?.closest(".row"))).toBe(false);
+    await browser.keys("s");
+    await browser.keys("Delete");
+    await expect($("#confirm")).not.toBeDisplayed();
+    expect((await invoke("list_meetings")).filter((m) => m.state === "skipped")).toEqual([]);
+  });
 });
