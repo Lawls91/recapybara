@@ -217,6 +217,15 @@ pub fn meeting_dir(library: &Path, id: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// Delete (D30): the meeting's folder goes to the Recycle Bin. Only a meeting folder of this library: anything else
+/// is refused untouched. Returns the meeting as it was.
+pub fn delete(library: &Path, id: &str) -> Result<Meeting, String> {
+    let dir = meeting_dir(library, id)?;
+    let m = load(&dir).map_err(|_| format!("Not a meeting: {id}"))?;
+    crate::platform::recycle(&dir).map_err(|e| format!("{id} wasn't deleted: {e}"))?;
+    Ok(m)
+}
+
 pub fn load(dir: &Path) -> io::Result<Meeting> {
     Ok(serde_json::from_slice(&fs::read(dir.join(META))?)?)
 }
@@ -894,6 +903,54 @@ Ask Robin about the 403
         let refused = attach(&lib, "running", &source(&src, "Sprint review.vtt", FIXTURE.as_bytes()));
         assert!(refused.unwrap_err().contains("summary is running"));
         assert!(!dir.join(VTT).exists());
+    }
+
+    /// Recycle Bin items named `name` that were deleted from `from`, read through the shell's own view of the bin;
+    /// with `restore`, each is put back where it came from.
+    #[cfg(windows)]
+    fn in_recycle_bin(name: &str, from: &Path, restore: bool) -> usize {
+        let script = "$ns = (New-Object -ComObject Shell.Application).NameSpace(10); \
+            $hits = @($ns.Items() | Where-Object { $_.Name -eq $env:RB_NAME -and $_.ExtendedProperty('System.Recycle.DeletedFrom') -eq $env:RB_FROM }); \
+            if ($env:RB_RESTORE) { $hits | ForEach-Object { $_.InvokeVerb('undelete') } }; $hits.Count";
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("RB_NAME", name)
+            .env("RB_FROM", from)
+            .env("RB_RESTORE", if restore { "1" } else { "" })
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&out.stderr)))
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn deleting_a_meeting_moves_its_folder_to_the_recycle_bin_and_leaves_the_others_alone() {
+        let lib = temp("delete");
+        let pid = std::process::id();
+        let (a, b) = (format!("2026-11-05 1400 Synthetic A {pid}"), format!("2026-11-05 1500 Synthetic B {pid}"));
+        for id in [&a, &b] {
+            fs::create_dir_all(lib.join(id)).unwrap();
+            save(&lib.join(id), &Meeting { subject: id.clone(), ..Meeting::default() }).unwrap();
+            fs::write(lib.join(id).join(VTT), FIXTURE).unwrap();
+        }
+        assert_eq!(delete(&lib, &a).unwrap().subject, a);
+        assert!(!lib.join(&a).exists(), "A has left the library");
+        assert_eq!(fs::read_to_string(lib.join(&b).join(VTT)).unwrap(), FIXTURE, "B is untouched");
+        assert_eq!(load(&lib.join(&b)).unwrap().subject, b);
+        // The proof it was recycled, not destroyed: the bin lists A, deleted from this library. Put back, it is whole.
+        assert_eq!(in_recycle_bin(&a, &lib, true), 1, "A is in the Recycle Bin");
+        assert_eq!(fs::read_to_string(lib.join(&a).join(VTT)).unwrap(), FIXTURE, "restored from the Recycle Bin");
+        let _ = fs::remove_dir_all(&lib);
+    }
+
+    #[test]
+    fn delete_refuses_anything_but_a_meeting_folder_of_the_library_and_touches_nothing() {
+        let lib = temp("delete-refused");
+        fs::create_dir_all(lib.join("stray")).unwrap();
+        for id in ["stray", "missing", "..", "../delete-refused", "C:stray"] {
+            assert!(delete(&lib, id).unwrap_err().starts_with("Not a meeting"), "{id}");
+        }
+        assert!(lib.join("stray").exists());
     }
 
     #[test]

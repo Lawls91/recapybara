@@ -148,6 +148,17 @@ fn skip_meeting(app: AppHandle, id: String) -> Result<String, String> {
     Ok(done)
 }
 
+/// Delete (D30), after the page's confirmation: the folder goes to the Recycle Bin, and its calendar event, if any,
+/// stays out of the list and the fetch.
+#[tauri::command]
+fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
+    let m = library::delete(&library_path(&app)?, &id)?;
+    if let Some(e) = m.event_id {
+        app.state::<AppState>().calendar.forget(&e);
+    }
+    Ok(())
+}
+
 /// Unskip (D49): a meeting that ended within the catch-up window is fetched at once.
 #[tauri::command]
 fn unskip_meeting(app: AppHandle, id: String) -> Result<(), String> {
@@ -520,6 +531,7 @@ pub fn run() {
             take_pending_meeting,
             skip_meeting,
             unskip_meeting,
+            delete_meeting,
             is_dev
         ])
         .run(tauri::generate_context!())

@@ -109,8 +109,9 @@ export function menuFor(m: Meeting): MenuItem[] {
   // D17 keys a series by join URL.
   if (m.joinUrl)
     group.push(m.excluded ? { id: "include", label: "Include series", icon: "" } : { id: "exclude", label: "Exclude series", icon: "", key: "E" });
-  group.push({ id: "delete", label: "Delete", icon: "", key: "Del", danger: true });
-  group[0].sep = true;
+  // Delete moves the folder to the Recycle Bin (D30); a calendar-cache meeting has none yet.
+  if (m.source !== "calendar") group.push({ id: "delete", label: "Delete", icon: "", key: "Del", danger: true });
+  if (group.length) group[0].sep = true;
   items.push(...group);
   if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "" });
   items.push({ id: "export", label: "Export to vault", icon: "", later: true, sep: true });

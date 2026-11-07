@@ -23,3 +23,5 @@ sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.7"
+# Already in the tree through tauri; only the Recycle Bin call (D30) is added.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell"] }

@@ -178,6 +178,8 @@ struct Inner {
     events: Vec<Event>,
     status: Status,
     last_start: Option<DateTime<Utc>>,
+    /// Event ids of meetings deleted this session (D30), so the list and the fetch don't bring them back.
+    deleted: Vec<String>,
 }
 
 /// The calendar cache, in memory: the first refresh at start fills it again.
@@ -196,7 +198,15 @@ fn run_failure(e: &io::Error) -> String {
 
 impl Calendar {
     pub fn events(&self) -> Vec<Event> {
-        self.0.lock().unwrap().events.clone()
+        let i = self.0.lock().unwrap();
+        i.events.iter().filter(|e| !i.deleted.contains(&e.id)).cloned().collect()
+    }
+
+    /// A deleted meeting's event (D30) leaves the cache for good, through every later refresh.
+    // ponytail: in memory only; an app restart within the cache's 2-hour look-back captures it again. Persist the ids
+    // in settings if that bites.
+    pub fn forget(&self, event_id: &str) {
+        self.0.lock().unwrap().deleted.push(event_id.into());
     }
 
     pub fn status(&self) -> Status {
@@ -417,6 +427,17 @@ mod tests {
         assert!(going.join().unwrap());
         assert!(!cal.status().refreshing);
         assert!(cal.tick(t0 + EVERY, good(vec![]), || {}), "due once the first has finished");
+    }
+
+    #[test]
+    fn a_deleted_meetings_event_stays_out_of_the_cache_and_the_list_through_later_refreshes() {
+        let cal = Calendar::default();
+        cal.refresh(now(), good(all_teams()), || {});
+        cal.forget("SYNTH-EVENT-3");
+        assert_eq!(subjects(&cal.events()), ["Backlog Refinement", "Focus"]);
+        cal.refresh(now() + Duration::minutes(30), good(all_teams()), || {});
+        let list: Vec<String> = listed(&cal.events(), vec![]).into_iter().map(|l| l.meeting.subject).collect();
+        assert_eq!(list, ["Focus", "Backlog Refinement"], "a later refresh brings it back neither to the cache nor the list");
     }
 
     #[test]

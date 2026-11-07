@@ -37,6 +37,8 @@ test("Skip is only on a meeting not yet captured, and an excluded series offers 
 
 test("a meeting from the calendar cache has no Open folder until it is captured", () => {
   expect(menuFor({ ...meeting("scheduled"), source: "calendar" }).map((i) => i.id)).not.toContain("folder");
+  expect(menuFor({ ...meeting("scheduled"), source: "calendar" }).map((i) => i.id)).not.toContain("delete");
+  expect(menuFor(meeting("scheduled")).map((i) => i.id)).toContain("delete");
   expect(menuFor(meeting("scheduled")).map((i) => i.id)).toContain("folder");
 });
 

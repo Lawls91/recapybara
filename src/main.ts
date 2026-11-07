@@ -425,7 +425,7 @@ $("meeting-list").addEventListener("keydown", (e) => {
   if (!row) return;
   const m = byId(row.dataset.id)!;
   if (e.key === "Enter") open(m.id);
-  else if (e.key === "Delete") askDelete(m);
+  else if (e.key === "Delete" && menuFor(m).some((i) => i.id === "delete")) askDelete(m);
   else if ((e.key === "s" || e.key === "S") && menuFor(m).some((i) => i.id === "skip")) skip(m);
   else if ((e.key === "e" || e.key === "E") && menuFor(m).some((i) => i.id === "exclude")) exclude(m);
   else return;
@@ -487,14 +487,30 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+let deleting: Meeting | null = null;
 function askDelete(m: Meeting) {
   closeMenu();
+  deleting = m;
   $("confirm-title").textContent = `Delete “${m.subject || m.id}”?`;
   $<HTMLDialogElement>("confirm").showModal();
 }
 $("confirm-cancel").onclick = () => $<HTMLDialogElement>("confirm").close();
-// ponytail: deleting the folder is ticket 17; until then confirming only closes the prompt.
-$("confirm-delete").onclick = () => $<HTMLDialogElement>("confirm").close();
+// Delete (D30): the folder goes to the Recycle Bin, then the meeting leaves the list, its search hits and the detail
+// pane; the keyboard cursor moves to the row below it (or above, for the last).
+$("confirm-delete").onclick = async () => {
+  $<HTMLDialogElement>("confirm").close();
+  const m = deleting;
+  if (!m || (await invoke("delete_meeting", { id: m.id }).then(() => false, (e) => (failed(e), true)))) return;
+  unsaved.delete(m.id); // its notes went with the folder
+  notSaved.delete(m.id);
+  if (cursor === m.id) {
+    const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")].map((r) => r.dataset.id);
+    const at = rows.indexOf(m.id);
+    cursor = rows[at + 1] ?? rows[at - 1] ?? null;
+  }
+  await loadMeetings();
+  focusCursor();
+};
 
 // ---------- import (D15, D44) ----------
 
