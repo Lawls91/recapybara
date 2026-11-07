@@ -53,6 +53,16 @@ const shots = async (name) => {
   await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance: "light" } });
 };
 const seededJson = () => fs.readFileSync(root("library", SEEDED, "meeting.json"), "utf8");
+// A review row's date as en-GB short weekday, day and month, from fixed names (not the page's formatter).
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const reviewLine = (d, subject) => `${WD[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]} ${String(d.getHours()).padStart(2, "0")}:00 ${subject} · Robin Sample`;
+/** The review list as shown: each row's text, whether ticked, and its checkbox's accessible name. */
+const review = () =>
+  browser.execute(() =>
+    [...document.querySelectorAll("#teams-list input[type=checkbox]")].map((i) => ({ text: i.closest("label").textContent, checked: i.checked, name: i.labels[0]?.textContent ?? "" })),
+  );
+const politeLive = (id) => browser.execute((i) => document.getElementById(i).closest('[aria-live="polite"]') !== null, id);
 
 describe("import from Teams", () => {
   let s;
@@ -147,6 +157,11 @@ describe("import from Teams", () => {
     await $("#teams-search").click();
     await expect($("#teams-msg")).toHaveText("Found 3 Teams meetings with a transcript. 1 left out: already captured, skipped, deleted or excluded.", { wait: 60000 }); // 7 day runs, 4 at once
     await expect($("#teams-go")).toBeDisplayed();
+    // The review list: every meeting found, oldest first, with date, time, title and organiser, all ticked.
+    await expect($("#teams-review")).toBeDisplayed();
+    const rows = [[B, daysAgo(3, 14)], [A, daysAgo(2, 10)], [C, daysAgo(2, 15)]].map(([e, d]) => reviewLine(d, e.subject));
+    expect(await review()).toEqual(rows.map((text) => ({ text, checked: true, name: text })));
+    await expect($("#teams-hint")).toHaveText("3 meetings to import, about 2 min.");
     await shots("found");
     expect(DAYS.map((w) => daySearches().filter((r) => r.argv.some((a) => a.includes(w))).length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
     expect(transcriptReads().length).toBe(0);
@@ -162,6 +177,10 @@ describe("import from Teams", () => {
     // C's empty list is done once fetched; A and B once summarised too.
     await expect($("#calendar-status")).toHaveText("Importing: 1 of 3 done…", { wait: 20000 });
     await browser.waitUntil(async () => !(await $("#calendar-status").getText()).startsWith("Importing"), { timeout: 40000, timeoutMsg: "the import never ended" });
+    // The end report stays in a banner, announced like the progress was.
+    await expect($("#import-report")).toBeDisplayed();
+    await expect($("#import-report-text")).toHaveText("Imported 3: 2 summarised, 0 not reachable, 1 no transcript, 0 failed.");
+    expect([await politeLive("calendar-status"), await politeLive("import-report")]).toEqual([true, true]);
     expect(mostAtOnce([A, B, C].map((e) => fetchesOf(e)[0]))).toBe(3);
     expect(mostAtOnce(summaries())).toBe(2);
 
@@ -220,5 +239,48 @@ describe("import from Teams", () => {
     const retries = claudeRecords().filter((r) => r.argv[1] === `Call read_resource once on each of these uris, exactly as given: "${F.uri}". Reply DONE.`);
     expect(retries.length).toBe(1);
     await $("#teams-cancel").click();
+  });
+
+  it("the review list scrolls when long, Select none and Select all work, a checkbox ticks from the keyboard, and Import takes only the ticked ones", async () => {
+    await $("#import-report-close").click();
+    await expect($("#import-report")).not.toBeDisplayed();
+    // Ten more meetings, two a day over the last five days, none in the library.
+    const many = Array.from({ length: 10 }, (_, i) => event(60 + i, `Teams import pick ${i}`, daysAgo(1 + (i % 5), 8 + Math.floor(i / 5) * 2)));
+    const t = calendar([...many, D], [...many, D].map((e) => `https://teams.example/j/${e.id}`), { structuredOutput: { overview: "Synthetic summary." } });
+    t.hooks.push(...many.map((e) => transcriptRead(e, body(e, vtt(e.id)))));
+    scenario(t);
+    await $("#import-button").click();
+    await $("#import-teams").click();
+    await $("#teams-search").click();
+    await expect($("#teams-hint")).toHaveText("10 meetings to import, about 5 min.", { wait: 60000 });
+    expect((await review()).map((r) => r.checked)).toEqual(Array(10).fill(true));
+    const box = await browser.execute(() => {
+      const l = document.getElementById("teams-list");
+      const d = document.getElementById("teams").getBoundingClientRect();
+      return { scrolls: l.scrollHeight > l.clientHeight, overflow: getComputedStyle(l).overflowY, inWindow: d.bottom <= innerHeight && d.top >= 0 };
+    });
+    expect(box).toEqual({ scrolls: true, overflow: "auto", inWindow: true });
+
+    await $("#teams-none").click();
+    expect((await review()).map((r) => r.checked)).toEqual(Array(10).fill(false));
+    await expect($("#teams-hint")).toHaveText("Tick at least one meeting to import.");
+    await expect($("#teams-go")).toBeDisabled();
+    await $("#teams-all").click();
+    expect((await review()).map((r) => r.checked)).toEqual(Array(10).fill(true));
+    await $("#teams-none").click();
+    // Keyboard: Tab from Select none reaches the first meeting's native checkbox, and Space ticks it.
+    await browser.keys(Key.Tab);
+    expect(await browser.execute(() => document.activeElement?.matches("#teams-list input[type=checkbox]") && document.activeElement === document.querySelector("#teams-list input"))).toBe(true);
+    await browser.keys(Key.Space);
+    expect((await review()).map((r) => r.checked)).toEqual([true, ...Array(9).fill(false)]);
+    await expect($("#teams-hint")).toHaveText("1 meeting to import, about 1 min.");
+    await expect($("#teams-go")).toBeEnabled();
+
+    // The first row is the oldest: pick 4 (5 days ago, 08:00).
+    const first = many[4];
+    await $("#teams-go").click();
+    await expect($("#import-report-text")).toHaveText("Imported 1: 1 summarised, 0 not reachable, 0 no transcript, 0 failed.", { wait: 40000 });
+    expect(many.map((e) => fetchesOf(e).length)).toEqual(many.map((e) => (e === first ? 1 : 0)));
+    expect((await meetingOf(first)).state).toBe("done");
   });
 });

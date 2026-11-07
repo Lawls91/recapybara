@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { awaitingLine, calendarLine, dayGroups, deletePrompt, menuFor, type Meeting } from "./meetings";
+import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, menuFor, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -128,4 +128,12 @@ test("a meeting with a summary offers Copy summary and Copy actions; one without
   expect(ids(meeting("done"))).toEqual(expect.arrayContaining(["copy-summary", "copy-actions"]));
   expect(ids({ ...meeting("transcriptReady"), hasSummary: false })).not.toContain("copy-summary");
   expect(ids({ ...meeting("transcriptReady"), hasSummary: false })).not.toContain("copy-actions");
+});
+
+test("each capture failure's card says why: its state's reason, and Capture failed the recorded attempt's", () => {
+  const failed = (state: Meeting["state"], fetchError?: string) => failureReason({ ...meeting(state), hasTranscript: false, hasSummary: false, fetchError });
+  expect(failed("noTranscript")).toBe("Teams had no transcript for this meeting (transcription may have been off).");
+  expect(failed("notReachable")).toBe("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
+  expect(failed("captureFailed", "Teams sent a size-limit notice instead of the transcript.")).toBe("Teams sent a size-limit notice instead of the transcript.");
+  expect(failed("captureFailed")).toBe("The last attempt saved no transcript, and recorded no reason."); // a folder from before reasons were kept
 });

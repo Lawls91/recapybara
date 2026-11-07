@@ -8,6 +8,7 @@ import {
   calendarLine,
   dayGroups,
   deletePrompt,
+  failureReason,
   menuFor,
   needsTranscript,
   STATE_CARDS,
@@ -18,7 +19,7 @@ import {
 } from "./meetings";
 import { byMeeting, FIELDS, markParts, metaHits, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
 import { actionsText, chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
-import { defaultRange, foundText, rangeError, ymd } from "./teams";
+import { defaultRange, foundText, importHint, rangeError, ymd } from "./teams";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 // Stable element ids from the folder name (WebView2 exposes ids as UIA AutomationIds).
@@ -302,7 +303,8 @@ const time = (iso: string | null) =>
 const span = (m: Meeting) => [time(m.start), time(m.end)].filter(Boolean).join("–");
 
 function mark(m: Meeting) {
-  const { family, label } = STATES[m.state];
+  // A fetch running now (Try again, the scheduler's or an import's) shows on the row and the card.
+  const { family, label } = m.fetching ? { family: "work", label: "Fetching transcript" } : STATES[m.state];
   return `<span class="mark f-${family}"><i class="dot b-${family}${family === "up" ? " ring" : ""}${family === "live" ? " pulse" : ""}"></i><span class="lbl">${label}</span></span>`;
 }
 
@@ -670,6 +672,7 @@ function checkTeamsRange() {
   teamsMessage(error ?? "", !!error);
   $<HTMLButtonElement>("teams-search").disabled = !!error || searching;
   $("teams-go").hidden = true;
+  $("teams-review").hidden = true;
   return !error;
 }
 function openTeams() {
@@ -687,11 +690,23 @@ $("teams-search").onclick = async () => {
   $<HTMLButtonElement>("teams-search").disabled = true;
   teamsMessage("Searching your calendar\u2026");
   try {
-    const r = await invoke<{ found: number; leftOut: number; unreadable: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
+    const r = await invoke<{ meetings: Found[]; leftOut: number; unreadable: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
     if (at !== teamsSearch) return;
-    teamsMessage(foundText(r.found, r.leftOut, r.unreadable));
-    $("teams-go").hidden = r.found === 0;
-    if (r.found) $("teams-go").focus();
+    const n = r.meetings.length;
+    teamsMessage(foundText(n, r.leftOut, r.unreadable));
+    // The review list: every meeting found, ticked; Import takes only the ticked ones.
+    $("teams-list").innerHTML = r.meetings
+      .sort((x, y) => x.start.localeCompare(y.start))
+      .map((f, i) => {
+        const d = new Date(f.start);
+        const when = `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }).replace(",", "")} ${time(f.start)}`;
+        return `<label id="teams-item-${i}"><input type="checkbox" value="${esc(f.id)}" checked /><span class="rw">${esc(when)}</span> <span class="rt">${esc(f.subject)}${f.organiser ? ` <span class="ro">· ${esc(f.organiser)}</span>` : ""}</span></label>`;
+      })
+      .join("");
+    $("teams-review").hidden = n === 0;
+    $("teams-go").hidden = n === 0;
+    paintTeamsHint();
+    if (n) $("teams-go").focus();
   } catch (e) {
     if (at === teamsSearch) teamsMessage(String(e), true);
   } finally {
@@ -699,11 +714,32 @@ $("teams-search").onclick = async () => {
     $<HTMLButtonElement>("teams-search").disabled = !!rangeError(teamsFrom.value, teamsTo.value, ymd(new Date()));
   }
 };
+interface Found {
+  id: string;
+  subject: string;
+  start: string;
+  organiser: string | null;
+}
+const ticked = () => [...document.querySelectorAll<HTMLInputElement>("#teams-list input:checked")].map((i) => i.value);
+/** How many are ticked and about how long they take; Import needs at least one. */
+function paintTeamsHint() {
+  const n = ticked().length;
+  $("teams-hint").textContent = importHint(n);
+  $<HTMLButtonElement>("teams-go").disabled = !n;
+}
+$("teams-list").addEventListener("change", paintTeamsHint);
+const tickAll = (on: boolean) => () => {
+  document.querySelectorAll<HTMLInputElement>("#teams-list input").forEach((i) => (i.checked = on));
+  paintTeamsHint();
+};
+$("teams-all").onclick = tickAll(true);
+$("teams-none").onclick = tickAll(false);
 // Import names the dates on show: the backend refuses them unless its latest search was for them.
 $("teams-go").onclick = () => {
-  const [from, to] = [teamsFrom.value, teamsTo.value];
+  const [from, to, ids] = [teamsFrom.value, teamsTo.value, ticked()];
   teams.close();
-  invoke("teams_import", { from, to }).catch(failed);
+  $("import-report").hidden = true;
+  invoke("teams_import", { from, to, ids }).catch(failed);
 };
 $("teams-cancel").onclick = () => teams.close();
 teams.addEventListener("close", () => {
@@ -717,6 +753,13 @@ listen<string | null>("teams-import", (e) => {
   loadCalendarStatus();
 });
 $("import-error-close").onclick = () => ($("import-error").hidden = true);
+/** The import's end report ("Imported 3: 2 summarised, ..."): a banner kept until dismissed, so the toasts aren't the
+ * only record. The banners are a polite live region, so it is announced. */
+listen<string>("teams-import-report", (e) => {
+  $("import-report-text").textContent = e.payload;
+  $("import-report").hidden = false;
+});
+$("import-report-close").onclick = () => ($("import-report").hidden = true);
 
 listen<string>("meeting-changed", () => loadMeetings());
 /** The library folder gone or back since the list was drawn (D45): reload, so the banner follows it. */
@@ -804,8 +847,18 @@ function attachStrip() {
     <button id="attach-choose" class="btn">Choose file</button></div>`;
 }
 
+/** A capture failure's card (mirrors Summary failed's): why, then Try again and Import transcript. While its fetch
+ * runs, it says so, and Try again stays focusable but does nothing. */
+function fetchCard(m: Meeting) {
+  const busy = !!m.fetching;
+  const title = busy ? `<i class="spin"></i>Fetching transcript` : STATES[m.state].label;
+  const why = busy ? "Asking Teams for this meeting’s transcript again…" : failureReason(m);
+  return `<div class="card${busy ? "" : " err"}" id="fetch-card"><h5>${title}</h5><p id="fetch-reason">${esc(why)}</p>
+    <div class="acts"><button class="btn pri" id="fetch-retry"${busy ? ` aria-disabled="true"` : ""}>Try again</button><button class="btn" id="import-now">Import transcript</button></div></div>`;
+}
+
 function summaryBody(m: Meeting) {
-  if (needsTranscript(m.state)) return attachStrip();
+  if (needsTranscript(m.state)) return fetchCard(m) + attachStrip();
   if (m.state === "summarising")
     return `<div class="card"><h5><i class="spin"></i>Summarising</h5><p>Claude is writing the summary. It shows here when it’s checked.</p></div>`;
   if (m.state === "summaryFailed")
@@ -997,8 +1050,12 @@ async function renderDetail() {
   if (un) un.onclick = () => unskip(m);
   const inc = document.getElementById("include-series");
   if (inc) inc.onclick = () => include(m.joinUrl!);
-  const choose = document.getElementById("attach-choose") ?? document.getElementById("import-now");
-  if (choose) choose.onclick = () => chooseFile(m.id);
+  for (const id of ["attach-choose", "import-now"]) {
+    const choose = document.getElementById(id);
+    if (choose) choose.onclick = () => chooseFile(m.id);
+  }
+  const retry = document.getElementById("fetch-retry");
+  if (retry && !m.fetching) retry.onclick = () => invoke("retry_fetch", { id: m.id }).catch(failed);
   const action = document.getElementById("summary-action");
   if (action) action.onclick = () => runSummary(m.id);
   det.querySelectorAll<HTMLElement>(".chip[data-cite]").forEach((b) => (b.onclick = () => openPeek(b)));

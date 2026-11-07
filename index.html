@@ -30,6 +30,10 @@
             <span id="import-error-text"></span>
             <button id="import-error-close" class="ib sm" title="Dismiss" aria-label="Dismiss"><i class="ic">&#xE711;</i></button>
           </p>
+          <p id="import-report" class="import-error report" hidden>
+            <span id="import-report-text"></span>
+            <button id="import-report-close" class="ib sm" title="Dismiss" aria-label="Dismiss"><i class="ic">&#xE711;</i></button>
+          </p>
         </div>
         <div id="series-filter" class="sfilter" hidden></div>
         <div id="meeting-list" class="list" role="listbox" aria-label="Meetings"></div>
@@ -104,6 +108,15 @@
         <label>To <input type="date" id="teams-to" /></label>
       </div>
       <p id="teams-msg" class="tmsg" role="status" aria-live="polite"></p>
+      <fieldset id="teams-review" class="review" hidden>
+        <legend>Meetings to import</legend>
+        <div class="revacts">
+          <button id="teams-all" class="lnk" type="button">Select all</button>
+          <button id="teams-none" class="lnk" type="button">Select none</button>
+        </div>
+        <div id="teams-list" class="revlist"></div>
+        <p id="teams-hint" class="tmsg" role="status" aria-live="polite"></p>
+      </fieldset>
       <div class="acts">
         <button id="teams-cancel" class="btn">Cancel</button>
         <button id="teams-search" class="btn">Search</button>

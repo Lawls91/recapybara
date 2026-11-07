@@ -84,11 +84,18 @@ past meetings' transcripts by date range, for meetings the app wasn't running fo
    out because they are already in the library (captured or skipped, matched by the calendar event), deleted, or in an
    excluded series. An event whose read failed is read once more in a run of its own; one still unreadable is counted,
    not dropped: "2 couldn't be read. Search again to retry." Nothing is fetched yet.
-3. **Import** fetches up to 4 meetings at once, exactly as after a meeting, and summarises each capture as it lands,
+   Below that, a review list names every meeting found (date, time, title and organiser, oldest first), each with a
+   native checkbox, all ticked. Select all and Select none tick or clear them all; a long list scrolls inside the
+   dialog. A line under the list counts the ticked meetings with a rough time, "3 meetings to import, about 2 min."
+   (a minute a meeting, fetch plus summary, two at once; no money figure). Import needs at least one ticked.
+3. **Import** fetches only the ticked meetings, up to 4 at once, exactly as after a meeting, and summarises each capture as it lands,
    up to 2 at once. The status line shows "Importing: 3 of 7 done…" (a meeting is done once fetched, and summarised
    if captured), and each meeting appears in the list as it lands. A meeting whose transcript list is empty
    stays as a "No transcript" row, like "Not reachable" and "Capture failed" ones, so you can attach the transcript
-   or delete it. Being in the library, it is left out of a later Search of the same dates.
+   or delete it. Being in the library, it is left out of a later Search of the same dates. When the import ends, a
+   banner above the list keeps its report until dismissed: "Imported 3: 2 summarised, 0 not reachable, 1 no
+   transcript, 0 failed." (plus ", 1 awaiting transcript" for one that ended under 2 hours ago and is still on its
+   retries). The progress and the report are announced (polite live regions).
 
 **Cost:** one Claude run (haiku) per day searched (plus one read retry for a day whose reads failed), then two per
 meeting: one fetch run (haiku) and one summary run (the summary model, Sonnet by default). Importing 7 meetings found
@@ -215,6 +222,16 @@ to the end are kept, each must be VTT with a cue. One part is saved as `transcri
 | no read of the exact URL, a failed run, another error | a failed attempt, retried the same way, then "Capture failed" |
 | the size-limit stub ("exceeds maximum allowed tokens"), any other shape | "Capture failed" at once, with its toast |
 | a 403 or 3003 (either hook) | "Not reachable", no more attempts |
+
+Each failure state's card, above its attach strip, says why and what to do, like the Summary failed card: No transcript
+reads "Teams had no transcript for this meeting (transcription may have been off).", Not reachable "Microsoft blocked
+access to this transcript (403: you are not the organiser, or the organiser restricted downloads).", and Capture failed
+the last attempt's reason in plain words (kept as `fetchError` in `meeting.json`, e.g. "Teams sent a size-limit notice
+instead of the transcript."). Each card has **Try again** and **Import transcript**. Try again runs one fetch attempt
+now, through the same fetch code and per-meeting claim as the schedule (refused while another fetch has the meeting);
+the row and card read "Fetching transcript" while it runs, and its outcome lands like any attempt's: a capture is
+summarised, a 403 is Not reachable, an empty list is No transcript again. A late transcript or newly granted access can
+change the answer, so it is offered on all three.
 
 An event that ended under 120 minutes ago while the app was closed gets an attempt as soon as the calendar finds it,
 then the rest of the schedule from its end. `meeting.json` keeps `transcriptUrl`, `attempts`, `nextAttempt` and

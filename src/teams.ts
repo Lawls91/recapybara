@@ -29,3 +29,16 @@ export function foundText(found: number, leftOut: number, unreadable = 0) {
   const unread = unreadable ? ` ${unreadable} couldn't be read. Search again to retry.` : "";
   return `Found ${n} Teams meeting${found === 1 ? "" : "s"} with a transcript.${out}${unread}`;
 }
+
+/** Seconds one meeting takes: its fetch and its summary, about 26 s and 32 s each (perf spike, 2026-11-07). */
+export const MEETING_S = 60;
+/** Summaries run this many at once (fetch::SUMMARIES), so they set the pace. */
+export const AT_ONCE = 2;
+
+/** The line under the review list before Import: how many are ticked and roughly how long they take. */
+export function importHint(n: number) {
+  if (!n) return "Tick at least one meeting to import.";
+  // ponytail: a constant per meeting; calibrate from runs.jsonl if the estimate drifts.
+  const min = Math.max(1, Math.ceil((n * MEETING_S) / AT_ONCE / 60));
+  return `${n} meeting${n === 1 ? "" : "s"} to import, about ${min} min.`;
+}

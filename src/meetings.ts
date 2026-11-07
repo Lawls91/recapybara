@@ -33,6 +33,10 @@ export interface Meeting {
   /** When the next fetch attempt is due, and the attempts still to come (D12, counted by the backend). */
   nextAttempt?: string | null;
   attemptsLeft?: number;
+  /** Why the last fetch attempt failed, in plain words (shown on the Capture failed card). */
+  fetchError?: string | null;
+  /** A fetch attempt for it is running now. */
+  fetching?: boolean;
 }
 
 /** D41: dot family and label for each state. */
@@ -59,6 +63,15 @@ export const STATE_CARDS: Partial<Record<State, string>> = {
 };
 
 export const needsTranscript = (s: State) => s === "noTranscript" || s === "notReachable" || s === "captureFailed";
+
+/** Why a capture failure state has no transcript, for its card: the state's own reason, and Capture failed's from the
+ * recorded attempt. The card's actions are Try again and Import transcript. */
+export function failureReason(m: Meeting): string {
+  if (m.state === "noTranscript") return "Teams had no transcript for this meeting (transcription may have been off).";
+  if (m.state === "notReachable")
+    return "Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).";
+  return m.fetchError || "The last attempt saved no transcript, and recorded no reason.";
+}
 
 /** D49: "Run summary" before the first summary, "Re-run summary" after. */
 export const summaryAction = (m: Meeting) => (m.hasSummary ? "Re-run summary" : "Run summary");

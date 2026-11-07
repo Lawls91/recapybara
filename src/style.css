@@ -174,6 +174,12 @@ button {
   color: var(--st-failtxt);
   font-size: 12px;
 }
+/* Import from Teams' end report: a record, not a failure. */
+.import-error.report {
+  background: var(--mc-lav);
+  border-color: var(--mc-stroke);
+  color: var(--mc-txt);
+}
 
 /* ---- the meeting list (D40, D41, D42) ---- */
 /* Basis 0: the list takes what is left, so a status line that wraps pushes it down instead of overlapping. */
@@ -990,6 +996,58 @@ select {
 }
 .teams .tmsg.err {
   color: var(--st-failtxt);
+}
+/* The review list: every meeting found, ticked by default; it scrolls when long. */
+.teams {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+}
+.teams .review {
+  border: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  min-width: 0;
+}
+.teams .review legend {
+  font-size: 12px;
+  color: var(--mc-txt2);
+  padding: 0;
+}
+.teams .revacts {
+  display: flex;
+  gap: 14px;
+  margin: 4px 0 6px;
+}
+.teams .revlist {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--mc-stroke);
+  border-radius: 6px;
+  padding: 4px 0;
+  margin-bottom: 8px;
+}
+.teams .revlist label {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--mc-txt);
+}
+.teams .revlist .rw {
+  color: var(--mc-txt2);
+  white-space: nowrap;
+}
+.teams .revlist .ro {
+  color: var(--mc-txt2);
+}
+/* A capture failure's card (reason, Try again, Import transcript) sits above its attach strip. */
+#fetch-card {
+  margin-bottom: 14px;
+}
+#fetch-card .acts {
+  display: flex;
+  gap: 8px;
 }
 .btn:disabled {
   color: var(--mc-dis);

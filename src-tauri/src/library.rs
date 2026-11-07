@@ -53,6 +53,9 @@ pub struct Meeting {
     pub last_summary: Option<DateTime<FixedOffset>>,
     /// Why the last summary run failed, shown on its Summary failed card. Never transcript text.
     pub summary_error: Option<String>,
+    /// Why the last fetch attempt failed, in plain words, shown on its Capture failed card. Never transcript text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetch_error: Option<String>,
     /// Ticket keys the last good summary run's Jira lookups found (D20). Keys only, never a response.
     /// None: summarised before keys were checked, so no key is marked until a re-run.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,6 +81,8 @@ pub struct Listed {
     pub excluded: bool,
     /// Fetch attempts still to come (D12), for the Awaiting transcript card.
     pub attempts_left: u32,
+    /// A fetch attempt for it is running now (the scheduler's, Try again or Import from Teams).
+    pub fetching: bool,
 }
 
 /// In an excluded series (D17): the join URL every occurrence shares is in `series`.
@@ -265,6 +270,7 @@ pub fn list(library: &Path) -> Vec<Listed> {
                 has_summary: dir.join(SUMMARY_MD).exists(),
                 excluded: false,
                 attempts_left: crate::fetch::attempts_left(&meeting),
+                fetching: crate::fetch::fetching(library, meeting.event_id.as_deref().unwrap_or(&e.file_name().to_string_lossy())),
                 meeting,
             })
         })
