@@ -455,6 +455,57 @@ pub fn write_notes(dir: &Path, text: &str) -> io::Result<()> {
     write_atomic(&dir.join(NOTES_MD), text.as_bytes())
 }
 
+/// One search hit (D28): the meeting, the tab its file shows in, the matching line as the snippet shows it, and for
+/// a transcript line its turn's time.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Hit {
+    pub id: String,
+    pub tab: &'static str,
+    pub line: String,
+    pub at: Option<String>,
+}
+
+/// ponytail: the first 3 matching lines per meeting, so a common word can't flood the list; add "N more" if missed.
+pub const HITS_PER_MEETING: usize = 3;
+
+/// A file line as its snippet shows it: a transcript turn's `**[hh:mm:ss] Speaker:**` gives its time and reads
+/// "Speaker: text"; other lines lose their leading markdown marks.
+fn snippet_line(tab: &str, raw: &str) -> (String, Option<String>) {
+    let line = raw.trim();
+    if tab == "transcript" {
+        if let Some((at, rest)) = line.strip_prefix("**[").and_then(|r| r.split_once("] ")) {
+            if let Some((who, text)) = rest.split_once(":**") {
+                return (format!("{who}: {}", text.trim()), Some(at.to_string()));
+            }
+        }
+    }
+    (line.trim_start_matches(['#', '-', ' ']).to_string(), None)
+}
+
+/// Search (D28): a plain scan, no index, of each meeting's `summary.md`, `transcript.md` and `notes.md`, ignoring
+/// case. Meetings come in list order (newest first), each one's hits in tab order.
+pub fn search(library: &Path, query: &str) -> Vec<Hit> {
+    let q = query.trim().to_lowercase();
+    let mut hits = vec![];
+    if q.is_empty() {
+        return hits;
+    }
+    for l in list(library) {
+        let dir = library.join(&l.id);
+        let mut n = 0;
+        for (tab, file) in [("summary", SUMMARY_MD), ("transcript", TRANSCRIPT_MD), ("notes", NOTES_MD)] {
+            for raw in fs::read_to_string(dir.join(file)).unwrap_or_default().lines() {
+                let (line, at) = snippet_line(tab, raw);
+                if n < HITS_PER_MEETING && line.to_lowercase().contains(&q) {
+                    hits.push(Hit { id: l.id.clone(), tab, line, at });
+                    n += 1;
+                }
+            }
+        }
+    }
+    hits
+}
+
 /// `glossary.md` at the library root, one entry per line, edited by the user (D23).
 pub const GLOSSARY: &str = "glossary.md";
 
@@ -712,6 +763,75 @@ Ask Robin about the 403
         fs::write(lib.join(GLOSSARY), b"caf\xe9").unwrap();
         assert!(add_to_glossary(&lib, &c).is_err(), "an unreadable glossary is not overwritten");
         assert_eq!(fs::read(lib.join(GLOSSARY)).unwrap(), b"caf\xe9");
+    }
+
+    /// Meeting A and B, as a capture and the notes tab would leave them.
+    fn search_library(name: &str) -> PathBuf {
+        let lib = temp(name);
+        let files: [(&str, u32, &[(&str, &str)]); 2] = [
+            ("A", 3, &[
+                (SUMMARY_MD, "# Meeting A\n\n## Decisions\n\n- Ship the retry rule first. [00:00:04]\n"),
+                (TRANSCRIPT_MD, "**[00:00:03] Speaker A:** We could ship the retry rule first.\n"),
+                (NOTES_MD, "Ask about the rollout\n"),
+            ]),
+            ("B", 4, &[
+                (SUMMARY_MD, "# Meeting B\n\n## Overview\n\nThe filter chain stays.\n"),
+                (TRANSCRIPT_MD, "**[00:00:15] Speaker B:** Agreed, the filter chain ships next sprint.\n"),
+                (NOTES_MD, "First line\nFollow up on Orbit with Speaker B\n"),
+            ]),
+        ];
+        for (name, day, files) in files {
+            let dir = lib.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            let start = Local.with_ymd_and_hms(2026, 11, day, 9, 0, 0).unwrap().fixed_offset();
+            save(&dir, &Meeting { subject: format!("Meeting {name}"), start: Some(start), ..Meeting::default() }).unwrap();
+            for (file, body) in files {
+                fs::write(dir.join(file), body).unwrap();
+            }
+        }
+        lib
+    }
+
+    fn hit(id: &str, tab: &'static str, line: &str, at: Option<&str>) -> Hit {
+        Hit { id: id.into(), tab, line: line.into(), at: at.map(Into::into) }
+    }
+
+    #[test]
+    fn search_returns_only_the_meeting_whose_notes_hold_the_word_with_that_line() {
+        let lib = search_library("search1");
+        assert_eq!(search(&lib, "Orbit"), [hit("B", "notes", "Follow up on Orbit with Speaker B", None)]);
+    }
+
+    #[test]
+    fn search_ignores_case() {
+        let lib = search_library("search2");
+        assert_eq!(search(&lib, "Orbit"), [hit("B", "notes", "Follow up on Orbit with Speaker B", None)]);
+        assert_eq!(search(&lib, "  Orbit "), search(&lib, "Orbit"), "padding trimmed too");
+    }
+
+    #[test]
+    fn search_reads_every_file_newest_meeting_first_and_gives_a_transcript_line_its_turn_time() {
+        let lib = search_library("search3");
+        assert_eq!(
+            search(&lib, "filter chain"),
+            [
+                hit("B", "summary", "The filter chain stays.", None),
+                hit("B", "transcript", "Speaker B: Agreed, the filter chain ships next sprint.", Some("00:00:15")),
+            ]
+        );
+        // A speaker's name is found in the snippet line too; the summary's list marks are dropped.
+        assert_eq!(search(&lib, "speaker a"), [hit("A", "transcript", "Speaker A: We could ship the retry rule first.", Some("00:00:03"))]);
+        assert_eq!(search(&lib, "retry")[0], hit("A", "summary", "Ship the retry rule first. [00:00:04]", None));
+        assert_eq!(search(&lib, "   "), [], "a blank query finds nothing");
+        assert_eq!(search(&lib, "zzz"), []);
+    }
+
+    #[test]
+    fn search_keeps_the_first_three_hits_of_a_meeting() {
+        let lib = search_library("search4");
+        fs::write(lib.join("A").join(NOTES_MD), "zq1\nzq2\nzq3\nzq4\n").unwrap();
+        let lines: Vec<String> = search(&lib, "zq").into_iter().filter(|h| h.id == "A").map(|h| h.line).collect();
+        assert_eq!(lines, ["zq1", "zq2", "zq3"]);
     }
 
     #[test]

@@ -166,6 +166,12 @@ fn save_notes(app: AppHandle, id: String, text: String) -> Result<(), String> {
     library::write_notes(&library::meeting_dir(&library_path(&app)?, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))
 }
 
+/// Search (D28) for the list's search box. Async, so a scan of a big library never holds the window.
+#[tauri::command]
+async fn search(app: AppHandle, query: String) -> Result<Vec<library::Hit>, String> {
+    Ok(library::search(&library_path(&app)?, &query))
+}
+
 /// Tray Quit's second half: the page has saved its notes.
 #[tauri::command]
 fn quit(app: AppHandle) {
@@ -480,6 +486,7 @@ pub fn run() {
             add_to_glossary,
             get_notes,
             save_notes,
+            search,
             quit,
             pick_transcript_file,
             import_transcript,
