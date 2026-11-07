@@ -91,8 +91,9 @@ export function dayGroups(meetings: Meeting[], now: Date): DayGroup[] {
     named.set(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + off)), name);
   }
   const t = (iso: string | null) => (iso ? new Date(iso).getTime() : -Infinity);
-  const upcoming = meetings.filter((m) => m.start && t(m.end ?? m.start) > now.getTime()).sort((a, b) => t(a.start) - t(b.start));
-  const ended = meetings.filter((m) => !upcoming.includes(m)).sort((a, b) => t(b.start) - t(a.start));
+  const ahead = (m: Meeting) => !!m.start && t(m.end ?? m.start) > now.getTime();
+  const upcoming = meetings.filter(ahead).sort((a, b) => t(a.start) - t(b.start));
+  const ended = meetings.filter((m) => !ahead(m)).sort((a, b) => t(b.start) - t(a.start));
   const byDay = (list: Meeting[]) => {
     const groups: DayGroup[] = [];
     for (const m of list) {
