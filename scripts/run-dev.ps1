@@ -7,7 +7,8 @@ All its state lives under -StateDir (default %LOCALAPPDATA%\MeetingCapture-dev\d
 debug exe from <StateDir>\bin, so the build output stays unlocked, and prints
 {pid, stateDir} as JSON. Re-running it replaces that dir's previous instance, stopped by its recorded PID and only
 when that PID still runs the copy: never by name, so the installed copy and other dirs' instances are left alone.
--Claude and -Scenario point it at the fake claude (MEETING_CAPTURE_CLAUDE, FAKE_CLAUDE_SCENARIO).
+-Claude and -Scenario point it at the fake claude (MEETING_CAPTURE_CLAUDE, FAKE_CLAUDE_SCENARIO); -Claude also sets
+MEETING_CAPTURE_HOME to <StateDir>\home unless it is set, so a fake run stays out of your ~/.claude.
 #>
 [CmdletBinding()]
 param(
@@ -53,7 +54,11 @@ foreach ($i in 1..20) {
 }
 
 $env:MEETING_CAPTURE_DEV = $StateDir
-if ($Claude) { $env:MEETING_CAPTURE_CLAUDE = [IO.Path]::GetFullPath($Claude) }
+if ($Claude) {
+    $env:MEETING_CAPTURE_CLAUDE = [IO.Path]::GetFullPath($Claude)
+    # A fake claude writes its project folder under the home's .claude: keep that in the state dir too.
+    if (-not $env:MEETING_CAPTURE_HOME) { $env:MEETING_CAPTURE_HOME = Join-Path $StateDir 'home' }
+}
 if ($Scenario) { $env:FAKE_CLAUDE_SCENARIO = [IO.Path]::GetFullPath($Scenario) }
 # The debug exe is a console app: its console is hidden. No redirects: they make the app inherit this script's
 # handles, so a caller reading our output would wait for the app to exit.

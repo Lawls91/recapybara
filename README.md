@@ -34,7 +34,8 @@ unlocked, stops that dir's previous instance (by its recorded PID, and only if t
 the copy with `MEETING_CAPTURE_DEV=<StateDir>` and prints `{"pid":…,"stateDir":"…"}`. The default dir is
 `%LOCALAPPDATA%\MeetingCapture-dev\default`. Stop it by that PID (`Stop-Process -Id <pid>`), never by name: that
 would take the installed copy down too. `-Claude` and
-`-Scenario` set `MEETING_CAPTURE_CLAUDE` and `FAKE_CLAUDE_SCENARIO`, for runs against the fake claude. Without them it
+`-Scenario` set `MEETING_CAPTURE_CLAUDE` and `FAKE_CLAUDE_SCENARIO`, for runs against the fake claude; `-Claude` also
+sets `MEETING_CAPTURE_HOME=<StateDir>\home` unless it is set, so a fake run writes nothing under your `~/.claude`. Without them it
 runs the real `claude` on PATH, like the installed copy: it refreshes your calendar and captures your meetings into
 the dev library.
 
