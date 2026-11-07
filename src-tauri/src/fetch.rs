@@ -210,13 +210,33 @@ pub fn skip(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Resul
     Ok(id.into())
 }
 
-/// Unskip (D49): clears the skip. A meeting that ended within the catch-up window is due for a fetch now, an upcoming
+/// A folder not yet captured follows its cached event (same event id) when the meeting moves: start, end and the
+/// transcript URL, which pins the occurrence (D13). An upcoming one stays due at its new end. Returns whether it changed.
+fn follow(m: &mut Meeting, events: &[Event]) -> bool {
+    let Some(e) = events.iter().find(|e| Some(e.id.as_str()) == m.event_id.as_deref()) else { return false };
+    if !matches!(m.state, State::Scheduled | State::Skipped | State::AwaitingTranscript) {
+        return false;
+    }
+    let local = |t: DateTime<Utc>| Some(t.with_timezone(&Local).fixed_offset());
+    let now = (local(e.start), local(e.end), e.meeting_transcript_url.clone());
+    if (m.start, m.end, m.transcript_url.clone()) == now {
+        return false;
+    }
+    (m.start, m.end, m.transcript_url) = now;
+    if m.state == State::Scheduled {
+        m.next_attempt = m.end;
+    }
+    true
+}
+
+/// Unskip (D49): clears the skip, with the cached event's current times when it has moved. A meeting that ended within the catch-up window is due for a fetch now, an upcoming
 /// one at its end; one that ended earlier is "no transcript", its fix the manual import.
-pub fn unskip(dir: &Path, now: DateTime<Utc>) -> Result<Meeting, String> {
-    let m = library::load(dir).map_err(|e| e.to_string())?;
+pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meeting, String> {
+    let mut m = library::load(dir).map_err(|e| e.to_string())?;
     if m.state != State::Skipped {
         return Ok(m);
     }
+    follow(&mut m, events);
     let end: Option<DateTime<Utc>> = m.end.map(Into::into);
     let local = |t: DateTime<Utc>| Some(t.with_timezone(&Local).fixed_offset());
     let (state, next_attempt) = if dir.join(library::VTT).exists() {
@@ -248,7 +268,14 @@ fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
 
 /// One attempt for the meeting in `dir` (D12): the outcome goes in `meeting.json`. A meeting that left "awaiting
 /// transcript" during the run (a manual import) is left as it is.
-fn attempt(dir: &Path, m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>, version: &impl Fn() -> Option<String>) -> io::Result<Meeting> {
+fn attempt(
+    dir: &Path,
+    m: &Meeting,
+    now: DateTime<Utc>,
+    run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>,
+    version: &impl Fn() -> Option<String>,
+    excluded: &impl Fn() -> Vec<String>,
+) -> io::Result<Meeting> {
     let url = m.transcript_url.clone().unwrap_or_default();
     // No end, no schedule to keep: fail closed rather than retry forever.
     let end: DateTime<Utc> = m.end.map(Into::into).unwrap_or(now);
@@ -265,8 +292,9 @@ fn attempt(dir: &Path, m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&Cl
         }
     };
     let mut m = library::load(dir).unwrap_or_else(|_| m.clone());
-    // Left "awaiting" during the run (an import, a Skip): left as it is. An unskipped upcoming meeting is due at its end.
-    if !matches!(m.state, State::AwaitingTranscript | State::Scheduled) {
+    // Left "awaiting" during the run (an import, a Skip), or its series excluded meanwhile: left as it is, the capture
+    // dropped (D17). An unskipped upcoming meeting is due at its end.
+    if !matches!(m.state, State::AwaitingTranscript | State::Scheduled) || library::excluded(&m, &excluded()) {
         return Ok(m);
     }
     m.state = State::AwaitingTranscript;
@@ -301,21 +329,31 @@ fn attempt(dir: &Path, m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&Cl
 
 /// The scheduler's fetch look at the clock (D12, D25). Each cached event that has ended within the catch-up window
 /// and has no folder gets one ("awaiting transcript", due now). Then every awaiting meeting whose next attempt is
-/// due gets one attempt, one at a time. A skipped meeting, or one whose join URL is in `excluded`, never gets
-/// either (D17). `changed` is called with each folder id as it is created (no meeting) and as
+/// due gets one attempt, one at a time. A skipped meeting, or one whose join URL `excluded()` names, never gets
+/// either (D17); the exclusions are read again after each run, so one made during it still holds. First, each folder
+/// not yet captured takes its cached event's current times and transcript URL (a moved meeting). `changed` is called with each folder id as it is created (no meeting) and as
 /// each attempt lands (the meeting as it now stands), so the summary or failure toast follows at once: a quit during a
 /// later attempt can't lose it. Returns each attempted meeting as it now stands.
 pub fn tick(
     lib: &Path,
     events: &[Event],
-    excluded: &[String],
+    excluded: impl Fn() -> Vec<String>,
     now: DateTime<Utc>,
     mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>,
     version: impl Fn() -> Option<String>,
     mut changed: impl FnMut(&str, Option<&Meeting>),
 ) -> Vec<(String, Meeting)> {
+    for l in library::list(lib).into_iter().filter(|l| !l.has_transcript) {
+        let mut m = l.meeting;
+        if follow(&mut m, events) {
+            if let Err(e) = library::save(&lib.join(&l.id), &m) {
+                eprintln!("fetch: {} not moved: {e}", l.id);
+            }
+        }
+    }
     let known = library::list(lib);
-    for e in events.iter().filter(|e| catches_up(e.end, now) && !excluded.contains(&e.join_url)) {
+    let skip = excluded();
+    for e in events.iter().filter(|e| catches_up(e.end, now) && !skip.contains(&e.join_url)) {
         if !known.iter().any(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) {
             match library::create(lib, &folder_for(e, now)) {
                 Ok(id) => changed(&id, None),
@@ -327,9 +365,9 @@ pub fn tick(
     let due = library::list(lib)
         .into_iter()
         .filter(|l| matches!(l.meeting.state, State::AwaitingTranscript | State::Scheduled) && l.meeting.next_attempt.is_some_and(|t| t <= now))
-        .filter(|l| !library::excluded(&l.meeting, excluded));
+        .filter(|l| !library::excluded(&l.meeting, &skip));
     for l in due {
-        match attempt(&lib.join(&l.id), &l.meeting, now, &mut run, &version) {
+        match attempt(&lib.join(&l.id), &l.meeting, now, &mut run, &version, &excluded) {
             Ok(m) => {
                 changed(&l.id, Some(&m));
                 done.push((l.id, m));
@@ -483,7 +521,7 @@ mod tests {
         let mut run = runner(&log, &minute, |_| blocks(&body(&[])));
         for m in -5..=180 {
             *minute.borrow_mut() = m;
-            tick(&lib, std::slice::from_ref(&e), &[], end() + Duration::minutes(m), &mut run, none, |_, _| {});
+            tick(&lib, std::slice::from_ref(&e), Vec::new, end() + Duration::minutes(m), &mut run, none, |_, _| {});
         }
         assert_eq!(log.borrow().iter().map(|x| x.0).collect::<Vec<_>>(), [0, 2, 10, 30, 120]);
         let m = only(&lib);
@@ -499,7 +537,7 @@ mod tests {
         let mut run = runner(&log, &minute, |n| if n == 1 { blocks(r#"{"error":"Request failed with status 403"}"#) } else { blocks(&body(&[])) });
         for m in 0..=11 {
             *minute.borrow_mut() = m;
-            tick(&lib, &events, &[], end() + Duration::minutes(m), &mut run, none, |_, _| {});
+            tick(&lib, &events, Vec::new, end() + Duration::minutes(m), &mut run, none, |_, _| {});
         }
         let mut got = log.borrow().clone();
         got.sort();
@@ -517,7 +555,7 @@ mod tests {
         let recent = event(2, now - Duration::minutes(150), now - Duration::minutes(100));
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
         let ids = RefCell::new(vec![]);
-        tick(&lib, &[old, recent.clone()], &[], now, runner(&log, &minute, |_| blocks(&body(&[]))), none, |id, _| ids.borrow_mut().push(id.to_string()));
+        tick(&lib, &[old, recent.clone()], Vec::new, now, runner(&log, &minute, |_| blocks(&body(&[]))), none, |id, _| ids.borrow_mut().push(id.to_string()));
         assert_eq!(log.borrow().iter().map(|x| x.1).collect::<Vec<_>>(), [2]);
         let m = only(&lib);
         assert_eq!(m.event_id.as_deref(), Some("SYNTH-2"));
@@ -531,7 +569,7 @@ mod tests {
         let lib = temp("uri");
         let e = event(1, start(), end());
         let typo = |_: &ClaudeRun| Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=Y", blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])))] });
-        tick(&lib, std::slice::from_ref(&e), &[], end(), typo, || Some("2.1.318 (Claude Code)".into()), |_, _| {});
+        tick(&lib, std::slice::from_ref(&e), Vec::new, end(), typo, || Some("2.1.318 (Claude Code)".into()), |_, _| {});
         let m = only(&lib);
         assert_eq!((m.state, m.attempts), (State::AwaitingTranscript, 1));
         assert_eq!(m.next_attempt.map(DateTime::<Utc>::from), Some(end() + Duration::minutes(2)));
@@ -540,7 +578,7 @@ mod tests {
         assert!(!dir.join(library::VTT).exists());
 
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(2));
-        let done = tick(&lib, &[e], &[], end() + Duration::minutes(2), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)]))), none, |_, _| {});
+        let done = tick(&lib, &[e], Vec::new, end() + Duration::minutes(2), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)]))), none, |_, _| {});
         assert_eq!(done.len(), 1);
         assert_eq!(done[0].1.state, State::TranscriptReady);
         assert_eq!(fs::read_to_string(dir.join(library::VTT)).unwrap(), VTT_A, "exactly as captured");
@@ -560,7 +598,7 @@ mod tests {
             let uri = r.prompt.split('"').nth(1).unwrap().to_string();
             Ok(Output { stdout: String::new(), captured: vec![read(&uri, blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])))] })
         };
-        tick(&lib, &events, &[], end(), run, none, |_, m| {
+        tick(&lib, &events, Vec::new, end(), run, none, |_, m| {
             if let Some(m) = m {
                 order.borrow_mut().push(format!("{:?}", m.state));
             }
@@ -574,7 +612,7 @@ mod tests {
         let lib = temp("parts");
         let e = event(1, start(), end());
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
-        tick(&lib, &[e], &[], end(), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A), ("2026-11-05T11:20:00Z", VTT_B)]))), none, |_, _| {});
+        tick(&lib, &[e], Vec::new, end(), runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A), ("2026-11-05T11:20:00Z", VTT_B)]))), none, |_, _| {});
         let dir = lib.join(&library::list(&lib)[0].id);
         assert_eq!(fs::read_to_string(dir.join("transcript.part1.vtt")).unwrap(), VTT_A);
         assert_eq!(fs::read_to_string(dir.join("transcript.part2.vtt")).unwrap(), VTT_B);
@@ -588,7 +626,7 @@ mod tests {
         let lib = temp("stub");
         let e = event(1, start(), end());
         let stub = |_: &ClaudeRun| Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=y", blocks("Error: result (60,000 characters across 1 line) exceeds maximum allowed tokens. Output has been saved to C:\\synthetic.txt"))] });
-        let done = tick(&lib, std::slice::from_ref(&e), &[], end(), stub, none, |_, _| {});
+        let done = tick(&lib, std::slice::from_ref(&e), Vec::new, end(), stub, none, |_, _| {});
         assert_eq!(done[0].1.state, State::CaptureFailed);
         assert_eq!(only(&lib).next_attempt, None, "no more attempts");
         assert!(!lib.join(&done[0].0).join(library::VTT).exists());
@@ -602,7 +640,7 @@ mod tests {
             library::save(&dir(), &m).unwrap();
             Err(io::Error::other("synthetic"))
         };
-        tick(&lib, &[e], &[], end(), import, none, |_, _| {});
+        tick(&lib, &[e], Vec::new, end(), import, none, |_, _| {});
         assert_eq!((only(&lib).state, only(&lib).attempts), (State::TranscriptReady, 0));
     }
 
@@ -610,7 +648,7 @@ mod tests {
     fn a_meeting_with_no_end_is_capture_failed_without_a_run() {
         let lib = temp("noend");
         library::create(&lib, &Meeting { state: State::AwaitingTranscript, next_attempt: Some(end().fixed_offset()), transcript_url: Some(URL.into()), ..Meeting::default() }).unwrap();
-        tick(&lib, &[], &[], end(), |_| panic!("no run"), none, |_, _| {});
+        tick(&lib, &[], Vec::new, end(), |_| panic!("no run"), none, |_, _| {});
         assert_eq!((only(&lib).state, only(&lib).next_attempt), (State::CaptureFailed, None));
     }
 
@@ -635,7 +673,7 @@ mod tests {
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
         let mut run = runner(&log, &minute, |_| blocks(&body(&[])));
         for m in [0, 2, 10] {
-            tick(&lib, &events, std::slice::from_ref(&series), end() + Duration::minutes(m), &mut run, none, |_, _| {});
+            tick(&lib, &events, || vec![series.clone()], end() + Duration::minutes(m), &mut run, none, |_, _| {});
         }
         assert_eq!(ran(&log), [3, 3, 3], "only the other join URL is fetched");
         let mut listed = calendar::listed(&events, library::list(&lib));
@@ -675,7 +713,7 @@ mod tests {
         let mut run = runner(&log, &minute, |_| blocks(&body(&[])));
         // Through the end, and again as a restarted app's catch-up would see it.
         for m in [-1, 0, 1, 2, 30] {
-            tick(&lib, &events, &[], end() + Duration::minutes(m), &mut run, none, |_, _| {});
+            tick(&lib, &events, Vec::new, end() + Duration::minutes(m), &mut run, none, |_, _| {});
         }
         assert_eq!(ran(&log), [2, 2, 2]);
         assert_eq!(library::load(&lib.join(&id)).unwrap().state, State::Skipped);
@@ -700,7 +738,7 @@ mod tests {
         let ids: Vec<String> = [&recent, &old, &upcoming].iter().map(|e| skip(&lib, &e.uri, std::slice::from_ref(e), recent.start).unwrap()).collect();
         let states: Vec<(State, Option<DateTime<Utc>>)> = ids
             .iter()
-            .map(|id| unskip(&lib.join(id), now).map(|m| (m.state, m.next_attempt.map(Into::into))).unwrap())
+            .map(|id| unskip(&lib.join(id), &[], now).map(|m| (m.state, m.next_attempt.map(Into::into))).unwrap())
             .collect();
         assert_eq!(
             states,
@@ -710,22 +748,81 @@ mod tests {
 
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
         let mut run = runner(&log, &minute, |_| blocks(&body(&[])));
-        tick(&lib, &[], &[], now, &mut run, none, |_, _| {});
+        tick(&lib, &[], Vec::new, now, &mut run, none, |_, _| {});
         assert_eq!(ran(&log), [1], "the recent one at once, the old one never");
-        tick(&lib, &[], &[], upcoming.end, &mut run, none, |_, _| {});
+        tick(&lib, &[], Vec::new, upcoming.end, &mut run, none, |_, _| {});
         assert_eq!(ran(&log), [1, 3], "the upcoming one at its end");
         assert_eq!(library::load(&lib.join(&ids[2])).unwrap().state, State::AwaitingTranscript);
 
         // Unskip on a meeting that isn't skipped changes nothing; one with a transcript goes back to it.
-        assert_eq!(unskip(&lib.join(&ids[1]), now).unwrap().state, State::NoTranscript);
+        assert_eq!(unskip(&lib.join(&ids[1]), &[], now).unwrap().state, State::NoTranscript);
         let dir = lib.join(&ids[1]);
         library::save(&dir, &Meeting { state: State::Skipped, ..library::load(&dir).unwrap() }).unwrap();
         fs::write(dir.join(library::VTT), VTT_A).unwrap();
-        assert_eq!(unskip(&dir, now).unwrap().state, State::TranscriptReady);
+        assert_eq!(unskip(&dir, &[], now).unwrap().state, State::TranscriptReady);
         library::save(&dir, &Meeting { state: State::Skipped, ..library::load(&dir).unwrap() }).unwrap();
         fs::write(dir.join(library::SUMMARY_MD), "# x
 ").unwrap();
-        assert_eq!(unskip(&dir, now).unwrap().state, State::Done);
+        assert_eq!(unskip(&dir, &[], now).unwrap().state, State::Done);
+    }
+
+    #[test]
+    fn a_series_excluded_while_its_fetch_runs_keeps_no_capture_and_gets_no_more_attempts() {
+        let lib = temp("excludemid");
+        let e = event(1, start(), end());
+        let excluded = RefCell::new(vec![]);
+        let runs = RefCell::new(0);
+        let run = |_: &ClaudeRun| {
+            *runs.borrow_mut() += 1;
+            excluded.borrow_mut().push(e.join_url.clone()); // Exclude series pressed during the run
+            Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=y", blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])))] })
+        };
+        let done = tick(&lib, std::slice::from_ref(&e), || excluded.borrow().clone(), end(), run, none, |_, _| {});
+        assert_eq!(done[0].1.state, State::AwaitingTranscript, "the capture is dropped");
+        assert!(!lib.join(&done[0].0).join(library::VTT).exists());
+        tick(&lib, &[e], || excluded.borrow().clone(), end() + Duration::minutes(2), |_| panic!("no attempt once excluded"), none, |_, _| {});
+        assert_eq!(*runs.borrow(), 1);
+    }
+
+    #[test]
+    fn a_moved_meeting_is_fetched_at_its_new_time_and_url_after_unskip() {
+        let lib = temp("moved");
+        let now = start() - Duration::hours(3);
+        let before = event(1, start(), end());
+        let id = skip(&lib, &before.uri, std::slice::from_ref(&before), now).unwrap();
+        // Moved an hour later, which changes the occurrence's transcript URL too.
+        let mut moved = event(1, start() + Duration::hours(1), end() + Duration::hours(1));
+        moved.meeting_transcript_url = Some("meeting-transcript:///events/SYNTH-1?start=moved&end=moved".into());
+        let local = |t: DateTime<Utc>| Some(t.with_timezone(&Local).fixed_offset());
+
+        // The scheduler's tick moves the skipped folder ...
+        tick(&lib, std::slice::from_ref(&moved), Vec::new, now, |_| panic!("not due"), none, |_, _| {});
+        let m = library::load(&lib.join(&id)).unwrap();
+        assert_eq!((m.state, m.start, m.end, m.transcript_url.clone()), (State::Skipped, local(moved.start), local(moved.end), moved.meeting_transcript_url.clone()));
+        // ... and so does Unskip, from the cache it is handed (here, moved back).
+        let m = unskip(&lib.join(&id), std::slice::from_ref(&before), now).unwrap();
+        assert_eq!((m.state, m.next_attempt, m.transcript_url.clone()), (State::Scheduled, local(before.end), before.meeting_transcript_url.clone()));
+        // An unskipped upcoming folder follows a later move, its attempt with it.
+        tick(&lib, std::slice::from_ref(&moved), Vec::new, now, |_| panic!("not due"), none, |_, _| {});
+        let urls = RefCell::new(vec![]);
+        let run = |r: &ClaudeRun| {
+            urls.borrow_mut().push(r.prompt.split('"').nth(1).unwrap().to_string());
+            Ok(Output::default())
+        };
+        tick(&lib, std::slice::from_ref(&moved), Vec::new, end(), run, none, |_, _| {});
+        assert!(urls.borrow().is_empty(), "not at the old end");
+        let run = |r: &ClaudeRun| {
+            urls.borrow_mut().push(r.prompt.split('"').nth(1).unwrap().to_string());
+            Ok(Output::default())
+        };
+        tick(&lib, std::slice::from_ref(&moved), Vec::new, moved.end, run, none, |_, _| {});
+        assert_eq!(*urls.borrow(), [moved.meeting_transcript_url.clone().unwrap()]);
+        // A captured folder never moves.
+        let mut later = moved.clone();
+        later.end += Duration::hours(5);
+        fs::write(lib.join(&id).join(library::VTT), VTT_A).unwrap();
+        tick(&lib, &[later], Vec::new, moved.end, |_| panic!("captured"), none, |_, _| {});
+        assert_eq!(library::load(&lib.join(&id)).unwrap().end, local(moved.end));
     }
 
     #[test]

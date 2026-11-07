@@ -118,7 +118,8 @@ fn skip_meeting(app: AppHandle, id: String) -> Result<String, String> {
 /// Unskip (D49): a meeting that ended within the catch-up window is fetched at once.
 #[tauri::command]
 fn unskip_meeting(app: AppHandle, id: String) -> Result<(), String> {
-    let m = fetch::unskip(&library::meeting_dir(&library_path(&app)?, &id)?, chrono::Utc::now())?;
+    let events = app.state::<AppState>().calendar.events();
+    let m = fetch::unskip(&library::meeting_dir(&library_path(&app)?, &id)?, &events, chrono::Utc::now())?;
     let _ = app.emit("meeting-changed", &id);
     if m.state == library::State::AwaitingTranscript {
         std::thread::spawn(move || fetch_due(&app));
@@ -244,13 +245,14 @@ fn fetch_due(app: &AppHandle) {
     let Ok(lib) = library_path(app) else { return };
     let state = app.state::<AppState>();
     let (runs, home, events) = (state.data_dir.join("runs"), state.home.clone(), state.calendar.events());
-    let excluded = state.settings.lock().unwrap().excluded();
+    // Read afresh each time: an Exclude series pressed during a run still holds (D17).
+    let excluded = || state.settings.lock().unwrap().excluded();
     let program = claude::program();
     // Each attempt's follow-up runs as it lands, so quitting during a later attempt loses none.
     let landed = |id: &str, m: Option<&library::Meeting>| {
         let _ = app.emit("meeting-changed", id);
         match m.map(|m| (m, m.state)) {
-            Some((_, library::State::TranscriptReady)) => {
+            Some((m, library::State::TranscriptReady)) if !library::excluded(m, &excluded()) => {
                 if let Err(e) = start_summary(app, id) {
                     eprintln!("summary not started for {id}: {e}");
                 }
@@ -263,7 +265,7 @@ fn fetch_due(app: &AppHandle) {
         }
     };
     let tick = std::panic::AssertUnwindSafe(|| {
-        fetch::tick(&lib, &events, &excluded, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::version(&program), landed)
+        fetch::tick(&lib, &events, excluded, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::version(&program), landed)
     });
     if std::panic::catch_unwind(tick).is_err() {
         eprintln!("fetch: the tick panicked");
