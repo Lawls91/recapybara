@@ -59,10 +59,14 @@ describe("delete", () => {
     await expect($("#confirm-title")).toHaveText(prompt("Delete A", at(-1, 10)));
     await $("#confirm-cancel").click();
     await expect($("#confirm")).not.toBeDisplayed();
+    // The dialog hides at once; its close handler gives the row focus on a later task.
+    await browser.waitUntil(async () => (await focused()) === A, { timeout: 3000 }).catch(() => {});
     expect(await focused()).toBe(A);
     await menuDelete(A);
     await browser.keys(Key.Escape);
     await expect($("#confirm")).not.toBeDisplayed();
+    // The dialog hides at once; its close handler gives the row focus on a later task.
+    await browser.waitUntil(async () => (await focused()) === A, { timeout: 3000 }).catch(() => {});
     expect(await focused()).toBe(A);
     expect(fs.existsSync(root("library", A, "notes.md"))).toBe(true);
     expect(await ids()).toEqual([A, B, C]);
