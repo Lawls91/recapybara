@@ -198,6 +198,16 @@ pub fn next_after(end: DateTime<Utc>, at: DateTime<Utc>) -> Option<DateTime<Utc>
     RETRIES.iter().map(|m| end + Duration::minutes(*m)).find(|t| *t > at)
 }
 
+/// Attempts still to come for a meeting waiting on its schedule (D12), shown on the Awaiting transcript card: the one
+/// due at `next_attempt` (a slot, or a catch-up between slots) plus each slot after it, as `next_after` would run them.
+/// None due: none left.
+pub fn attempts_left(m: &Meeting) -> u32 {
+    let Some(next) = m.next_attempt else { return 0 };
+    // No end: `attempt` fails closed after the one due.
+    let Some(end) = m.end else { return 1 };
+    1 + RETRIES.iter().filter(|r| end + Duration::minutes(**r) > next).count() as u32
+}
+
 /// An ended event with no folder yet gets a first (or catch-up) attempt only within `CATCH_UP` of its end (D12).
 pub fn catches_up(end: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     end <= now && now - end < CATCH_UP
@@ -678,6 +688,47 @@ mod tests {
     }
     fn none() -> Option<String> {
         None
+    }
+
+    /// Ticks minute by minute from `from` to 180 past the end, skipping `closed` (the app not running), the transcript
+    /// never there. After each tick it reads the card's count, then checks it against the attempts that really ran
+    /// later, for every minute from `check_from` on.
+    fn left_matches_the_runs_still_to_come(name: &str, from: i64, closed: std::ops::Range<i64>, check_from: i64) {
+        let lib = temp(name);
+        let e = event(1, start(), end());
+        let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
+        let mut run = runner(&log, &minute, |_| blocks(&body(&[])));
+        let mut shown = vec![];
+        for m in (from..=180).filter(|m| !closed.contains(m)) {
+            *minute.borrow_mut() = m;
+            tick(&lib, std::slice::from_ref(&e), Vec::new, end() + Duration::minutes(m), &mut run, none, |_, _| {});
+            if let Some(l) = library::list(&lib).first() {
+                shown.push((m, l.attempts_left));
+            }
+        }
+        let runs: Vec<i64> = log.borrow().iter().map(|x| x.0).collect();
+        for (m, left) in shown.into_iter().filter(|(m, _)| *m >= check_from) {
+            let to_come = runs.iter().filter(|r| **r > m).count() as u32;
+            assert_eq!(left, to_come, "{name}: at end+{m} min the card says {left}, then {to_come} ran (runs at {runs:?})");
+        }
+    }
+
+    #[test]
+    fn attempts_left_counts_the_attempts_d12_still_runs() {
+        // On time: attempts at 0, 2, 10, 30, 120, so 4 left after the first, ..., 0 at the end.
+        left_matches_the_runs_still_to_come("left-on-time", -5, 0..0, -5);
+        // Found late (the laptop woke at end+15): the catch-up attempt, then only +30 and +120.
+        left_matches_the_runs_still_to_come("left-late", 15, 0..0, 15);
+        // Found at end+40: the catch-up, then +120 only.
+        left_matches_the_runs_still_to_come("left-later", 40, 0..0, 40);
+        // Closed mid-schedule (end+3 to end+40) and restarted: the overdue attempt, then +120.
+        left_matches_the_runs_still_to_come("left-restart", -5, 3..41, 41);
+        // The final slot, and none once it has run.
+        let m = |next: i64| Meeting { end: Some(end().fixed_offset()), next_attempt: Some((end() + Duration::minutes(next)).fixed_offset()), ..Meeting::default() };
+        assert_eq!(attempts_left(&m(120)), 1);
+        assert_eq!(attempts_left(&m(15)), 3, "a catch-up between slots: itself, +30, +120");
+        assert_eq!(attempts_left(&Meeting { next_attempt: None, ..m(0) }), 0);
+        assert_eq!(attempts_left(&Meeting { end: None, ..m(0) }), 1, "no end: the one due, then it fails closed");
     }
 
     #[test]

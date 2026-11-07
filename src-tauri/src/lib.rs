@@ -297,6 +297,13 @@ fn summarise(app: AppHandle, id: String) -> Result<(), String> {
     start_summary(&app, &id)
 }
 
+/// Whether the library folder can be read now (D45): the page checks on focus and every 30 s, so the banner follows a
+/// drive unplugged or reconnected without waiting for a reload.
+#[tauri::command]
+fn library_ok(app: AppHandle) -> bool {
+    library_path(&app).is_ok()
+}
+
 /// Copy summary: `summary.md` as it is (D21).
 #[tauri::command]
 fn get_summary_md(app: AppHandle, id: String) -> Result<String, String> {
@@ -318,6 +325,9 @@ fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
 /// One calendar refresh (D9) through the user's claude. `scheduled`: only if 30 minutes have passed since the last.
 /// Never two at once; the page follows along through calendar-changed.
 fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
+    if library_path(app).is_err() {
+        return; // nothing can be captured into a missing library, so no claude run for it (D45)
+    }
     let state = app.state::<AppState>();
     let (runs, home) = (state.data_dir.join("runs"), state.home.clone());
     let run = |r: &claude::ClaudeRun| claude::run(&claude::program(), &runs, &home, r);
@@ -568,10 +578,8 @@ pub fn run() {
             let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
             let mut s = settings::load(&data_dir);
             if let Some(dir) = &dev {
-                // Only the dev dir's own default library is made; a chosen one that has gone stays gone (D45).
-                let chosen = s.library_path.is_some();
                 s = settings::for_dev(s, dir);
-                if !chosen {
+                if settings::makes_dev_library(&s, dir) {
                     std::fs::create_dir_all(s.library_path.as_deref().unwrap_or_default())?;
                 }
             }
@@ -637,6 +645,7 @@ pub fn run() {
             summarise,
             get_summary,
             get_summary_md,
+            library_ok,
             take_pending_meeting,
             skip_meeting,
             unskip_meeting,

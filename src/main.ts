@@ -237,8 +237,17 @@ function notify(text: string) {
   noticeTimer = window.setTimeout(() => ($("notice").textContent = ""), 4000);
 }
 
+/** The backend's refusal while the library folder can't be read (library::check). */
+const LIBRARY_GONE = "Library folder not found";
+
+/** An error for the error banner; a missing library's goes to its own banner instead, so it shows once (D45). */
 function failed(e: unknown) {
-  $("import-error-text").textContent = String(e);
+  const text = String(e);
+  if (text.includes(LIBRARY_GONE)) {
+    loadMeetings();
+    return;
+  }
+  $("import-error-text").textContent = text;
   $("import-error").hidden = false;
 }
 
@@ -298,10 +307,14 @@ function mark(m: Meeting) {
 }
 
 async function loadMeetings() {
+  const was = libraryMissing;
   libraryMissing = null;
   meetings = current.libraryPath ? await invoke<Meeting[]>("list_meetings").catch((e) => ((libraryMissing = String(e)), [])) : [];
   $("library-missing").hidden = !libraryMissing;
-  $("library-missing-text").textContent = libraryMissing ?? "";
+  // Set only when it changes, so the live region doesn't announce it again on every reload.
+  if (libraryMissing !== was) $("library-missing-text").textContent = libraryMissing ?? "";
+  // A banner left from before the library went (or came back) says nothing true now.
+  if ($("import-error-text").textContent?.includes(LIBRARY_GONE)) $("import-error").hidden = true;
   if (selected && !meetings.some((m) => m.id === selected)) selected = null;
   await runSearch();
   renderList();
@@ -533,7 +546,7 @@ $("row-menu").addEventListener("click", async (e) => {
 async function copy(m: Meeting, summary: boolean) {
   try {
     const text = summary ? await invoke<string>("get_summary_md", { id: m.id }) : actionsText(await invoke<Summary | null>("get_summary", { id: m.id }));
-    if (!text) return notify("This summary has no actions to copy.");
+    if (!text) return notify(summary ? "This summary is empty." : "This summary has no actions to copy.");
     await navigator.clipboard.writeText(text);
     notify(summary ? "Summary copied." : "Actions copied.");
   } catch (e) {
@@ -628,9 +641,10 @@ $("import-menu").addEventListener("keydown", (e) => {
   closeImportMenu();
   $(e.shiftKey ? "import-button" : "settings-button").focus();
 });
-$("import-file").onclick = () => {
+$("import-file").onclick = async () => {
   closeImportMenu();
-  chooseFile(null);
+  await chooseFile(null);
+  if (lost()) $("import-button").focus();
 };
 $("import-teams").onclick = () => {
   closeImportMenu();
@@ -705,6 +719,14 @@ listen<string | null>("teams-import", (e) => {
 $("import-error-close").onclick = () => ($("import-error").hidden = true);
 
 listen<string>("meeting-changed", () => loadMeetings());
+/** The library folder gone or back since the list was drawn (D45): reload, so the banner follows it. */
+async function checkLibrary() {
+  if (!current?.libraryPath) return;
+  if ((await invoke<boolean>("library_ok")) === !!libraryMissing) await loadMeetings();
+}
+window.addEventListener("focus", checkLibrary);
+document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && checkLibrary());
+window.setInterval(checkLibrary, 30000);
 // A clicked toast parks its meeting in the backend; take it on the event and on any later focus, since a
 // minimised window's page may miss the event.
 async function openPending() {
@@ -728,10 +750,8 @@ listen<{ id: string | null; message: string }>("import-refused", (e) => {
   if (e.payload.id && !byId(e.payload.id)?.hasTranscript) {
     refusals.push(e.payload.message);
     if (e.payload.id === selected) renderDetail();
-  } else {
-    $("import-error-text").textContent = e.payload.message;
-    $("import-error").hidden = false;
-  }
+    $("sr-status").textContent = `The file wasn’t attached. ${e.payload.message}`; // the strip is redrawn, so announce here
+  } else failed(e.payload.message);
 });
 
 // OS drag-drop: only the attach strip is a drop target; the list is not (D15).
@@ -795,10 +815,7 @@ function summaryBody(m: Meeting) {
 }
 
 async function runSummary(id: string) {
-  await invoke("summarise", { id }).catch((e) => {
-    $("import-error-text").textContent = String(e);
-    $("import-error").hidden = false;
-  });
+  await invoke("summarise", { id }).catch(failed);
 }
 
 // ---------- summary tab: items, trust chips and the peek sheet (D21, D43) ----------
@@ -931,7 +948,7 @@ async function renderDetail() {
     // Awaiting transcript: when it checks next and the attempts left, and its transcript can be imported now.
     const action =
       m.state === "awaitingTranscript"
-        ? `<p id="next-check">${esc(awaitingLine(m))}</p><button id="import-now" class="btn">Import transcript</button>`
+        ? `<p id="next-check">${esc(awaitingLine(m, new Date()))}</p><button id="import-now" class="btn">Import transcript</button>`
         : m.state !== "skipped"
           ? ""
           : m.excluded
@@ -990,10 +1007,7 @@ async function renderDetail() {
       (b.onclick = async () => {
         const c = t!.corrections[Number(b.dataset.corr)];
         b.disabled = true;
-        await invoke("add_to_glossary", { from: c.from, to: c.to }).catch((e) => {
-          $("import-error-text").textContent = String(e);
-          $("import-error").hidden = false;
-        });
+        await invoke("add_to_glossary", { from: c.from, to: c.to }).catch(failed);
         await renderDetail();
       }),
   );
@@ -1013,9 +1027,15 @@ async function renderDetail() {
 $("settings-button").onclick = () => show("settings");
 $("settings-back").onclick = () => show("list");
 // Change folder in Settings, and Choose folder on the library-missing banner (D45).
-$("change-folder").onclick = $("library-choose").onclick = async () => {
+$("change-folder").onclick = async () => {
   const picked = await invoke<string | null>("pick_library_folder");
   if (picked) await save({ libraryPath: picked });
+};
+$("library-choose").onclick = async () => {
+  const picked = await invoke<string | null>("pick_library_folder");
+  if (picked) await save({ libraryPath: picked }).catch(failed);
+  await loadMeetings();
+  if (lost()) $("search").focus();
 };
 $<HTMLSelectElement>("summary-model").onchange = (e) => save({ summaryModel: (e.target as HTMLSelectElement).value });
 $<HTMLInputElement>("start-at-logon").onchange = (e) => save({ startAtLogon: (e.target as HTMLInputElement).checked });
@@ -1027,7 +1047,10 @@ async function loadCalendarStatus() {
   el.textContent = importing ?? line.text;
   el.classList.toggle("err", !importing && line.error);
 }
-$("refresh-button").onclick = () => invoke("refresh_calendar").catch(() => {});
+$("refresh-button").onclick = () => {
+  checkLibrary();
+  invoke("refresh_calendar").catch(() => {});
+};
 listen("calendar-changed", async () => {
   await loadCalendarStatus();
   await loadMeetings();

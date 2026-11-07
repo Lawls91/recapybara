@@ -76,6 +76,8 @@ pub struct Listed {
     pub has_summary: bool,
     /// Its series is excluded (D17).
     pub excluded: bool,
+    /// Fetch attempts still to come (D12), for the Awaiting transcript card.
+    pub attempts_left: u32,
 }
 
 /// In an excluded series (D17): the join URL every occurrence shares is in `series`.
@@ -175,7 +177,7 @@ pub fn import_new(library: &Path, src: &Path) -> Result<String, String> {
     let mut m = Meeting { subject, start: Some(start), ..Meeting::default() };
     with_transcript(&mut m, &bytes);
     let io = || -> io::Result<()> {
-        fs::create_dir_all(&dir)?;
+        fs::create_dir(&dir)?; // only the meeting's folder: a library gone meanwhile isn't made anew (D45)
         write_atomic(&dir.join(VTT), &bytes)?;
         save(&dir, &m)
     };
@@ -187,7 +189,7 @@ pub fn import_new(library: &Path, src: &Path) -> Result<String, String> {
 pub fn create(library: &Path, m: &Meeting) -> io::Result<String> {
     let start = m.start.unwrap_or_else(|| Local::now().fixed_offset()).with_timezone(&Local).fixed_offset();
     let dir = unique_dir(library, &folder_name(start, &m.subject));
-    fs::create_dir_all(&dir)?;
+    fs::create_dir(&dir)?; // only the meeting's folder: a library gone meanwhile isn't made anew (D45)
     save(&dir, m)?;
     Ok(dir.file_name().unwrap().to_string_lossy().into_owned())
 }
@@ -262,6 +264,7 @@ pub fn list(library: &Path) -> Vec<Listed> {
                 has_transcript: dir.join(VTT).exists(),
                 has_summary: dir.join(SUMMARY_MD).exists(),
                 excluded: false,
+                attempts_left: crate::fetch::attempts_left(&meeting),
                 meeting,
             })
         })
@@ -597,6 +600,19 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn a_meeting_folder_is_never_made_in_a_library_that_has_gone() {
+        let lib = temp("gone").join("library");
+        let m = Meeting { subject: "Partner sync".into(), ..Meeting::default() };
+        assert!(create(&lib, &m).is_err());
+        let src = temp("gone-src").join("Sprint review.vtt");
+        fs::write(&src, "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Speaker A>Hi.</v>\n").unwrap();
+        assert!(import_new(&lib, &src).is_err());
+        assert!(!lib.exists(), "the library root isn't made anew");
+        fs::create_dir(&lib).unwrap();
+        assert!(create(&lib, &m).is_ok() && import_new(&lib, &src).is_ok(), "control: into a library that is there");
     }
 
     #[test]

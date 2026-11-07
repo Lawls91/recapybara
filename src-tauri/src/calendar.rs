@@ -485,6 +485,7 @@ pub fn listed(events: &[Event], mut library: Vec<Listed>) -> Vec<Listed> {
             has_transcript: false,
             has_summary: false,
             excluded: false,
+            attempts_left: 0,
         })
         .collect();
     library.extend(new);
@@ -752,6 +753,7 @@ mod tests {
             has_transcript: false,
             has_summary: false,
             excluded: false,
+            attempts_left: 0,
         };
         let l = listed(&events, vec![folder]);
         let got: Vec<(&str, State)> = l.iter().map(|x| (x.meeting.subject.as_str(), x.meeting.state)).collect();

@@ -177,8 +177,10 @@ button {
 
 /* ---- the meeting list (D40, D41, D42) ---- */
 /* Basis 0: the list takes what is left, so a status line that wraps pushes it down instead of overlapping. */
+/* scroll-padding: a row reached with the arrows scrolls clear of the sticky day header. */
 .list {
   flex: 1 1 0;
+  scroll-padding-top: 34px;
   min-height: 0;
   overflow-y: auto;
   padding: 0 8px 8px;
@@ -866,9 +868,25 @@ select {
   gap: 12px;
   min-width: 76px;
 }
+/* A long path with no spaces wraps anywhere, so the banner's button stays inside the column. */
 .import-error span {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding-top: 4px;
+}
+.import-error > button {
+  flex-shrink: 0;
+}
+/* Read by screen readers only. */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 /* A short confirmation (Summary copied.), inverse ink, bottom right; empty, it takes no room. */
 .notice {

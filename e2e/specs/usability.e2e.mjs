@@ -1,7 +1,7 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { Key } from "webdriverio";
-import { at, freshFixture, invoke, refreshCalendar, root, scenario, seed } from "../helpers.mjs";
+import { at, claudeRecords, fixture, freshFixture, invoke, refreshCalendar, root, scenario, seed } from "../helpers.mjs";
 
 // Slice S2, usability quick wins: search by title and people, the mark's contrast, Copy summary and Copy actions,
 // focus back to the opener, live status, the Awaiting transcript card, the status line's layout and sticky day
@@ -14,7 +14,11 @@ const NOW = "s2 In progress";
 const STANDUP = "s2 Standup";
 const TRIAGE = "s2 Triage";
 const PLANNING = "s2 Planning";
-const ROWS = 14;
+const EMPTY = "s2 Empty summary";
+const ROWS = 15;
+// Awaiting, as D12 leaves it: ended 15 minutes ago, found late, its catch-up attempt made, next at end+30, then +120.
+const AWAIT_END = Date.now() - 15 * 60e3;
+const AWAIT_NEXT = new Date(AWAIT_END + 30 * 60e3);
 const item = (text, owner) => ({ text, citations: [{ at: "00:00:10", quote: "the approach of adding" }], inferred: false, ticketKeys: [], owner });
 const SUMMARY = {
   overview: "Synthetic review of the retry rule.",
@@ -93,7 +97,16 @@ describe("usability quick wins", () => {
       organiser: "Robin Sample",
       attendees: ["Speaker A", "Katya Lane"],
     }, { "notes.md": "Ask Robin about the audit log\n" });
-    seed(AWAIT, { subject: "Partner sync", start: at(-1, 9), end: at(-1, 10), state: "awaitingTranscript", attempts: 2, nextAttempt: at(1, 11, 30), organiser: "Robin Sample" });
+    seed(AWAIT, {
+      subject: "Partner sync",
+      start: new Date(AWAIT_END - 3600e3).toISOString(),
+      end: new Date(AWAIT_END).toISOString(),
+      state: "awaitingTranscript",
+      attempts: 1,
+      nextAttempt: AWAIT_NEXT.toISOString(),
+      organiser: "Robin Sample",
+    });
+    seed(EMPTY, { subject: "Empty summary", start: at(-12, 9), end: at(-12, 10), state: "done" }, { "summary.md": "" });
     FILLERS.forEach((f, i) => seed(f, { subject: `Filler ${i}`, start: at(-3 - i, 9), end: at(-3 - i, 10), state: "noTranscript", organiser: "Speaker B" }));
     const iso = (ms) => new Date(Date.now() + ms).toISOString();
     seed(NOW, { subject: "In progress", start: iso(-10 * 60e3), end: iso(50 * 60e3), state: "scheduled" });
@@ -106,7 +119,7 @@ describe("usability quick wins", () => {
   beforeEach(() => browser.keys("Escape"));
 
   it("Upcoming comes first, in progress then the next meeting, by day in time order; past meetings follow the Earlier divider, newest first", async () => {
-    expect(await ids()).toEqual([NOW, STANDUP, TRIAGE, PLANNING, PARTNER, AWAIT, ...FILLERS]);
+    expect(await ids()).toEqual([NOW, STANDUP, TRIAGE, PLANNING, AWAIT, PARTNER, ...FILLERS, EMPTY]);
     const layout = await browser.execute(() => {
       const list = document.getElementById("meeting-list");
       const kids = [...list.children];
@@ -126,7 +139,7 @@ describe("usability quick wins", () => {
     // The arrows cross from the last upcoming row to the first past one (D42).
     await $(`.row[data-id="${PLANNING}"]`).click();
     await browser.keys("ArrowDown");
-    expect((await active()).row).toBe(PARTNER);
+    expect((await active()).row).toBe(AWAIT);
   });
 
   for (const appearance of ["light", "dark"]) {
@@ -184,7 +197,10 @@ describe("usability quick wins", () => {
     await $(`.row[data-id="${AWAIT}"]`).click();
     await expect($("#state-sentence")).toHaveText("Waiting for Teams to publish the transcript");
     await expect($("#next-check")).toBeExisting();
-    await expect($("#next-check")).toHaveText("Next check at 11:30, 3 attempts left.");
+    // Local time from the seeded next attempt, with "tomorrow" only if it falls after midnight.
+    const hhmm = AWAIT_NEXT.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const day = AWAIT_NEXT.getDate() === new Date().getDate() ? "" : "tomorrow ";
+    await expect($("#next-check")).toHaveText(`Next check ${day}at ${hhmm}, 2 attempts left.`);
     await expect($("#import-now")).toHaveText("Import transcript");
     scenario({ structuredOutput: SUMMARY });
     await pickerAnswers(freshFixture());
@@ -216,6 +232,29 @@ describe("usability quick wins", () => {
     await $("#menu-copy-actions").click();
     await expect($("#notice")).toHaveText("Actions copied.");
     expect((await browser.execute(() => window.__copied))[1]).toBe("- Speaker A: Write up the retry limit.\n- Unassigned: Book the policy editor demo.");
+    // An empty summary.md copies nothing and says so.
+    await $(`.row[data-id="${EMPTY}"]`).click();
+    await $("#detail-menu").click();
+    await $("#menu-copy-summary").click();
+    await expect($("#notice")).toHaveText("This summary is empty.");
+    expect(await browser.execute(() => window.__copied.length)).toBe(2);
+  });
+
+  it("header Import > Transcript file… gives focus back to the Import button when the picker closes", async () => {
+    await pickerAnswers(null); // cancelled
+    await $("#import-button").click();
+    await $("#import-file").click();
+    await browser.waitUntil(async () => (await active()).id === "import-button", { timeout: 3000, timeoutMsg: "focus didn't come back to Import" });
+  });
+
+  it("a file the attach strip refuses is announced in a polite live region", async () => {
+    await $(`.row[data-id="${PARTNER}"]`).click();
+    await expect($("#attach-strip")).toBeDisplayed();
+    await pickerAnswers(fixture("bad.vtt"));
+    await $("#attach-choose").click();
+    await expect($("#attach-strip")).toHaveText(expect.stringContaining("The file wasn’t attached"));
+    await expect($("#sr-status")).toHaveText(expect.stringContaining("bad.vtt: doesn't start with WEBVTT"));
+    expect(await browser.execute(() => document.getElementById("sr-status").closest('[aria-live="polite"]') !== null)).toBe(true);
   });
 
   it("Esc on a row's menu, the detail menu, a citation's peek or Settings gives focus back to what opened it", async () => {
@@ -269,6 +308,7 @@ describe("usability quick wins", () => {
     await refreshCalendar();
     await expect($("#calendar-status")).toHaveText(/^Claude Code couldn't refresh the calendar/);
     const r = await browser.execute(() => {
+      document.getElementById("meeting-list").scrollTop = 0; // the first row in view, wherever earlier tests left it
       const range = document.createRange();
       range.selectNodeContents(document.getElementById("calendar-status"));
       const text = range.getBoundingClientRect();
@@ -298,9 +338,27 @@ describe("usability quick wins", () => {
     await browser.execute(() => (document.getElementById("meeting-list").scrollTop = 0));
   });
 
+  it("a row reached with the arrows is never left under the pinned day header", async () => {
+    await $(`.row[data-id="${EMPTY}"]`).click(); // the last row: the list scrolls to the bottom
+    const covered = [];
+    for (let i = 0; i < ROWS - 1; i++) {
+      await browser.keys("ArrowUp");
+      const r = await browser.execute(() => {
+        const list = document.getElementById("meeting-list");
+        const top = list.getBoundingClientRect().top;
+        const pinned = document.elementFromPoint(list.getBoundingClientRect().left + 20, top + 2)?.closest(".gh");
+        const row = document.activeElement;
+        return { id: row.dataset.id, rowTop: row.getBoundingClientRect().top, headerBottom: pinned ? pinned.getBoundingClientRect().bottom : top };
+      });
+      if (r.rowTop < r.headerBottom - 1) covered.push(r);
+    }
+    expect(covered).toEqual([]);
+  });
+
   it("a missing library folder shows a red banner with its path and Choose folder, lists nothing, and writes nothing", async () => {
     const lib = root("library");
-    const gone = root("gone-library");
+    // A long path with no spaces, as a real library's often is.
+    const gone = root(`NoSpacesInThisLongLibraryFolderName${"AndItKeepsGoing".repeat(5)}`);
     const rows = (await ids()).length;
     const settings = await invoke("get_settings");
     await invoke("save_settings", { settings: { ...settings, libraryPath: gone } });
@@ -310,14 +368,46 @@ describe("usability quick wins", () => {
     expect(await ids()).toEqual([]);
     await expect($("#meeting-list .empty")).not.toBeExisting(); // never "No meetings yet"
     expect(await browser.execute(() => getComputedStyle(document.getElementById("library-missing")).color)).toBe("rgb(183, 54, 41)"); // st-failtxt
+    // However long the path, Choose folder is inside the column and takes a click.
+    const hit = await browser.execute(() => {
+      const b = document.getElementById("library-choose").getBoundingClientRect();
+      const col = document.querySelector(".col").getBoundingClientRect();
+      return { inColumn: b.right <= col.right + 0.5, onTop: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)?.id };
+    });
+    expect(hit).toEqual({ inColumn: true, onTop: "library-choose" });
     // Nothing writes into the missing folder: an import and a skip are refused, and the folder isn't made.
     const refusal = (cmd, args) => invoke(cmd, args).then(() => "done", (e) => String(e));
     expect(await refusal("import_transcript", { path: freshFixture(), id: null })).toContain("Library folder not found");
+    // ... and the page shows that refusal once, in the library banner, not a second banner.
+    await browser.pause(500);
+    await expect($("#import-error")).not.toBeDisplayed();
     expect(await refusal("skip_meeting", { id: PARTNER })).toContain("Library folder not found");
     expect(fs.existsSync(gone)).toBe(false);
     // Choose folder: the library comes back with its meetings.
     await pickerAnswers(lib);
     await $("#library-choose").click();
+    await expect($("#library-missing")).not.toBeDisplayed();
+    await browser.waitUntil(async () => (await ids()).length === rows, { timeout: 5000, timeoutMsg: "the meetings never came back" });
+    // Nothing still says the library is missing, and focus isn't dropped on the page.
+    expect(await browser.execute(() => [...document.querySelectorAll(".import-error")].filter((b) => !b.hidden).map((b) => b.textContent.trim()))).toEqual([]);
+    expect((await active()).id).toBe("search");
+  });
+
+  it("a library renamed while the app runs is noticed on focus, the calendar isn't refreshed meanwhile, and its return is noticed too", async () => {
+    const lib = root("library");
+    const moved = root("library-moved");
+    const rows = (await ids()).length;
+    fs.renameSync(lib, moved);
+    await browser.execute(() => window.dispatchEvent(new Event("focus")));
+    await expect($("#library-missing")).toBeDisplayed();
+    expect(await ids()).toEqual([]);
+    // No claude run for a library that isn't there.
+    const runs = claudeRecords().length;
+    await refreshCalendar();
+    expect(claudeRecords().length).toBe(runs);
+    expect(fs.existsSync(lib)).toBe(false);
+    fs.renameSync(moved, lib);
+    await browser.execute(() => window.dispatchEvent(new Event("focus")));
     await expect($("#library-missing")).not.toBeDisplayed();
     await browser.waitUntil(async () => (await ids()).length === rows, { timeout: 5000, timeoutMsg: "the meetings never came back" });
   });

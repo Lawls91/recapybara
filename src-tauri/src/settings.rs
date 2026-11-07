@@ -53,8 +53,18 @@ pub fn load(dir: &Path) -> Settings {
 /// A dev instance (`--dev`): never at logon, so the Run key is never touched, and the library defaults into the dev dir.
 pub fn for_dev(mut s: Settings, dev: &Path) -> Settings {
     s.start_at_logon = false;
-    s.library_path.get_or_insert_with(|| dev.join("library").to_string_lossy().into_owned());
+    s.library_path.get_or_insert_with(|| dev_library(dev));
     s
+}
+
+fn dev_library(dev: &Path) -> String {
+    dev.join("library").to_string_lossy().into_owned()
+}
+
+/// A dev instance makes its library at start only when it is the dev dir's own default (saved or not); a library
+/// chosen elsewhere that has gone stays gone, for the missing-library banner (D45).
+pub fn makes_dev_library(s: &Settings, dev: &Path) -> bool {
+    s.library_path.as_deref() == Some(dev_library(dev).as_str())
 }
 
 /// Atomic write: temp file, then rename (D25).
@@ -100,6 +110,18 @@ mod tests {
         let kept = for_dev(chosen, Path::new(r"C:\dev\one"));
         assert_eq!(kept.library_path.as_deref(), Some(r"D:\lib"), "a library already chosen is kept");
         assert!(!kept.start_at_logon);
+    }
+
+    #[test]
+    fn a_dev_instance_makes_only_its_own_default_library_even_once_settings_are_saved() {
+        let dev = Path::new(r"C:\dev\one");
+        let fresh = for_dev(Settings::default(), dev);
+        assert!(makes_dev_library(&fresh, dev));
+        // An Appearance change saves settings.json with the default path in it: still the dev dir's own.
+        let saved = for_dev(Settings { library_path: Some(r"C:\dev\one\library".into()), ..Settings::default() }, dev);
+        assert!(makes_dev_library(&saved, dev));
+        let chosen = for_dev(Settings { library_path: Some(r"D:\lib".into()), ..Settings::default() }, dev);
+        assert!(!makes_dev_library(&chosen, dev), "a chosen library that has gone isn't made anew");
     }
 
     #[test]

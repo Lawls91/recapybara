@@ -43,8 +43,8 @@ Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins; an empt
 `dev_dir` in `src-tauri/src/lib.rs`. In dev mode:
 
 - All state is under the dir: settings and `runs` in `<dir>\data`, the WebView2 profile in `<dir>\webview`, and the
-  library defaults to `<dir>\library` (so there is no first-run folder prompt; it is made at start only when no
-  library is set, so a chosen one that has gone stays gone and shows the missing-library banner). `MEETING_CAPTURE_DATA_DIR` and
+  library defaults to `<dir>\library` (so there is no first-run folder prompt; only that default library is made at
+  start, so a library chosen elsewhere that has gone stays gone and shows the missing-library banner). `MEETING_CAPTURE_DATA_DIR` and
   `MEETING_CAPTURE_HOME` still win where set. The home is the real one, so the real claude finds the
   installed copy's skill. A dev instance installs the skill only with `MEETING_CAPTURE_HOME` set, so it never points
   the installed copy's skill at the dev library.
@@ -241,21 +241,26 @@ first and each day newest first. With nothing upcoming there is no section label
 while their day scrolls. Search and the series filter keep this layout. The status line wraps a long refresh error
 and pushes the list down rather than covering it.
 
-The Awaiting transcript card says when it checks next (local time) and how many attempts are left ("Next check at
-11:30, 3 attempts left.", from `nextAttempt` and `attempts`), and its Import transcript attaches a `.vtt` now.
+The Awaiting transcript card says when it checks next, in local time with its day unless today, and how many attempts
+are left ("Next check at 11:30, 2 attempts left.", "Next check tomorrow at 00:20, ..."), and its Import transcript
+attaches a `.vtt` now. The count follows D12's schedule from `nextAttempt` and `end` (a meeting found late has skipped
+the slots already past), worked out by the backend (`attemptsLeft` in the list).
 
 A meeting with a summary has Copy summary (`summary.md` as Markdown) and Copy actions (one line per action item,
 "- Owner: action", or "Unassigned") in its `...` menu; each copies to the clipboard and confirms in a short notice.
 
 When the library folder is missing or can't be read (a drive unplugged, OneDrive not yet synced, the folder renamed),
-the list is replaced by a red banner naming the path, with Choose folder. Until a folder is chosen (or the folder is
-back and chosen again), every command that reads or writes the library is refused, and fetches, skips and imports
-are paused, so nothing lands in a folder made anew.
+the list is replaced by a red banner naming the path, with Choose folder (a long path wraps). Until the folder is back
+or another is chosen, every command that reads or writes the library is refused (shown in that one banner), fetches,
+skips, imports and the calendar refresh are paused, and a meeting folder is only ever made inside a library that is
+there, so nothing lands in a folder made anew. The page checks the folder when the window gets focus or is shown and
+every 30 s, so the banner comes and goes with the folder.
 
 Keyboard and screen readers (D42): Esc closes the open menu, peek sheet or Settings, and focus goes back to what
 opened it (a row's menu to its row, the detail menu to its `...` button, the peek to its chip, Settings to its
 button); opening Settings focuses its Back link. Tabs carry `aria-selected`. The status line (refresh state and
-Import from Teams progress), the banners and the copy notice are polite live regions.
+Import from Teams progress), the banners, the copy notice and an attach strip's refusal are polite live regions. The
+header's Import > Transcript file… gives focus back to the Import button when its picker closes.
 
 My notes (D27): the meeting's My notes tab edits its `notes.md` directly (plain text, written atomically). It saves after
 a 500 ms pause in typing, and at once on a tab or meeting switch, on opening Settings, on the tray's Quit (which waits

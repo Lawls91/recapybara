@@ -1,6 +1,5 @@
-import fs from "node:fs";
 import { expect, test } from "vitest";
-import { ATTEMPTS, awaitingLine, calendarLine, dayGroups, deletePrompt, menuFor, type Meeting } from "./meetings";
+import { awaitingLine, calendarLine, dayGroups, deletePrompt, menuFor, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -112,17 +111,16 @@ test("across midnight: a call that started yesterday and runs on is in progress,
   expect(dayGroups([noEnd], new Date(2026, 10, 7, 9, 0))[0].section).toBeUndefined();
 });
 
-test("the Awaiting transcript card says when it checks next, in local time, and how many attempts are left", () => {
-  const next = new Date(2026, 10, 7, 11, 30).toISOString(); // 11:30 local
-  expect(awaitingLine({ ...meeting("awaitingTranscript"), attempts: 2, nextAttempt: next })).toBe("Next check at 11:30, 3 attempts left.");
-  expect(awaitingLine({ ...meeting("awaitingTranscript"), attempts: 4, nextAttempt: next })).toBe("Next check at 11:30, 1 attempt left.");
-  expect(awaitingLine({ ...meeting("awaitingTranscript"), attempts: 0, nextAttempt: next })).toBe("Next check at 11:30, 5 attempts left.");
-  expect(awaitingLine({ ...meeting("awaitingTranscript"), attempts: 5, nextAttempt: null })).toBe("No more checks, 0 attempts left.");
-});
-
-test("the card's attempt count is D12's schedule as fetch.rs runs it", () => {
-  const rust = fs.readFileSync(new URL("../src-tauri/src/fetch.rs", import.meta.url), "utf8");
-  expect(rust).toContain(`pub const RETRIES: [i64; ${ATTEMPTS}] = [0, 2, 10, 30, 120];`);
+test("the Awaiting transcript card says when it checks next, with its day unless today, and the attempts left", () => {
+  const now = new Date(2026, 10, 7, 10, 0); // Sat 7 Nov 2026, 10:00 local
+  const at = (day: number, hh: number, mm: number) => new Date(2026, 10, day, hh, mm).toISOString();
+  const card = (nextAttempt: string | null, attemptsLeft: number) => awaitingLine({ ...meeting("awaitingTranscript"), nextAttempt, attemptsLeft }, now);
+  expect(card(at(7, 11, 30), 3)).toBe("Next check at 11:30, 3 attempts left.");
+  expect(card(at(7, 11, 30), 1)).toBe("Next check at 11:30, 1 attempt left.");
+  expect(card(at(8, 0, 20), 2)).toBe("Next check tomorrow at 00:20, 2 attempts left.");
+  expect(card(at(9, 9, 0), 1)).toBe("Next check Mon 9 Nov at 09:00, 1 attempt left.");
+  expect(card(at(7, 9, 59), 2)).toBe("Next check due now, 2 attempts left.");
+  expect(card(null, 0)).toBe("No more checks.");
 });
 
 test("a meeting with a summary offers Copy summary and Copy actions; one without doesn't", () => {

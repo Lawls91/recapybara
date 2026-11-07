@@ -30,9 +30,9 @@ export interface Meeting {
   excluded?: boolean;
   /** Why the last summary run failed (shown on the Summary failed card). */
   summaryError?: string | null;
-  /** Fetch attempts made so far, and when the next one is due (D12). */
-  attempts?: number;
+  /** When the next fetch attempt is due, and the attempts still to come (D12, counted by the backend). */
   nextAttempt?: string | null;
+  attemptsLeft?: number;
 }
 
 /** D41: dot family and label for each state. */
@@ -114,14 +114,22 @@ export function dayGroups(meetings: Meeting[], now: Date): DayGroup[] {
   return [...up, ...past];
 }
 
-/** D12's schedule: the first attempt and four retries (fetch::RETRIES). */
-export const ATTEMPTS = 5;
-
-/** The Awaiting transcript card's schedule line: when it checks next, local time, and the attempts left. */
-export function awaitingLine(m: Meeting): string {
-  const left = Math.max(0, ATTEMPTS - (m.attempts ?? 0));
-  const next = m.nextAttempt ? `Next check at ${timeFmt.format(new Date(m.nextAttempt))}` : "No more checks";
-  return `${next}, ${left} ${left === 1 ? "attempt" : "attempts"} left.`;
+/** The Awaiting transcript card's schedule line: when it checks next, in local time with its day unless today, and
+ * the attempts left (the backend's count, D12). */
+export function awaitingLine(m: Meeting, now: Date): string {
+  if (!m.nextAttempt) return "No more checks.";
+  const d = new Date(m.nextAttempt);
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const when =
+    d <= now
+      ? "due now"
+      : dayKey(d) === dayKey(now)
+        ? `at ${timeFmt.format(d)}`
+        : dayKey(d) === dayKey(tomorrow)
+          ? `tomorrow at ${timeFmt.format(d)}`
+          : `${dayFmt.format(d).replace(",", "")} at ${timeFmt.format(d)}`;
+  const left = m.attemptsLeft ?? 0;
+  return `Next check ${when}, ${left} ${left === 1 ? "attempt" : "attempts"} left.`;
 }
 
 export interface MenuItem {
