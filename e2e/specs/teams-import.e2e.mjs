@@ -242,6 +242,8 @@ describe("import from Teams", () => {
   });
 
   it("the review list scrolls when long, Select none and Select all work, a checkbox ticks from the keyboard, and Import takes only the ticked ones", async () => {
+    // The last import's report stays until dismissed.
+    await expect($("#import-report")).toBeDisplayed();
     await $("#import-report-close").click();
     await expect($("#import-report")).not.toBeDisplayed();
     // Ten more meetings, two a day over the last five days, none in the library.
