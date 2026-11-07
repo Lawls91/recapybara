@@ -228,8 +228,11 @@ pub fn counted_in(captured: &[Value], from: DateTime<Utc>, to: DateTime<Utc>, ca
         let (join, transcript): (Option<String>, Option<String>) = match (reads.get(uri), unmoved) {
             (Some(read), _) => (read["onlineMeeting"]["joinUrl"].as_str().map(Into::into), read["meetingTranscriptUrl"].as_str().map(Into::into)),
             (None, Some(c)) => (Some(c.join_url.clone()), c.meeting_transcript_url.clone()),
+            // With no time it converts, it couldn't be cached even if read: not counted.
             (None, None) => {
-                out.unreadable.push(uri.into());
+                if times.0.is_some() && times.1.is_some() {
+                    out.unreadable.push(uri.into());
+                }
                 continue;
             }
         };
@@ -255,10 +258,10 @@ pub fn counted_in(captured: &[Value], from: DateTime<Utc>, to: DateTime<Utc>, ca
     Ok(out)
 }
 
-/// One search run over `from` to `to` (`kind` for the run log), then, if any read failed, one run reading just those
-/// events again. Events still unreadable after it are counted, never silently dropped.
-fn search_run(from: DateTime<Utc>, to: DateTime<Utc>, kind: &'static str, cached: &[Event], run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>) -> Result<Found, String> {
-    let mut captured = run(&ClaudeRun { kind, ..run_window(from, to, cached) }).map_err(|e| run_failure(&e))?.captured;
+/// `search`, the search run over `from` to `to`, then, if any read failed, one run reading just those events again.
+/// Events still unreadable after it are counted, never silently dropped.
+fn search_run(search: ClaudeRun, from: DateTime<Utc>, to: DateTime<Utc>, cached: &[Event], run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>) -> Result<Found, String> {
+    let mut captured = run(&search).map_err(|e| run_failure(&e))?.captured;
     let found = counted_in(&captured, from, to, cached)?;
     if found.unreadable.is_empty() {
         return Ok(found);
@@ -348,13 +351,14 @@ pub fn import_window(from: &str, to: &str, today: NaiveDate) -> Result<(DateTime
 pub const SEARCHES: usize = 4;
 
 /// The local days from `from` to `to`, each as its own window.
-fn days(from: DateTime<Utc>, to: DateTime<Utc>) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
+fn days<Tz: TimeZone>(from: DateTime<Utc>, to: DateTime<Utc>, tz: &Tz) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
     let mut out = vec![];
     let mut at = from;
     while at < to {
-        let next = at.with_timezone(&Local).date_naive() + Duration::days(1);
-        // ponytail: a zone whose clocks skip that midnight cuts at UTC midnight instead.
-        let end = midnight(next, &Local).unwrap_or_else(|| next.and_time(NaiveTime::MIN).and_utc()).min(to);
+        let next = at.with_timezone(tz).date_naive() + Duration::days(1);
+        // A zone whose clocks skip that midnight starts the day at its first hour that exists; a day always moves on.
+        let start = (0..4).find_map(|h| (next.and_time(NaiveTime::MIN) + Duration::hours(h)).and_local_timezone(tz.clone()).earliest());
+        let end = start.map_or(at + Duration::days(1), |t| t.with_timezone(&Utc)).max(at + Duration::minutes(1)).min(to);
         out.push((at, end));
         at = end;
     }
@@ -366,7 +370,7 @@ fn days(from: DateTime<Utc>, to: DateTime<Utc>) -> Vec<(DateTime<Utc>, DateTime<
 /// the cache nor the status line; a failed day fails the search, which says to search again.
 pub fn search(from: DateTime<Utc>, to: DateTime<Utc>, run: impl Fn(&ClaudeRun) -> io::Result<Output> + Sync) -> Result<(Vec<Event>, usize), String> {
     let mut all = Found::default();
-    for day in crate::claude::parallel(&days(from, to), SEARCHES, |(a, b)| search_run(*a, *b, "search", &[], &mut |r| run(r))) {
+    for day in crate::claude::parallel(&days(from, to, &Local), SEARCHES, |(a, b)| search_run(run_window(*a, *b, &[]), *a, *b, &[], &mut |r| run(r))) {
         let day = day.map_err(|e| e.replace("Refresh calendar to try again", "Search again").replace("then Refresh calendar", "then search again").replace("refresh the calendar", "search the calendar"))?;
         for e in day.events {
             if !all.events.iter().any(|x| x.id == e.id) {
@@ -379,6 +383,8 @@ pub fn search(from: DateTime<Utc>, to: DateTime<Utc>, run: impl Fn(&ClaudeRun) -
             }
         }
     }
+    // An event spanning midnight may fail one day's read and pass the other's.
+    all.unreadable.retain(|u| !all.events.iter().any(|e| &e.uri == u));
     Ok((all.events, all.unreadable.len()))
 }
 
@@ -428,7 +434,7 @@ impl Calendar {
             i.events.clone()
         };
         changed();
-        let attempt = std::panic::AssertUnwindSafe(|| search_run(now - LOOK_BACK, ahead(now), "refresh", &cached, &mut run));
+        let attempt = std::panic::AssertUnwindSafe(|| search_run(run_for(now, &cached), now - LOOK_BACK, ahead(now), &cached, &mut run));
         let outcome = std::panic::catch_unwind(attempt).unwrap_or_else(|_| Err("The calendar refresh crashed. Refresh calendar to try again.".into()));
         {
             let mut i = self.0.lock().unwrap();
@@ -578,6 +584,9 @@ mod tests {
         tz[1] = search(Some(2), &other_zone);
         assert_eq!(subjects(&parse(&tz, now()).unwrap()), ["Backlog Refinement", "Focus"]);
         assert_eq!(counted_in(&tz, now() - LOOK_BACK, ahead(now()), &[]).unwrap().skipped, 1, "and counted, for the status line");
+        // Unread too: with no time it converts, it isn't counted unreadable either (it couldn't be cached).
+        let unread_tz: Vec<Value> = tz.iter().filter(|p| p["tool_input"]["uri"] != "calendar:///events/SYNTH-EVENT-3").cloned().collect();
+        assert!(counted_in(&unread_tz, now() - LOOK_BACK, ahead(now()), &[]).unwrap().unreadable.is_empty());
         let cal = Calendar::default();
         cal.refresh(now(), good(tz), || {});
         assert_eq!(cal.status().skipped, 1);
@@ -824,6 +833,19 @@ mod tests {
         super::search(from, to, slow).unwrap();
         assert_eq!((SEARCHES, most.load(std::sync::atomic::Ordering::SeqCst)), (4, 4));
 
+        // The late call's read fails on the 5th, retry included, and passes on the 6th: found, not unreadable.
+        let fails_on_5th = |r: &ClaudeRun| {
+            let mut c = captured.clone();
+            if r.kind == "read retry" || r.prompt.contains(&format!("afterDateTime {}", utc_text(day("2026-11-05").0))) {
+                c.retain(|p| p["tool_input"]["uri"] != "calendar:///events/SYNTH-EVENT-4");
+                c.push(failed(4));
+            }
+            Ok(Output { stdout: String::new(), captured: c })
+        };
+        let (from, to) = import_window("2026-11-05", "2026-11-06", today).unwrap();
+        let (got, unreadable) = super::search(from, to, fails_on_5th).unwrap();
+        assert_eq!((subjects(&got), unreadable), (vec!["Backlog Refinement", "Focus", "Partner sync", "Late call"], 0));
+
         // A failed day fails the search, saying to search again.
         let failed = super::search(now(), now() + Duration::hours(1), |_| Err(io::Error::new(io::ErrorKind::NotFound, "x"))).unwrap_err();
         assert_eq!(failed, "Claude Code not found. Install it or add it to PATH, then search again.");
@@ -908,8 +930,65 @@ mod tests {
 
     #[test]
     fn the_refresh_search_and_fetch_runs_turn_the_tool_search_off() {
-        for r in [run_for(now(), &[]), run_window(now(), now(), &[]), read_run(&["calendar:///events/x".into()]), crate::fetch::run_for("meeting-transcript:///x")] {
+        // Through the paths that start them: a refresh and an import search, each with its read retry.
+        let kinds = Mutex::new(vec![]);
+        let check = |r: &ClaudeRun| {
             assert!(r.env.contains(&("ENABLE_TOOL_SEARCH", "false")), "{}", r.kind);
+            kinds.lock().unwrap().push(r.kind);
+            Ok(Output { stdout: String::new(), captured: vec![all_teams()[0].clone(), all_teams()[1].clone(), failed(1)] })
+        };
+        Calendar::default().refresh(now(), check, || {});
+        super::search(now(), now() + Duration::hours(6), check).unwrap();
+        let mut kinds = kinds.into_inner().unwrap();
+        kinds.sort();
+        kinds.dedup();
+        assert_eq!(kinds, ["read retry", "refresh", "search"]);
+        assert!(crate::fetch::run_for("meeting-transcript:///x").env.contains(&("ENABLE_TOOL_SEARCH", "false")));
+    }
+
+    /// Santiago-like: UTC-4, then from 2026-11-08 04:00 UTC UTC-3, so local 00:00-00:59 on the 8th never happens.
+    #[derive(Clone)]
+    struct SkipsMidnight;
+    impl SkipsMidnight {
+        const SWITCH: i64 = 1_794_110_400; // 2026-11-08T04:00:00Z
+        fn at(utc: bool, t: i64) -> chrono::FixedOffset {
+            let hours = if t < Self::SWITCH - if utc { 0 } else { 4 * 3600 } { -4 } else { -3 };
+            chrono::FixedOffset::east_opt(hours * 3600).unwrap()
         }
+    }
+    impl TimeZone for SkipsMidnight {
+        type Offset = chrono::FixedOffset;
+        fn from_offset(_: &chrono::FixedOffset) -> Self {
+            SkipsMidnight
+        }
+        #[allow(deprecated)]
+        fn offset_from_local_date(&self, d: &NaiveDate) -> chrono::LocalResult<chrono::FixedOffset> {
+            self.offset_from_local_datetime(&d.and_time(NaiveTime::MIN))
+        }
+        fn offset_from_local_datetime(&self, l: &NaiveDateTime) -> chrono::LocalResult<chrono::FixedOffset> {
+            let t = l.and_utc().timestamp();
+            // The skipped hour: local 00:00 to 01:00 on the 8th.
+            if (Self::SWITCH - 4 * 3600..Self::SWITCH - 3 * 3600).contains(&t) {
+                return chrono::LocalResult::None;
+            }
+            chrono::LocalResult::Single(Self::at(false, t))
+        }
+        #[allow(deprecated)]
+        fn offset_from_utc_date(&self, d: &NaiveDate) -> chrono::FixedOffset {
+            self.offset_from_utc_datetime(&d.and_time(NaiveTime::MIN))
+        }
+        fn offset_from_utc_datetime(&self, u: &NaiveDateTime) -> chrono::FixedOffset {
+            Self::at(true, u.and_utc().timestamp())
+        }
+    }
+
+    #[test]
+    fn a_day_whose_midnight_the_clocks_skip_starts_at_its_first_hour_and_the_days_still_end() {
+        assert_eq!(SkipsMidnight::SWITCH, t("2026-11-08T04:00:00Z").timestamp());
+        // Local midnight on the 7th (UTC-4) to local midnight on the 9th (UTC-3).
+        let got = days(t("2026-11-07T04:00:00Z"), t("2026-11-09T03:00:00Z"), &SkipsMidnight);
+        assert_eq!(got, [(t("2026-11-07T04:00:00Z"), t("2026-11-08T04:00:00Z")), (t("2026-11-08T04:00:00Z"), t("2026-11-09T03:00:00Z"))]);
+        let utc = chrono::FixedOffset::east_opt(0).unwrap();
+        assert_eq!(days(t("2026-11-07T00:00:00Z"), t("2026-11-07T12:00:00Z"), &utc), [(t("2026-11-07T00:00:00Z"), t("2026-11-07T12:00:00Z"))], "a part day");
     }
 }

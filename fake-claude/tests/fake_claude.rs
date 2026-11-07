@@ -129,3 +129,46 @@ fn a_read_the_prompt_lists_as_already_read_is_not_fired_and_each_run_records_whe
     }
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn runs_that_overlap_each_leave_one_whole_record_line() {
+    let dir = temp("fakeoverlap");
+    let scenario = dir.join("scenario.json");
+    fs::write(&scenario, json!({ "result": {} }).to_string()).unwrap();
+    // Every run waits on its stdin until all have started, so they finish together; a big stdin makes each record
+    // hundreds of KB, so a record written in pieces would interleave.
+    let mut children: Vec<_> = (0..16)
+        .map(|n| {
+            Command::new(FAKE)
+                .args(["-p", &format!("run {n}")])
+                .current_dir(&dir)
+                .env("FAKE_CLAUDE_SCENARIO", &scenario)
+                .env("MEETING_CAPTURE_HOME", dir.join("home"))
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let body = "x".repeat(300_000);
+    let writers: Vec<_> = children
+        .iter_mut()
+        .map(|c| {
+            let (mut stdin, body) = (c.stdin.take().unwrap(), body.clone());
+            std::thread::spawn(move || {
+                use std::io::Write;
+                stdin.write_all(body.as_bytes()).unwrap();
+            })
+        })
+        .collect();
+    writers.into_iter().for_each(|w| w.join().unwrap());
+    for mut c in children {
+        assert!(c.wait().unwrap().success());
+    }
+    let mut prompts: Vec<String> = records(&scenario).iter().map(|r| r["argv"][1].as_str().unwrap().to_string()).collect();
+    prompts.sort();
+    let mut want: Vec<String> = (0..16).map(|n| format!("run {n}")).collect();
+    want.sort();
+    assert_eq!(prompts, want);
+    fs::remove_dir_all(dir).unwrap();
+}

@@ -163,7 +163,9 @@ fn main() {
         .append(true)
         .open(format!("{}.record.jsonl", scenario_path.display()))
         .unwrap();
-    writeln!(log, "{record}").unwrap();
+    // One write of the whole line: an append-only handle puts each write at the end in one piece, so runs that overlap
+    // never interleave their records (writeln! may split a line into several writes).
+    log.write_all(format!("{record}\n").as_bytes()).unwrap();
     println!("{output}");
     std::process::exit(scenario["exitCode"].as_i64().unwrap_or(0) as i32);
 }

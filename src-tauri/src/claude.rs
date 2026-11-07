@@ -69,18 +69,24 @@ pub fn version(program: &OsString) -> Option<String> {
 
 static VERSION: Mutex<Option<String>> = Mutex::new(None);
 
-/// `version`, run once per app session: the first answer is kept. One that can't run is asked again next time.
+/// `version`, run once per app session: the first answer is kept. One that can't run is asked again next time. It runs
+/// outside the lock, so a slow or failing `--version` never queues the fetches behind it (several may ask at once).
 // ponytail: a Claude Code upgrade mid-session is recorded from the next app start.
 pub fn session_version(program: &OsString) -> Option<String> {
     once(&VERSION, || version(program))
 }
 
 fn once(cell: &Mutex<Option<String>>, ask: impl FnOnce() -> Option<String>) -> Option<String> {
-    let mut v = cell.lock().unwrap_or_else(|e| e.into_inner());
-    if v.is_none() {
-        *v = ask();
+    let lock = || cell.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(v) = lock().clone() {
+        return Some(v);
     }
-    v.clone()
+    let v = ask();
+    let mut kept = lock();
+    if kept.is_none() {
+        *kept = v;
+    }
+    kept.clone()
 }
 
 /// `f` over `items`, at most `n` at once, the results in `items`' order.

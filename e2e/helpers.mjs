@@ -6,17 +6,21 @@ import path from "node:path";
 export const invoke = (cmd, args = {}) =>
   browser.execute((c, a) => window.__TAURI_INTERNALS__.invoke(c, a), cmd, args);
 
-/** The fake claude's last record (argv, env, stdin, cwd, projectDir). */
-export const lastClaudeRecord = () => {
-  const lines = fs.readFileSync(`${process.env.FAKE_CLAUDE_SCENARIO}.record.jsonl`, "utf8").trim().split("\n");
-  return JSON.parse(lines.at(-1));
-};
-
-/** Every record the fake claude wrote, oldest first. */
+/** Every record the fake claude wrote, oldest first. A line still being written (read mid-write) is left out. */
 export const claudeRecords = () => {
   const file = `${process.env.FAKE_CLAUDE_SCENARIO}.record.jsonl`;
-  return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf8").split("\n").flatMap((l) => {
+    try {
+      return l.trim() ? [JSON.parse(l)] : [];
+    } catch {
+      return [];
+    }
+  });
 };
+
+/** The fake claude's last record (argv, env, stdin, cwd, projectDir). */
+export const lastClaudeRecord = () => claudeRecords().at(-1);
 
 /** What the fake claude answers next (fake-claude/src/main.rs documents the fields). */
 export const scenario = (s) => fs.writeFileSync(process.env.FAKE_CLAUDE_SCENARIO, JSON.stringify(s));

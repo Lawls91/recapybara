@@ -143,7 +143,7 @@ describe("import from Teams", () => {
   it("Search runs one calendar search per day of the range and counts what it found, and nothing is fetched before Import", async () => {
     await expect($("#teams")).toBeDisplayed();
     await $("#teams-search").click();
-    await expect($("#teams-msg")).toHaveText("Found 3 Teams meetings with a transcript. 1 left out: already captured, skipped, deleted or excluded.", { wait: 20000 });
+    await expect($("#teams-msg")).toHaveText("Found 3 Teams meetings with a transcript. 1 left out: already captured, skipped, deleted or excluded.", { wait: 60000 }); // 7 day runs, 4 at once
     await expect($("#teams-go")).toBeDisplayed();
     await shots("found");
     expect(DAYS.map((w) => daySearches().filter((r) => r.argv.some((a) => a.includes(w))).length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
@@ -191,7 +191,7 @@ describe("import from Teams", () => {
     await $("#import-button").click();
     await $("#import-teams").click();
     await $("#teams-search").click();
-    await expect($("#teams-msg")).toHaveText("Found no Teams meetings with a transcript. 4 left out: already captured, skipped, deleted or excluded.", { wait: 20000 });
+    await expect($("#teams-msg")).toHaveText("Found no Teams meetings with a transcript. 4 left out: already captured, skipped, deleted or excluded.", { wait: 60000 }); // 7 day runs, 4 at once
     await $("#teams-cancel").click();
     await expect($("#teams")).not.toBeDisplayed();
     expect(await focused()).toBe("import-button");
@@ -211,7 +211,7 @@ describe("import from Teams", () => {
     await $("#teams-search").click();
     await expect($("#teams-msg")).toHaveText(
       "Found no Teams meetings with a transcript. 4 left out: already captured, skipped, deleted or excluded. 1 couldn't be read. Search again to retry.",
-      { wait: 20000 },
+      { wait: 60000 }, // 7 day runs, 4 at once, then a read retry
     );
     const retries = claudeRecords().filter((r) => r.argv[1] === `Call read_resource once on each of these uris, exactly as given: "${F.uri}". Reply DONE.`);
     expect(retries.length).toBe(1);

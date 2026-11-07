@@ -1181,20 +1181,25 @@ mod tests {
         let lib = temp("tickclaim");
         let now = end();
         let e = event(34, start(), end());
-        let (started, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+        // The held run waits on `release`; a failing check drops it while unwinding, which frees the run, so a
+        // regression fails the test instead of hanging it.
+        let wait = std::time::Duration::from_secs(20);
+        let ((started_tx, started), (release, released)) = (mpsc::channel(), mpsc::channel::<()>());
+        let released = Mutex::new(released);
         std::thread::scope(|s| {
+            let release = release;
             s.spawn(|| {
                 let slow = |_: &ClaudeRun| {
-                    started.wait();
-                    release.wait();
+                    started_tx.send(()).unwrap();
+                    let _ = released.lock().unwrap().recv_timeout(wait);
                     Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-34?start=x&end=y", blocks(&body(&[])))] })
                 };
                 import(&lib, std::slice::from_ref(&e), Vec::new, |_| false, || now, slow, none, |_, _| {}, |_, _| {}, |_| {});
             });
-            started.wait();
+            started.recv_timeout(wait).expect("the import's run started");
             let done = tick(&lib, std::slice::from_ref(&e), Vec::new, now, |_| panic!("the import has it"), none, |_, _| panic!("no change"));
             assert!(done.is_empty());
-            release.wait();
+            release.send(()).unwrap();
         });
         // ... and once it has landed, the tick finds it not due until its next retry.
         tick(&lib, std::slice::from_ref(&e), Vec::new, now, |_| panic!("not due"), none, |_, _| {});
@@ -1203,19 +1208,21 @@ mod tests {
         // While the tick fetches meeting 35, an import leaves it alone.
         let lib = temp("importwhiletick");
         let e = event(35, start(), end());
-        let (started, release) = (std::sync::Barrier::new(2), std::sync::Barrier::new(2));
+        let ((started_tx, started), (release, released)) = (mpsc::channel(), mpsc::channel::<()>());
+        let released = Mutex::new(released);
         std::thread::scope(|s| {
+            let release = release;
             s.spawn(|| {
                 let slow = |_: &ClaudeRun| {
-                    started.wait();
-                    release.wait();
+                    started_tx.send(()).unwrap();
+                    let _ = released.lock().unwrap().recv_timeout(wait);
                     Ok(Output::default())
                 };
                 tick(&lib, std::slice::from_ref(&e), Vec::new, now, slow, none, |_, _| {});
             });
-            started.wait();
+            started.recv_timeout(wait).expect("the tick's run started");
             import(&lib, std::slice::from_ref(&e), Vec::new, |_| false, || now, |_: &ClaudeRun| panic!("the tick has it"), none, |_, _| {}, |_, _| panic!("not landed"), |_| {});
-            release.wait();
+            release.send(()).unwrap();
         });
         assert_eq!(library::list(&lib).len(), 1, "one folder");
     }
