@@ -154,6 +154,18 @@ fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, Str
     Ok(t)
 }
 
+/// My notes (D27): the meeting's `notes.md`, empty when there is none.
+#[tauri::command]
+fn get_notes(app: AppHandle, id: String) -> Result<String, String> {
+    library::read_notes(&library::meeting_dir(&library_path(&app)?, &id)?).map_err(|e| e.to_string())
+}
+
+/// Saves My notes as the user types (D27). No event: the page already shows what it saved.
+#[tauri::command]
+fn save_notes(app: AppHandle, id: String, text: String) -> Result<(), String> {
+    library::write_notes(&library::meeting_dir(&library_path(&app)?, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))
+}
+
 /// Add to glossary on an applied correction (D23).
 #[tauri::command]
 fn add_to_glossary(app: AppHandle, from: String, to: String) -> Result<(), String> {
@@ -451,6 +463,8 @@ pub fn run() {
             list_meetings,
             get_transcript,
             add_to_glossary,
+            get_notes,
+            save_notes,
             pick_transcript_file,
             import_transcript,
             open_folder,

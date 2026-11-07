@@ -578,12 +578,12 @@ mod tests {
         let dir = temp("rerun");
         library::save(&dir, &Meeting { subject: "Retry design".into(), ..Meeting::default() }).unwrap();
         fs::write(dir.join(library::VTT), CUE).unwrap();
-        fs::write(dir.join("notes.md"), "my notes\r\n").unwrap();
+        fs::write(dir.join(library::NOTES_MD), "my notes\r\n").unwrap();
         fs::write(dir.join(library::SUMMARY_MD), "# old summary\n").unwrap();
         let result = |overview: &str| Ok(json!({ "is_error": false, "structured_output": { "overview": overview } }).to_string());
         summarise(&dir, "opus", |_| result("Second run")).unwrap();
         assert!(fs::read_to_string(dir.join(library::SUMMARY_MD)).unwrap().contains("Second run"));
-        assert_eq!(fs::read(dir.join("notes.md")).unwrap(), b"my notes\r\n");
+        assert_eq!(fs::read(dir.join(library::NOTES_MD)).unwrap(), b"my notes\r\n");
         assert_eq!(fs::read(dir.join(library::VTT)).unwrap(), CUE.as_bytes());
         assert_eq!(library::load(&dir).unwrap().state, State::Done);
         assert_eq!(load(&dir).unwrap().overview, "Second run");

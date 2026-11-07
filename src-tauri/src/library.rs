@@ -12,6 +12,8 @@ pub const VTT: &str = "transcript.vtt";
 pub const SUMMARY_MD: &str = "summary.md";
 /// Claude's structured output as returned, kept so the app can redraw chips and peeks (D43).
 pub const SUMMARY_JSON: &str = "summary.json";
+/// The user's own notes, edited in the My notes tab (D27). Nothing else in the app writes it.
+pub const NOTES_MD: &str = "notes.md";
 
 /// Meeting states (D26), as stored in `meeting.json`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
@@ -440,6 +442,19 @@ pub fn transcript_md(t: &Transcript) -> String {
     md.join("\n\n") + "\n"
 }
 
+/// My notes (D27): the meeting's `notes.md`, empty when there is none yet.
+pub fn read_notes(dir: &Path) -> io::Result<String> {
+    match fs::read_to_string(dir.join(NOTES_MD)) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        r => r,
+    }
+}
+
+/// Saves My notes (D27) atomically, touching no other file. An existing folder only: a missing one is an error.
+pub fn write_notes(dir: &Path, text: &str) -> io::Result<()> {
+    write_atomic(&dir.join(NOTES_MD), text.as_bytes())
+}
+
 /// `glossary.md` at the library root, one entry per line, edited by the user (D23).
 pub const GLOSSARY: &str = "glossary.md";
 
@@ -502,6 +517,36 @@ mod tests {
         let mut v: Vec<String> = fs::read_dir(lib).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into()).collect();
         v.sort();
         v
+    }
+
+    #[test]
+    fn notes_round_trip_and_never_touch_the_summary_or_transcript_files() {
+        let dir = temp("notes");
+        assert_eq!(read_notes(&dir).unwrap(), "");
+        let others = [(SUMMARY_MD, "# Summary
+"), ("transcript.md", "**[00:00:01] Speaker A:** Hi
+"), (VTT, FIXTURE), (META, "{}")];
+        for (name, body) in others {
+            fs::write(dir.join(name), body).unwrap();
+        }
+        write_notes(&dir, "First line
+Second, with ünïcode
+").unwrap();
+        write_notes(&dir, "Orbit follow-up
+Ask Robin about the 403
+").unwrap();
+        assert_eq!(read_notes(&dir).unwrap(), "Orbit follow-up
+Ask Robin about the 403
+");
+        for (name, body) in others {
+            assert_eq!(fs::read(dir.join(name)).unwrap(), body.as_bytes(), "{name} changed");
+        }
+        // Exactly the five files: no temp file left behind.
+        assert_eq!(folders(&dir), [META, NOTES_MD, SUMMARY_MD, "transcript.md", VTT]);
+        // A meeting folder that's gone is an error, not a new folder.
+        assert!(write_notes(&dir.join("gone"), "x").is_err());
+        assert!(!dir.join("gone").exists());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
