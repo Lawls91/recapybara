@@ -5,9 +5,18 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
+    process::{Child, Command, Stdio},
+    sync::{
+        atomic::{AtomicU32, AtomicUsize, Ordering},
+        mpsc,
+    },
+    time::{Duration, Instant},
 };
+
+/// A run still going after this is stopped and fails, so one hung run can't stall the scheduler (fetches, refreshes).
+pub const RUN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// `claude --version` gets this long.
+pub const VERSION_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct ClaudeRun {
     pub prompt: String,
@@ -21,6 +30,8 @@ pub struct ClaudeRun {
     /// Extra child environment, e.g. `MAX_MCP_OUTPUT_TOKENS` (D13).
     pub env: &'static [(&'static str, &'static str)],
     pub stdin: String,
+    /// How long it may run before it is stopped (`RUN_TIMEOUT`; tests shorten it).
+    pub timeout: Duration,
 }
 
 /// `claude` in the first PATH directory holding it as a program or a `.cmd`/`.bat` shim, in PATHEXT order.
@@ -51,11 +62,50 @@ pub fn program() -> OsString {
 
 /// `claude --version`, trimmed, for the meeting metadata (D14). None when it can't be run.
 pub fn version(program: &OsString) -> Option<String> {
+    version_within(program, VERSION_TIMEOUT)
+}
+
+/// `version`, stopped after `limit`.
+pub fn version_within(program: &OsString, limit: Duration) -> Option<String> {
     let mut cmd = Command::new(program);
-    cmd.arg("--version").env_remove("ANTHROPIC_API_KEY").stdin(Stdio::null());
+    cmd.arg("--version").env_remove("ANTHROPIC_API_KEY").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::platform::no_console(&mut cmd);
-    let out = cmd.output().ok().filter(|o| o.status.success())?;
+    let out = cmd.spawn().and_then(|c| finish(c, limit)).ok().filter(|o| o.status.success())?;
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// Reads a child's pipe to its end on its own thread.
+fn drain<R: io::Read + Send + 'static>(r: Option<R>) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel();
+    if let Some(mut r) = r {
+        std::thread::spawn(move || {
+            let mut b = vec![];
+            let _ = r.read_to_end(&mut b);
+            let _ = tx.send(b);
+        });
+    }
+    rx
+}
+
+/// Waits for `child` while its stdout and stderr drain. Past `limit` it is killed through its own handle and the run
+/// fails as timed out.
+fn finish(mut child: Child, limit: Duration) -> io::Result<std::process::Output> {
+    let (out, err) = (drain(child.stdout.take()), drain(child.stderr.take()));
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(io::ErrorKind::TimedOut, format!("claude was stopped after {} s with no answer", limit.as_secs())));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    // ponytail: a grandchild holding a pipe open after claude exits can't stall the app; its output is cut at 5 s.
+    let take = |rx: mpsc::Receiver<Vec<u8>>| rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+    Ok(std::process::Output { status, stdout: take(out), stderr: take(err) })
 }
 
 /// Claude Code's project-folder name for a cwd: every non letter/digit becomes `-` (D7).
@@ -229,7 +279,7 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
         let mut stdin = child.stdin.take().unwrap();
         let input = run.stdin.clone();
         let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
-        let out = child.wait_with_output();
+        let out = finish(child, run.timeout);
         let _ = writer.join();
         out
     });

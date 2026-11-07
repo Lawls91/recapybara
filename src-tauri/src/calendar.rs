@@ -50,6 +50,7 @@ pub fn run_for(now: DateTime<Utc>) -> ClaudeRun {
         args: vec![],
         env: &[],
         stdin: String::new(),
+        timeout: crate::claude::RUN_TIMEOUT,
     }
 }
 

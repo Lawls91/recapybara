@@ -352,6 +352,7 @@ pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun
         args: vec!["--json-schema".into(), schema().to_string()],
         env: &[],
         stdin,
+        timeout: crate::claude::RUN_TIMEOUT,
     }
 }
 
@@ -662,6 +663,10 @@ mod tests {
         assert_eq!(why(Box::new(|_| Ok("{not json".into()))), "Claude's result isn't JSON.");
         let stderr = "claude exited with exit code: 1: Claude Code on Windows requires git-bash\nmore detail";
         assert_eq!(why(Box::new(move |_| Err(io::Error::other(stderr)))), "claude exited with exit code: 1: Claude Code on Windows requires git-bash");
+        // A run stopped at its timeout shows why (claude::run's error).
+        let hung = || io::Error::new(io::ErrorKind::TimedOut, "claude was stopped after 600 s with no answer");
+        assert_eq!(why(Box::new(move |_| Err(hung()))), "claude was stopped after 600 s with no answer");
+        assert_eq!(library::load(&dir).unwrap().state, State::SummaryFailed);
         // A good run clears it.
         assert_eq!(why(Box::new(|_| Ok(json!({ "is_error": false, "structured_output": { "overview": "x" } }).to_string()))), "");
         fs::remove_dir_all(dir).unwrap();

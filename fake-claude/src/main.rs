@@ -6,7 +6,8 @@
 //!     "hooks": [ <hook>, ... ],   // several, fired in order after "hook"; a "PostToolUseFailure" one carries "error"
 //!     "structuredOutput": {...},  // printed inside the real --output-format json shape (Research, Headless Claude Code)
 //!     "stdout": "raw text",       // printed as is, e.g. malformed JSON
-//!     "delayMs": 0 }              // sleep before answering, so a test can see "summarising"
+//!     "delayMs": 0,               // sleep before answering, so a test can see "summarising" (or a run time out)
+//!     "versionDelayMs": 0 }       // sleep before answering --version
 //! Each run appends one JSON line to `<scenario>.record.jsonl`:
 //!   { argv, env, stdin, cwd, projectDir, hooks: [{ command, exitCode }] }
 use serde_json::{json, Value};
@@ -89,6 +90,7 @@ fn main() {
     });
 
     let output = if argv.iter().any(|a| a == "--version") {
+        std::thread::sleep(std::time::Duration::from_millis(scenario["versionDelayMs"].as_u64().unwrap_or(0)));
         scenario["version"].as_str().unwrap_or("0.0.0 (Claude Code)").to_string()
     } else {
         let mut stdin = String::new();

@@ -30,6 +30,7 @@ pub fn run_for(url: &str) -> ClaudeRun {
         args: vec![],
         env: &[("MAX_MCP_OUTPUT_TOKENS", "200000")],
         stdin: String::new(),
+        timeout: crate::claude::RUN_TIMEOUT,
     }
 }
 

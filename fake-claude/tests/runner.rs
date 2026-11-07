@@ -12,6 +12,10 @@ fn temp(name: &str) -> PathBuf {
 }
 
 fn run_case(name: &str, scenario_json: &str, capture: &'static [&'static str]) -> (PathBuf, std::io::Result<claude::Output>) {
+    run_within(name, scenario_json, capture, claude::RUN_TIMEOUT)
+}
+
+fn run_within(name: &str, scenario_json: &str, capture: &'static [&'static str], timeout: std::time::Duration) -> (PathBuf, std::io::Result<claude::Output>) {
     let dir = temp(name);
     let scenario = dir.join("scenario.json");
     fs::write(&scenario, scenario_json).unwrap();
@@ -26,7 +30,7 @@ fn run_case(name: &str, scenario_json: &str, capture: &'static [&'static str]) -
     fs::create_dir_all(&sibling).unwrap();
     // Bigger than a pipe buffer, as a ticket 04 transcript is.
     let stdin = format!("on stdin{}", "x".repeat(200_000));
-    let run = claude::ClaudeRun { stdin, capture, ..calendar::run_for(chrono::Utc::now()) };
+    let run = claude::ClaudeRun { stdin, capture, timeout, ..calendar::run_for(chrono::Utc::now()) };
     let out = claude::run(&FAKE.into(), &dir.join("data").join("runs"), &dir.join("home"), &run);
     (dir, out)
 }
@@ -84,4 +88,18 @@ fn run_is_isolated_and_cleans_its_project_folder() {
     let runs = dir.join("data").join("runs");
     assert_eq!(fs::read_dir(&runs).unwrap().count(), 0, "payload files left in {}", runs.display());
     fs::remove_dir_all(&dir).unwrap();
+
+    // A hung run is stopped at its timeout and fails, and so is a hung --version; a prompt one still answers.
+    let short = std::time::Duration::from_millis(1500);
+    let started = std::time::Instant::now();
+    let (dir, out) = run_within("runnerhung", r#"{"result":{"is_error":false},"delayMs":20000}"#, &[], short);
+    assert_eq!(out.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < std::time::Duration::from_secs(8), "stopped at the timeout, not at the run's end: {:?}", started.elapsed());
+    fs::write(dir.join("scenario.json"), r#"{"version":"2.1.318 (Claude Code)","versionDelayMs":20000}"#).unwrap();
+    let started = std::time::Instant::now();
+    assert_eq!(claude::version_within(&FAKE.into(), short), None);
+    assert!(started.elapsed() < std::time::Duration::from_secs(8));
+    fs::write(dir.join("scenario.json"), r#"{"version":"2.1.318 (Claude Code)"}"#).unwrap();
+    assert_eq!(claude::version_within(&FAKE.into(), short).as_deref(), Some("2.1.318 (Claude Code)"));
+    let _ = fs::remove_dir_all(&dir);
 }
