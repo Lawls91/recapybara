@@ -17,7 +17,7 @@ const onDisk = (id, text, timeout = 10000) =>
     interval: 20,
     timeoutMsg: `${id} notes.md never read ${JSON.stringify(text)}, got ${JSON.stringify(notesOf(id))}`,
   });
-const SOON = 300;
+const SOON = 200;
 const openNotes = async (id) => {
   await $(`.row[data-id="${id}"]`).click();
   await $("#tab-notes").click();
@@ -140,10 +140,17 @@ describe("my notes", () => {
   });
 
   it("closing the window to the tray saves what was just typed at once", async () => {
+    // The start-up calendar refresh redraws the pane as it ends, which saves too: let it end first.
+    await browser.waitUntil(async () => {
+      const st = await invoke("calendar_status");
+      return !st.refreshing && !!(st.updated || st.failure);
+    });
+    await browser.pause(500); // its calendar-changed redraw
     await openNotes(C);
     await $("#notes").click();
     await browser.keys(["End", ..." hidden".split("")]);
-    await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:window|close", { label: "main" })).catch(() => {});
+    // The close button's handler emits this as it hides the window (the page may not close it itself).
+    await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "hiding", payload: null }));
     await onDisk(C, "one two three bye hidden", SOON);
   });
 });
