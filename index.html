@@ -13,6 +13,7 @@
             <i class="ic">&#xE721;</i>
             <input id="search" placeholder="Search meetings" aria-label="Search meetings" />
           </label>
+          <span id="dev-badge" class="devbadge" title="A dev instance: its state is apart from the installed copy's" hidden>DEV</span>
           <button id="import-button" class="ib" title="Import transcript" aria-label="Import transcript"><i class="ic">&#xE896;</i></button>
           <button id="settings-button" class="ib" title="Settings" aria-label="Settings"><i class="ic">&#xE713;</i></button>
         </div>
@@ -59,6 +60,7 @@
             <div>
               <h3><label for="start-at-logon">Start at logon</label></h3>
               <p class="desc">Opens in the tray when you sign in to Windows.</p>
+              <p class="desc" id="start-at-logon-dev" hidden>Always off in a dev instance, which never touches the Run key.</p>
             </div>
             <label class="toggle"><input type="checkbox" id="start-at-logon" class="switch" /><span id="start-at-logon-state"></span></label>
           </section>

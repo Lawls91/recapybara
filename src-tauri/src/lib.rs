@@ -1,5 +1,5 @@
 //! Tauri shell: window, tray, single instance, autostart, first run, commands.
-use std::{path::PathBuf, sync::Mutex};
+use std::{ffi::OsString, path::PathBuf, sync::Mutex};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -31,11 +31,21 @@ struct AppState {
     /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
     pending_open: Mutex<Option<String>>,
     calendar: calendar::Calendar,
+    /// A dev instance: never touches the Run key.
+    dev: bool,
 }
 
 /// Env override (set and non-empty), else the real folder (D37).
 pub fn dir_from_env(var: &str, real: PathBuf) -> PathBuf {
     std::env::var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or(real)
+}
+
+/// Dev mode, resolved only here: `--dev <dir>`, else `MEETING_CAPTURE_DEV` (empty counts as unset). All state goes
+/// under that dir, and the instance runs beside the installed copy.
+pub fn dev_dir(args: &[String], env: Option<OsString>) -> Option<PathBuf> {
+    let flag = args.windows(2).find(|w| w[0] == "--dev").map(|w| OsString::from(&w[1]));
+    let dir = PathBuf::from(flag.filter(|v| !v.is_empty()).or(env.filter(|v| !v.is_empty()))?);
+    Some(std::path::absolute(&dir).unwrap_or(dir))
 }
 
 fn show_main(app: &AppHandle) {
@@ -65,6 +75,8 @@ fn take_pending_meeting(state: State<AppState>) -> Option<String> {
 fn apply_settings(app: &AppHandle, new: Settings) -> Result<(), String> {
     let state = app.state::<AppState>();
     let mut cur = state.settings.lock().unwrap();
+    let mut new = new;
+    new.start_at_logon &= !state.dev;
     if cur.start_at_logon != new.start_at_logon {
         let al = app.autolaunch();
         if new.start_at_logon { al.enable() } else { al.disable() }.map_err(|e| e.to_string())?;
@@ -302,12 +314,24 @@ fn first_run(app: &AppHandle) {
         });
 }
 
-fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>> {
+/// productName (D50), marked on a dev instance: the window title and tray tooltip.
+fn display_name(app: &AppHandle) -> String {
     let name = app.package_info().name.clone();
+    if app.state::<AppState>().dev { format!("{name} (DEV)") } else { name }
+}
+
+#[tauri::command]
+fn is_dev(state: State<AppState>) -> bool {
+    state.dev
+}
+
+fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>> {
+    let name = display_name(app);
+    let dev = app.state::<AppState>().dev;
     let open = MenuItem::with_id(app, "open", format!("Open {name}"), true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh calendar now", true, None::<&str>)?;
-    let logon_item = CheckMenuItem::with_id(app, "logon", "Start at logon", true, logon, None::<&str>)?;
+    let logon_item = CheckMenuItem::with_id(app, "logon", "Start at logon", !dev, logon, None::<&str>)?;
     let updates = MenuItem::with_id(app, "updates", "Check for updates", false, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &settings, &refresh, &logon_item, &updates, &quit])?;
@@ -348,19 +372,33 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
 }
 
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
-        .plugin(
-            tauri_plugin_autostart::Builder::new()
-                .app_name(RUN_KEY_NAME)
-                .arg("--autostart")
-                .build(),
-        )
+    let dev = dev_dir(&std::env::args().collect::<Vec<_>>(), std::env::var_os("MEETING_CAPTURE_DEV"));
+    let mut builder = tauri::Builder::default();
+    match &dev {
+        // A dev instance takes neither the installed copy's single-instance lock nor its Run key. Its WebView2
+        // profile moves too: sharing the installed one fails when the two start the browser with different options.
+        // ponytail: two dev instances on one dir both run; key a lock on the dir if that ever bites.
+        Some(dir) => std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir.join("webview")),
+        None => {
+            builder = builder
+                .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+                .plugin(tauri_plugin_autostart::Builder::new().app_name(RUN_KEY_NAME).arg("--autostart").build())
+        }
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let data_dir = dir_from_env("MEETING_CAPTURE_DATA_DIR", app.path().app_data_dir()?);
+        .setup(move |app| {
+            let real_data = match &dev {
+                Some(dir) => dir.join("data"),
+                None => app.path().app_data_dir()?,
+            };
+            let data_dir = dir_from_env("MEETING_CAPTURE_DATA_DIR", real_data);
             let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
-            let s = settings::load(&data_dir);
+            let mut s = settings::load(&data_dir);
+            if let Some(dir) = &dev {
+                s = settings::for_dev(s, dir);
+                std::fs::create_dir_all(s.library_path.as_deref().unwrap_or_default())?;
+            }
             claude::sweep_captures(&data_dir.join("runs"));
             claude::sweep_project(&home, &data_dir.join("runs"));
             let first = s.library_path.is_none();
@@ -368,10 +406,10 @@ pub fn run() {
                 library::recover(std::path::Path::new(lib));
             }
             let logon = s.start_at_logon;
-            app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar: Default::default() });
+            app.manage(AppState { data_dir, home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar: Default::default(), dev: dev.is_some() });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
-                w.set_title(&app.package_info().name)?;
+                w.set_title(&display_name(app.handle()))?;
             }
             // Re-point the Run key at this exe (a rename reinstall moves it). Enable only: never disable at startup.
             if !first && logon {
@@ -415,7 +453,8 @@ pub fn run() {
             get_summary,
             take_pending_meeting,
             skip_meeting,
-            unskip_meeting
+            unskip_meeting,
+            is_dev
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -441,6 +480,20 @@ mod tests {
         ] {
             assert!(wxs.contains(frozen), "Package.wxs lost frozen identifier: {frozen}");
         }
+    }
+
+    #[test]
+    fn dev_dir_is_the_flag_else_the_env_var() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let env = |v: &str| Some(OsString::from(v));
+        assert_eq!(dev_dir(&args(&["mc.exe"]), None), None, "neither: the installed copy");
+        assert_eq!(dev_dir(&args(&["mc.exe"]), env("")), None, "an empty var is unset");
+        assert_eq!(dev_dir(&args(&["mc.exe"]), env(r"C:\dev\env")), Some(PathBuf::from(r"C:\dev\env")));
+        assert_eq!(dev_dir(&args(&["mc.exe", "--dev", r"C:\dev\flag"]), env(r"C:\dev\env")), Some(PathBuf::from(r"C:\dev\flag")), "the flag wins");
+        assert_eq!(dev_dir(&args(&["mc.exe", "--dev", ""]), env(r"C:\dev\env")), Some(PathBuf::from(r"C:\dev\env")));
+        assert_eq!(dev_dir(&args(&["mc.exe", "--dev"]), None), None, "a flag with no dir");
+        let rel = dev_dir(&args(&["mc.exe", "--dev", "rel"]), None).unwrap();
+        assert_eq!(rel, std::env::current_dir().unwrap().join("rel"), "made absolute: claude runs in other dirs");
     }
 
     #[test]

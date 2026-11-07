@@ -99,6 +99,16 @@ button {
   padding: 0 10px;
   color: var(--mc-txt3);
 }
+/* A dev instance's mark (--dev): accent ink on accent, a pair the contrast test checks. */
+.devbadge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--mc-acc);
+  color: var(--mc-accink);
+  font-size: 11px;
+  font-weight: 600;
+}
 .search:focus-within {
   border-color: var(--mc-acc);
   box-shadow: 0 0 0 3px var(--mc-accsoft);

@@ -666,5 +666,11 @@ listen("settings-changed", async () => {
   await loadMeetings();
 });
 listen("open-settings", () => show("settings"));
+// A dev instance (--dev): marked, and it never starts at logon.
+invoke<boolean>("is_dev").then((dev) => {
+  $("dev-badge").hidden = !dev;
+  $("start-at-logon-dev").hidden = !dev;
+  $<HTMLInputElement>("start-at-logon").disabled = dev;
+});
 loadSettings().then(loadMeetings);
 loadCalendarStatus();

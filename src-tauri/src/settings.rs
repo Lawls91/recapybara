@@ -50,6 +50,13 @@ pub fn load(dir: &Path) -> Settings {
         .unwrap_or_default()
 }
 
+/// A dev instance (`--dev`): never at logon, so the Run key is never touched, and the library defaults into the dev dir.
+pub fn for_dev(mut s: Settings, dev: &Path) -> Settings {
+    s.start_at_logon = false;
+    s.library_path.get_or_insert_with(|| dev.join("library").to_string_lossy().into_owned());
+    s
+}
+
 /// Atomic write: temp file, then rename (D25).
 pub fn save(dir: &Path, settings: &Settings) -> io::Result<()> {
     fs::create_dir_all(dir)?;
@@ -82,6 +89,17 @@ mod tests {
         assert_eq!(loaded.excluded(), ["https://teams.example/j/1"], "an exclusion survives a restart (D17)");
         assert_eq!(on_disk["excludedSeries"][0]["joinUrl"], "https://teams.example/j/1");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn dev_forces_logon_off_and_defaults_the_library_into_the_dev_dir() {
+        let fresh = for_dev(Settings::default(), Path::new(r"C:\dev\one"));
+        assert!(!fresh.start_at_logon);
+        assert_eq!(fresh.library_path.as_deref(), Some(r"C:\dev\one\library"));
+        let chosen = Settings { library_path: Some(r"D:\lib".into()), start_at_logon: true, ..Settings::default() };
+        let kept = for_dev(chosen, Path::new(r"C:\dev\one"));
+        assert_eq!(kept.library_path.as_deref(), Some(r"D:\lib"), "a library already chosen is kept");
+        assert!(!kept.start_at_logon);
     }
 
     #[test]
