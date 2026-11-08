@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { libraryLabel, type Settings } from "./settings";
+import { firstLogonBox, libraryLabel, type Settings } from "./settings";
 import {
   awaitingLine,
   calendarLine,
@@ -84,8 +84,13 @@ function paintNotesStatus() {
  * switch, a redraw, Settings, Quit, and the window losing focus, hiding or closing. */
 function flushNotes() {
   clearTimeout(notesTimer);
-  // Refused while the library is missing (D45): kept, and sent once it is back (each refusal redraws, which flushes).
-  if (libraryMissing) return notesSaving;
+  // Refused while the library is missing (D45): kept, Not saved, and sent once it is back or another is chosen (each
+  // refusal redraws, which flushes, so sending now would loop).
+  if (libraryMissing) {
+    for (const id of unsaved.keys()) notSaved.add(id);
+    paintNotesStatus();
+    return notesSaving;
+  }
   for (const [id, text] of unsaved) {
     if (sending.get(id) === text) continue;
     sending.set(id, text);
@@ -131,14 +136,12 @@ function notesTyped(e: Event) {
   notesTimer = window.setTimeout(flushNotes, NOTES_PAUSE);
 }
 
-/** Another library: its folders may share ids with this one's, so nothing typed or drawn for the old one carries over. */
+/** Another library (Choose folder after the library went missing, say): text not yet saved is kept and goes to the
+ * meeting there on the next flush (a calendar-only meeting gets its folder there); one with no folder there stays
+ * Not saved. The box is drawn again for the new library. */
 let notesLibrary: string | null | undefined;
 function libraryIs(path: string | null) {
-  if (notesLibrary !== undefined && path !== notesLibrary) {
-    unsaved.clear();
-    notSaved.clear();
-    document.getElementById("notes")?.remove();
-  }
+  if (notesLibrary !== undefined && path !== notesLibrary) document.getElementById("notes")?.remove();
   notesLibrary = path;
 }
 
@@ -1166,10 +1169,8 @@ listen("open-settings", () => show("settings"));
 // A dev instance (--dev): marked, and it never starts at logon.
 invoke<boolean>("is_dev").then((dev) => {
   $("dev-badge").hidden = !dev;
-  for (const id of ["start-at-logon", "first-logon"]) {
-    $(`${id}-dev`).hidden = !dev;
-    $<HTMLInputElement>(id).disabled = dev;
-  }
+  $("start-at-logon-dev").hidden = !dev;
+  $<HTMLInputElement>("start-at-logon").disabled = dev;
 });
 
 // ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------
@@ -1178,6 +1179,7 @@ invoke<boolean>("is_dev").then((dev) => {
 let firstLibrary: string | null = null;
 function paintFirstLibrary() {
   $("first-library").textContent = firstLibrary ?? "No folder chosen yet";
+  $("first-library").title = firstLibrary ?? ""; // a long path is cut short in its box
   $<HTMLButtonElement>("first-finish").disabled = !firstLibrary;
 }
 async function firstRun() {
@@ -1185,8 +1187,11 @@ async function firstRun() {
   $("first-run").hidden = false;
   firstLibrary = current.libraryPath;
   paintFirstLibrary();
-  // Ticked as settings stand: on for the installed copy (D31), so the choice is in sight before Finish saves it.
-  $<HTMLInputElement>("first-logon").checked = current.startAtLogon;
+  const dev = await invoke<boolean>("is_dev");
+  const box = firstLogonBox(current, dev);
+  $<HTMLInputElement>("first-logon").checked = box.checked;
+  $<HTMLInputElement>("first-logon").disabled = box.disabled;
+  $("first-logon-dev").hidden = !dev;
   $("first-choose").focus();
   const paint = (text: string, error: boolean) => {
     $("first-claude").textContent = text;

@@ -7,7 +7,7 @@ use crate::{
     library::{self, Meeting, State},
     summary,
 };
-use chrono::{DateTime, Duration, Local, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDateTime, Utc};
 use serde_json::Value;
 use std::{io, path::{Path, PathBuf}, sync::{mpsc, Mutex}};
 
@@ -26,9 +26,19 @@ pub const SUMMARIES: usize = 2;
 /// The meetings being fetched or given their folder now, as library and event id (else folder id), whoever does it:
 /// the scheduler's tick, an Unskip's, or Import from Teams. So no meeting gets two attempts for one due time.
 static FETCHING: Mutex<Vec<PathBuf>> = Mutex::new(vec![]);
+/// The claimed meetings whose fetch attempt is under way (`Claim::fetch`), the only ones a row shows as fetching: a
+/// claim held a moment to move a meeting or make its folder isn't a fetch.
+static RUNNING: Mutex<Vec<PathBuf>> = Mutex::new(vec![]);
 
 /// A meeting taken for its fetch until dropped.
 pub struct Claim(PathBuf);
+
+impl Claim {
+    /// Its fetch attempt starts: its row shows "Fetching transcript" until the claim is dropped.
+    pub fn fetch(&self) {
+        RUNNING.lock().unwrap_or_else(|e| e.into_inner()).push(self.0.clone());
+    }
+}
 
 /// Takes meeting `id` (its event id, else its folder id) in `lib` for a fetch, unless someone has it already.
 pub fn claim(lib: &Path, id: &str) -> Option<Claim> {
@@ -41,13 +51,15 @@ pub fn claim(lib: &Path, id: &str) -> Option<Claim> {
     Some(Claim(key))
 }
 
-/// Whether meeting `id` (its event id, else its folder id) in `lib` is being fetched now, so its row can say so.
+/// Whether meeting `id` (its event id, else its folder id) in `lib` has a fetch attempt under way now, so its row can
+/// say so.
 pub fn fetching(lib: &Path, id: &str) -> bool {
-    FETCHING.lock().unwrap_or_else(|e| e.into_inner()).contains(&lib.join(id))
+    RUNNING.lock().unwrap_or_else(|e| e.into_inner()).contains(&lib.join(id))
 }
 
 impl Drop for Claim {
     fn drop(&mut self) {
+        RUNNING.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| *k != self.0);
         FETCHING.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| *k != self.0);
     }
 }
@@ -236,34 +248,58 @@ pub(crate) fn folder_for(e: &Event, now: DateTime<Utc>) -> Meeting {
     }
 }
 
-/// The folder id for `id`: a library folder's own, or for a cached event (`id` is its uri) its folder, made now as the
-/// scheduler would make it, so its state and fetch schedule don't change (D12, D25): an upcoming one Scheduled and due
-/// at its end, an ended one due now. Skip and My notes on a calendar-only meeting go through here.
-pub fn folder_of(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Result<String, String> {
+/// A meeting not yet captured, by its end (D12): upcoming, Scheduled with its first attempt at the end; ended within
+/// the catch-up window, due now; ended before that, No transcript (its fix the manual import).
+fn schedule(end: Option<DateTime<Utc>>, now: DateTime<Utc>) -> (State, Option<DateTime<FixedOffset>>) {
+    let local = |t: DateTime<Utc>| Some(t.with_timezone(&Local).fixed_offset());
+    match end {
+        Some(end) if end > now => (State::Scheduled, local(end)),
+        Some(end) if catches_up(end, now) => (State::AwaitingTranscript, local(now)),
+        _ => (State::NoTranscript, None),
+    }
+}
+
+/// The folder id for `id`: a library folder's own, or for a cached event (`id` is its uri) its folder, made now as
+/// `shape` of the meeting `schedule` gives it, so its state and fetch schedule are what they would be without a folder
+/// (D12, D25). Made under the event's claim, like the tick's and an import's, so a keystroke as the event ends makes
+/// no second folder; while another holds it, the folder it made, else refused (the page retries). Skip and My notes on
+/// a calendar-only meeting go through here.
+pub fn folder_of(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>, shape: impl FnOnce(Meeting) -> Meeting) -> Result<String, String> {
     let Some(e) = events.iter().find(|e| e.uri == id) else {
+        if id.starts_with("calendar:") {
+            return Err("This meeting has left your calendar, so nothing can be saved for it. Copy what you typed before moving on.".into());
+        }
         library::meeting_dir(lib, id)?;
         return Ok(id.into());
     };
     // A folder for the event may exist already (its end passed since the list was drawn, or notes made it).
-    if let Some(l) = library::list(lib).into_iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) {
-        return Ok(l.id);
+    let known = || library::list(lib).into_iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())).map(|l| l.id);
+    if let Some(id) = known() {
+        return Ok(id);
     }
-    let m = folder_for(e, now);
-    let m = if e.end > now { Meeting { state: State::Scheduled, next_attempt: m.end, ..m } } else { m };
-    library::create(lib, &m).map_err(|e| e.to_string())
+    let Some(_one) = claim(lib, &e.id) else {
+        return known().ok_or_else(|| "This meeting is being given its folder now. Try again in a moment.".into());
+    };
+    if let Some(id) = known() {
+        return Ok(id);
+    }
+    let (state, next_attempt) = schedule(Some(e.end), now);
+    library::create(lib, &shape(Meeting { state, next_attempt, ..folder_for(e, now) })).map_err(|e| e.to_string())
 }
 
-/// Skip (D17, D25) on a library folder or on a cached event, which gets its folder now (`folder_of`). A skipped
-/// meeting is never fetched or summarised; only one not yet captured can be skipped. Returns the folder id.
+/// Skip (D17, D25) on a library folder or on a cached event, whose folder is made skipped (`folder_of`, one write). A
+/// skipped meeting is never fetched or summarised; only one not yet captured can be skipped. Returns the folder id.
 pub fn skip(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Result<String, String> {
     let skipped = |m: Meeting| Meeting { state: State::Skipped, skipped: true, next_attempt: None, ..m };
-    let id = &folder_of(lib, id, events, now)?;
+    let id = &folder_of(lib, id, events, now, skipped)?;
     let dir = library::meeting_dir(lib, id)?;
     let m = library::load(&dir).map_err(|_| format!("Not a meeting: {id}"))?;
     if dir.join(library::VTT).exists() {
         return Err("This meeting is already captured.".into());
     }
-    library::save(&dir, &skipped(m)).map_err(|e| e.to_string())?;
+    if !(m.skipped && m.state == State::Skipped) {
+        library::save(&dir, &skipped(m)).map_err(|e| e.to_string())?;
+    }
     Ok(id.into())
 }
 
@@ -295,15 +331,10 @@ pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meetin
     }
     follow(&mut m, events);
     let end: Option<DateTime<Utc>> = m.end.map(Into::into);
-    let local = |t: DateTime<Utc>| Some(t.with_timezone(&Local).fixed_offset());
     let (state, next_attempt) = if dir.join(library::VTT).exists() {
         (if dir.join(library::SUMMARY_MD).exists() { State::Done } else { State::TranscriptReady }, None)
     } else {
-        match end {
-            Some(end) if end > now => (State::Scheduled, local(end)),
-            Some(end) if catches_up(end, now) => (State::AwaitingTranscript, local(now)),
-            _ => (State::NoTranscript, None),
-        }
+        schedule(end, now)
     };
     let m = Meeting { state, next_attempt, skipped: false, ..m };
     library::save(dir, &m).map_err(|e| e.to_string())?;
@@ -447,6 +478,7 @@ pub fn tick(
         let dir = lib.join(&l.id);
         // Another fetch may have made its attempt since the list was read.
         let Some(m) = library::load(&dir).ok().filter(|m| due(m, now)) else { continue };
+        one.fetch();
         changed(&l.id, None); // taken: its row can show it fetching
         let landed = attempt(&dir, &m, now, &mut run, &version, &excluded);
         drop(one);
@@ -455,7 +487,10 @@ pub fn tick(
                 changed(&l.id, Some(&m));
                 done.push((l.id, m));
             }
-            Err(e) => eprintln!("fetch: {} not updated: {e}", l.id),
+            Err(e) => {
+                eprintln!("fetch: {} not updated: {e}", l.id);
+                changed(&l.id, None); // no longer fetching
+            }
         }
     }
     done
@@ -487,6 +522,7 @@ pub fn retry(
     if library::excluded(&m, &excluded()) {
         return Err("This meeting's series is excluded.".into());
     }
+    _one.fetch();
     started();
     attempt(&dir, &m, now, &mut run, &version, &excluded).map_err(|e| e.to_string())
 }
@@ -616,6 +652,7 @@ pub fn import(
         let m = folder_for(e, now);
         let id = library::create(lib, &m).map_err(|err| eprintln!("import: no folder for {}: {err}", e.subject)).ok()?;
         made.lock().unwrap_or_else(|e| e.into_inner()).push(id.clone());
+        one.fetch();
         let m = attempt(&lib.join(&id), &m, now, &mut |r| run(r), &version, &excluded).map_err(|err| eprintln!("import: {id} not updated: {err}")).ok()?;
         drop(one);
         landed(&id, &m);
@@ -1035,16 +1072,16 @@ mod tests {
         let lib = temp("notes-folder");
         let e = event(1, start(), end());
         let before = start() - Duration::minutes(10);
-        let id = folder_of(&lib, &e.uri, std::slice::from_ref(&e), before).unwrap();
+        let id = folder_of(&lib, &e.uri, std::slice::from_ref(&e), before, same).unwrap();
         let m = library::load(&lib.join(&id)).unwrap();
         assert_eq!((m.state, m.next_attempt.map(DateTime::<Utc>::from)), (State::Scheduled, Some(end())), "upcoming: Scheduled, first attempt at its end");
         assert_eq!((m.event_id.as_deref(), m.subject.as_str()), (Some("SYNTH-1"), "Synthetic 1"));
         assert_eq!(m.transcript_url, e.meeting_transcript_url);
         library::write_notes(&lib.join(&id), "Agenda: ask about Orbit
 ").unwrap();
-        assert_eq!(folder_of(&lib, &e.uri, std::slice::from_ref(&e), before).unwrap(), id, "the next save finds the same folder");
-        assert_eq!(folder_of(&lib, &id, &[], before).unwrap(), id, "a folder is its own");
-        assert!(folder_of(&lib, "calendar:///events/UNKNOWN", &[], before).is_err(), "neither a folder nor a cached event");
+        assert_eq!(folder_of(&lib, &e.uri, std::slice::from_ref(&e), before, same).unwrap(), id, "the next save finds the same folder");
+        assert_eq!(folder_of(&lib, &id, &[], before, same).unwrap(), id, "a folder is its own");
+        assert!(folder_of(&lib, "calendar:///events/UNKNOWN", &[], before, same).is_err(), "neither a folder nor a cached event");
 
         // The schedule is the one it had: nothing before the end, the first attempt at it, which captures into this folder.
         let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
@@ -1062,7 +1099,7 @@ mod tests {
         // Ended (the tick hasn't made its folder yet): due now, as the tick would make it. Attaching keeps the notes.
         let ended = event(2, start(), end());
         let now = end() + Duration::minutes(5);
-        let id = folder_of(&lib, &ended.uri, std::slice::from_ref(&ended), now).unwrap();
+        let id = folder_of(&lib, &ended.uri, std::slice::from_ref(&ended), now, same).unwrap();
         let m = library::load(&lib.join(&id)).unwrap();
         assert_eq!((m.state, m.next_attempt.map(DateTime::<Utc>::from)), (State::AwaitingTranscript, Some(now)));
         library::write_notes(&lib.join(&id), "During the call").unwrap();
@@ -1070,6 +1107,50 @@ mod tests {
         fs::write(&src, VTT_A).unwrap();
         library::attach(&lib, &id, &src).unwrap();
         assert_eq!(fs::read_to_string(lib.join(&id).join(library::NOTES_MD)).unwrap(), "During the call");
+    }
+
+    fn same(m: Meeting) -> Meeting {
+        m
+    }
+
+    #[test]
+    fn notes_on_a_calendar_only_meeting_ended_past_the_catch_up_window_make_a_no_transcript_folder_never_fetched() {
+        let lib = temp("notes-old");
+        let e = event(1, start(), end());
+        let now = end() + Duration::minutes(130);
+        let id = folder_of(&lib, &e.uri, std::slice::from_ref(&e), now, same).unwrap();
+        let m = library::load(&lib.join(&id)).unwrap();
+        assert_eq!((m.state, m.next_attempt), (State::NoTranscript, None));
+        let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
+        let mut run = runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])));
+        tick(&lib, std::slice::from_ref(&e), Vec::new, now, &mut run, none, |_, _| {});
+        tick(&lib, std::slice::from_ref(&e), Vec::new, now + Duration::minutes(30), &mut run, none, |_, _| {});
+        assert!(log.borrow().is_empty(), "D12: no attempt for a meeting ended over 120 minutes ago");
+        assert_eq!(library::load(&lib.join(&id)).unwrap().state, State::NoTranscript);
+    }
+
+    #[test]
+    fn a_folder_is_made_only_under_the_events_claim_so_a_keystroke_racing_the_tick_or_an_import_makes_no_second_folder() {
+        let lib = temp("notes-claim");
+        let e = event(1, start(), end());
+        let held = claim(&lib, "SYNTH-1").unwrap(); // the tick or an import, giving the event its folder
+        let refused = folder_of(&lib, &e.uri, std::slice::from_ref(&e), end(), same).unwrap_err();
+        assert_eq!(refused, "This meeting is being given its folder now. Try again in a moment.");
+        assert!(library::list(&lib).is_empty(), "nothing made while another has the event");
+        assert!(skip(&lib, &e.uri, std::slice::from_ref(&e), end()).is_err(), "nor by Skip");
+        // The holder makes its folder: a save meanwhile goes into that one.
+        let theirs = library::create(&lib, &folder_for(&e, end())).unwrap();
+        assert_eq!(folder_of(&lib, &e.uri, std::slice::from_ref(&e), end(), same).unwrap(), theirs);
+        drop(held);
+        assert_eq!(folder_of(&lib, &e.uri, std::slice::from_ref(&e), end(), same).unwrap(), theirs);
+        assert_eq!(library::list(&lib).len(), 1);
+
+        // Skip on an event makes its folder skipped in one write: never a due, unskipped folder in between.
+        let other = event(2, start(), end());
+        let id = skip(&lib, &other.uri, std::slice::from_ref(&other), end()).unwrap();
+        let m = library::load(&lib.join(&id)).unwrap();
+        assert_eq!((m.state, m.skipped, m.next_attempt), (State::Skipped, true, None));
+        assert!(!fetching(&lib, "SYNTH-2"), "making a folder isn't a fetch");
     }
 
     #[test]
@@ -1461,8 +1542,10 @@ mod tests {
 
         // Another fetch has it: refused, nothing runs.
         let held = claim(&lib, "SYNTH-1").unwrap();
-        assert!(fetching(&lib, "SYNTH-1") && library::list(&lib)[0].fetching, "the list says so");
+        assert!(!fetching(&lib, "SYNTH-1") && !library::list(&lib)[0].fetching, "a bare claim (a move, a folder being made) isn't a fetch");
         assert_eq!(retry(&lib, &id, now, |_| panic!("taken"), none, Vec::new, || panic!("taken")).unwrap_err(), "This meeting is being fetched already.");
+        held.fetch();
+        assert!(fetching(&lib, "SYNTH-1") && library::list(&lib)[0].fetching, "its fetch under way: the list says so");
         drop(held);
         assert!(!library::list(&lib)[0].fetching);
     }

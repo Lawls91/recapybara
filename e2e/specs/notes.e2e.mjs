@@ -1,6 +1,6 @@
 import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
-import { at, calendar, event, fixture, hourFromNow, invoke, refreshCalendar, root, scenario, seed } from "../helpers.mjs";
+import { at, calendar, calls, countCalls, event, fixture, hourFromNow, invoke, pickerAnswers, refreshCalendar, root, scenario, seed } from "../helpers.mjs";
 
 // Ticket 14: My notes (D27). Synthetic meetings seeded into the test library.
 const A = "2026-11-02 1000 Notes A";
@@ -228,10 +228,12 @@ describe("my notes", () => {
     const [lib, moved] = [root("library"), root("library-moved")];
     fs.renameSync(lib, moved);
     try {
+      await countCalls("save_notes");
       await $("#notes").click();
       await browser.keys("Draft agenda".split(""));
       await expect($("#library-missing")).toBeDisplayed();
       await browser.pause(1000); // refusals don't retry in a loop, and nothing is made meanwhile
+      expect(await calls("save_notes")).toBeLessThanOrEqual(2);
       expect(fs.existsSync(lib)).toBe(false);
     } finally {
       fs.renameSync(moved, lib);
@@ -240,5 +242,37 @@ describe("my notes", () => {
     await browser.execute(() => window.dispatchEvent(new Event("focus")));
     await expect($("#library-missing")).not.toBeDisplayed();
     await browser.waitUntil(() => foldersOf(e).length === 1 && notesOf(foldersOf(e)[0]) === "Draft agenda", { timeoutMsg: "the kept notes never landed" });
+  });
+
+  it("notes refused while the library is missing land in the folder Choose folder picks at another path, for a meeting with a folder and a calendar-only one", async () => {
+    const e = event(3, "Roadmap review", hourFromNow(5));
+    scenario(calendar([e], ["https://teams.example/j/roadmap"]));
+    await refreshCalendar();
+    const [lib, elsewhere] = [root("library"), root("library-elsewhere")];
+    const libOf = (id) => `${elsewhere}/${id}/notes.md`;
+    // Meeting C (a folder), then the calendar-only meeting: each typed into after the library went.
+    await openNotes(C);
+    fs.renameSync(lib, elsewhere);
+    await $("#notes").click();
+    await browser.keys(["End", ..." gone".split("")]);
+    await expect($("#library-missing")).toBeDisplayed();
+    // The drive came back under another letter: Choose folder picks it there.
+    await pickerAnswers(elsewhere);
+    await $("#library-choose").click();
+    await expect($("#library-missing")).not.toBeDisplayed();
+    await browser.waitUntil(() => fs.existsSync(libOf(C)) && fs.readFileSync(libOf(C), "utf8") === "one two three bye hidden gone", { timeoutMsg: "C's notes never landed in the chosen folder" });
+    await $(`.row[data-id="${e.uri}"]`).click();
+    await expect($("#detail-title")).toHaveText("Roadmap review");
+    await $("#tab-notes").click();
+    fs.renameSync(elsewhere, lib); // gone again, and back at the first path
+    await $("#notes").click();
+    await browser.keys("Agenda first".split(""));
+    await expect($("#library-missing")).toBeDisplayed();
+    await pickerAnswers(lib);
+    await $("#library-choose").click();
+    await browser.waitUntil(() => foldersOf(e).length === 1 && notesOf(foldersOf(e)[0]) === "Agenda first", { timeoutMsg: "the calendar-only meeting's notes never landed" });
+    await openNotes(C);
+    await expect($("#notes")).toHaveValue("one two three bye hidden gone");
+    await expect($("#notes-status")).toHaveText("Saved");
   });
 });

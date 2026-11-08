@@ -19,6 +19,29 @@ export const claudeRecords = () => {
   });
 };
 
+/** A native folder or file picker bypassed: its command (`pick_library_folder`, `pick_transcript_file`) answers `path`. */
+export const pickerAnswers = (path) =>
+  browser.execute((p) => {
+    const real = window.__realFetch ?? window.fetch;
+    window.__realFetch = real;
+    window.fetch = (url, opts) =>
+      /\/(pick_transcript_file|pick_library_folder)$/.test(String(url))
+        ? Promise.resolve(new Response(JSON.stringify(p), { headers: { "Content-Type": "application/json", "Tauri-Response": "ok" } }))
+        : real(url, opts);
+  }, path);
+
+/** Counts the page's calls to backend command `cmd` from now on; read the count with `calls(cmd)`. */
+export const countCalls = (cmd) =>
+  browser.execute((c) => {
+    const real = window.fetch;
+    window.__calls = { ...window.__calls, [c]: 0 };
+    window.fetch = (url, opts) => {
+      if (String(url).endsWith(`/${c}`)) window.__calls[c]++;
+      return real(url, opts);
+    };
+  }, cmd);
+export const calls = (cmd) => browser.execute((c) => window.__calls[c], cmd);
+
 /** The fake claude's last record (argv, env, stdin, cwd, projectDir). */
 export const lastClaudeRecord = () => claudeRecords().at(-1);
 

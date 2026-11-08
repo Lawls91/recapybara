@@ -1,7 +1,7 @@
 import { $, browser, expect } from "@wdio/globals";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { root } from "../helpers.mjs";
+import { body, calendar, claudeRecords, event, fetchesOf, pickerAnswers, root, scenario, transcriptRead, vtt } from "../helpers.mjs";
 
 // First run (D25, D31), on a dev instance with no settings yet (e2e/run.mjs writes none for this spec), so the Run key
 // is never touched. The fake claude answers --version.
@@ -11,15 +11,11 @@ const runKey = () => {
   const r = spawnSync("reg", ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "com.lawls91.meetingcapture"], { encoding: "utf8" });
   return `${r.status}:${r.stdout}`;
 };
-// Choose library folder's native picker is bypassed: its command answers `path` (as usability.e2e does).
-const pickerAnswers = (path) =>
-  browser.execute((p) => {
-    const real = window.fetch;
-    window.fetch = (url, opts) =>
-      /\/pick_library_folder$/.test(String(url))
-        ? Promise.resolve(new Response(JSON.stringify(p), { headers: { "Content-Type": "application/json", "Tauri-Response": "ok" } }))
-        : real(url, opts);
-  }, path);
+/** Library folders holding a meeting for event `e` (by its event id). */
+const holding = (lib, e) =>
+  fs.existsSync(lib) ? fs.readdirSync(lib).filter((d) => fs.existsSync(`${lib}/${d}/meeting.json`) && JSON.parse(fs.readFileSync(`${lib}/${d}/meeting.json`, "utf8")).eventId === e.id) : [];
+/** Claude runs (not `claude --version`). */
+const runs = () => claudeRecords().filter((r) => r.argv.includes("-p"));
 
 describe("first run", () => {
   let before;
@@ -45,6 +41,15 @@ describe("first run", () => {
 
   it("Choose library folder takes the folder picked, Finish saves it and lands on the list, the Run key is left alone, and a restart has no first run", async () => {
     await expect($("#first-choose")).toBeDisplayed();
+    // A meeting that ended 10 minutes ago, with its transcript there: the scheduler would catch it up at once.
+    const e = event(1, "Caught-up sync", new Date(Date.now() - 50 * 60e3), new Date(Date.now() - 10 * 60e3));
+    const s = calendar([e], ["https://teams.example/j/caught-up"], { structuredOutput: { overview: "Synthetic summary." } });
+    s.hooks.push(transcriptRead(e, body(e, vtt(e.subject))));
+    scenario(s);
+    await browser.pause(1500);
+    // Nothing runs while first run is up: no calendar refresh, no fetch, no folder in the default library.
+    expect(runs()).toEqual([]);
+    expect(holding(root("dev", "library"), e)).toEqual([]);
     const chosen = root("chosen-library");
     fs.mkdirSync(chosen, { recursive: true });
     await pickerAnswers(chosen);
@@ -55,6 +60,9 @@ describe("first run", () => {
     await expect($("#first-run")).not.toBeDisplayed();
     await expect($("#search")).toBeFocused();
     expect(settingsOnDisk()).toMatchObject({ libraryPath: chosen, startAtLogon: false });
+    // Finish starts them, into the folder just chosen.
+    await browser.waitUntil(() => fetchesOf(e).length === 1 && holding(chosen, e).length === 1, { timeout: 20000, timeoutMsg: "no catch-up fetch into the chosen library after Finish" });
+    expect(holding(root("dev", "library"), e)).toEqual([]);
     expect(runKey()).toBe(before);
     await $("#settings-button").click();
     await expect($("#library-path")).toHaveText(chosen);

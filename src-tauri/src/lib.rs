@@ -216,7 +216,7 @@ fn get_notes(app: AppHandle, id: String) -> Result<String, String> {
 #[tauri::command]
 fn save_notes(app: AppHandle, id: String, text: String) -> Result<String, String> {
     let lib = library_path(&app)?;
-    let id = fetch::folder_of(&lib, &id, &app.state::<AppState>().calendar.events(), chrono::Utc::now())?;
+    let id = fetch::folder_of(&lib, &id, &app.state::<AppState>().calendar.events(), chrono::Utc::now(), |m| m)?;
     library::write_notes(&library::meeting_dir(&lib, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))?;
     Ok(id)
 }
@@ -332,6 +332,9 @@ fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
 /// One calendar refresh (D9) through the user's claude. `scheduled`: only if 30 minutes have passed since the last.
 /// Never two at once; the page follows along through calendar-changed.
 fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
+    if first_running(app) {
+        return;
+    }
     // A chosen library that can't be read: nothing can be captured into it, so no claude run for it (D45). With none
     // chosen yet (first run) the calendar still loads.
     let chosen = app.state::<AppState>().settings.lock().unwrap().library_path.clone();
@@ -355,6 +358,9 @@ fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
 /// Fetches every meeting that is due (D12): a folder for each cached event that just ended, then each due attempt,
 /// one at a time. A capture starts its summary (D15); a capture failure raises its toast (D29, D47).
 fn fetch_due(app: &AppHandle) {
+    if first_running(app) {
+        return;
+    }
     // A meeting another fetch has (the scheduler's, an Unskip's, Import from Teams') is left to it (fetch::claim).
     let Ok(lib) = library_path(app) else { return };
     let state = app.state::<AppState>();
@@ -508,6 +514,12 @@ fn is_first_run(state: State<AppState>) -> bool {
     *state.first_run.lock().unwrap()
 }
 
+/// First run is up (no library chosen yet, D25): the calendar refresh, the scheduler's tick and every fetch wait for its
+/// Finish, so nothing runs Claude or writes into a library the user hasn't picked.
+fn first_running(app: &AppHandle) -> bool {
+    *app.state::<AppState>().first_run.lock().unwrap()
+}
+
 /// First run's Claude Code check: `claude --version` through the session's lookup (run once per app session), else
 /// "Claude Code not found" with its fix.
 #[tauri::command]
@@ -523,15 +535,24 @@ fn finish_first_run(app: AppHandle, library: String, start_at_logon: bool) -> Re
     library::check(Path::new(&library))?;
     let state = app.state::<AppState>();
     let current = state.settings.lock().unwrap().clone();
-    let s = Settings { library_path: Some(library), start_at_logon: start_at_logon && !state.dev, ..current };
+    let logon = start_at_logon && !state.dev;
+    // Saved first, the Run key left to the line below (apply_settings sees no toggle), so a failed save changes nothing.
+    state.settings.lock().unwrap().start_at_logon = logon;
+    if let Err(e) = apply_settings(&app, Settings { library_path: Some(library), start_at_logon: logon, ..current.clone() }) {
+        state.settings.lock().unwrap().start_at_logon = current.start_at_logon;
+        return Err(e);
+    }
     if !state.dev {
         let al = app.autolaunch();
         // Best effort, like the start-up re-point: a Run value that isn't there can't be removed again.
-        let _ = if s.start_at_logon { al.enable() } else { al.disable() };
+        let _ = if logon { al.enable() } else { al.disable() };
     }
-    state.settings.lock().unwrap().start_at_logon = s.start_at_logon; // the Run key matches: apply_settings has no toggle to make
-    apply_settings(&app, s)?;
     *state.first_run.lock().unwrap() = false;
+    // The calendar and the fetches it makes due start now, into the library just chosen.
+    std::thread::spawn(move || {
+        refresh_calendar_now(&app, true);
+        fetch_due(&app);
+    });
     Ok(())
 }
 

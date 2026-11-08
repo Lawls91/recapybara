@@ -72,7 +72,9 @@ the list: two lines on what the app does, then
   shows it off and disabled with the Settings note, and never touches the Run key.
 
 **Finish** saves the folder and the choice to `settings.json` and lands on the list; Settings changes either later.
-The calendar refresh at start still runs while the page shows.
+Nothing runs Claude while the page shows: the calendar refresh, the 30-second tick and every fetch wait for Finish
+(only the Claude Code check runs), so nothing is fetched into a library not yet chosen. Finish starts them at once,
+into the folder chosen.
 
 ## Install
 
@@ -252,7 +254,8 @@ the row and card read "Fetching transcript" (in the neutral working colour) whil
 it lands, and its start and outcome are announced (polite live region). The outcome lands like any attempt's: a capture
 is summarised, a 403 is Not reachable, an empty list is No transcript again. A late transcript or newly granted access
 can change the answer, so it is offered on all three; never on an excluded series. A scheduled attempt shows
-"Fetching transcript" on its row too. The stored reason is one plain line (at most 300 characters: stderr's first line,
+"Fetching transcript" on its row too, only while its fetch runs (not while the tick briefly checks a meeting for a
+move), and the row is redrawn when it lands, even on an error. The stored reason is one plain line (at most 300 characters: stderr's first line,
 or "Claude Code not found. Install it or add it to PATH, then Try again.").
 
 An event that ended under 120 minutes ago while the app was closed gets an attempt as soon as the calendar finds it,
@@ -306,15 +309,19 @@ a 500 ms pause in typing, and at once on a tab or meeting switch, on opening Set
 up to 1 s for it), when the window's close button hides it to the tray, and when the window loses focus or is hidden. The tab reads "Saving…" until the save lands, then
 "Saved". A failed write shows "Not saved" on that meeting's tab and the error banner; the text is kept and every later
 save, redraw or switch retries it until it lands. The tab reads `notes.md` afresh each time it is drawn, so an edit made
-in another editor shows the next time My notes opens (not while its box is already on screen). Changing the library
-drops any text not yet saved. Keys typed there stay there: S, E and Del act only on the list's cursor row. Nothing
+in another editor shows the next time My notes opens (not while its box is already on screen). Text not yet saved
+when the library changes is kept and saved to that meeting in the new library (its folder there, or one made for a
+calendar-only meeting); a meeting with no folder there stays "Not saved". Keys typed there stay there: S, E and Del act only on the list's cursor row. Nothing
 else writes `notes.md`: summary runs, re-runs, captures, attaches and Replace transcript… leave it byte-identical. Every
 meeting has the tab, so notes can be written before and during the call: on Scheduled, In call, Awaiting transcript
 and Skipped the state card is the Summary tab's body, beside My notes. A calendar-only meeting (no folder yet) gets its
 folder on the first save, `meeting.json` from the cached event plus `notes.md`, made as the scheduler would make it so
-its state and fetch schedule don't change (upcoming: Scheduled, first attempt at its end; ended: due now); its row then
-goes by the folder, and the capture later lands in that folder beside the notes. While the library is missing the save
-is refused, nothing is made, and the text is kept and saved once the folder is back. To seed: put a `notes.md` in the
+its state and fetch schedule don't change (D12: upcoming, Scheduled with its first attempt at its end; ended under
+120 minutes ago, due now; ended before that, No transcript, never fetched). It is made under the event's claim, like
+the tick's and an import's, so a keystroke as the meeting ends never makes a second folder. Its row then goes by the
+folder, and the capture later lands in that folder beside the notes. While the library is missing the save is
+refused, nothing is made, the tab reads "Not saved", and the text is kept: it is saved once the folder is back, or into
+the folder Choose folder picks. To seed: put a `notes.md` in the
 meeting folder.
 
 Search (D28, D45): typing in the list's search box filters the list in place to the meetings whose title, organiser
