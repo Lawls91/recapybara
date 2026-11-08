@@ -36,6 +36,12 @@ fn enable_logon(app: &AppHandle) -> Result<(), String> {
     app.autolaunch().enable().map_err(|e| e.to_string())?;
     platform::set_run_value(RUN_KEY_NAME, &run_value(&std::env::current_exe().map_err(|e| e.to_string())?))
 }
+/// The Run value at start, from the saved choice: on re-points it at this exe (a rename reinstall moves it); off removes
+/// it (a fresh MSI install over existing settings writes it, the installer's default). None leaves it: first run's
+/// Finish decides, and a dev instance never touches the Run key (its autostart plugin isn't even registered).
+fn logon_at_start(first: bool, dev: bool, logon: bool) -> Option<bool> {
+    (!first && !dev).then_some(logon)
+}
 /// Toast identity, frozen (D50): the MSI's Start-menu shortcut carries it.
 pub const AUMID: &str = "com.lawls91.meetingcapture";
 
@@ -836,9 +842,10 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
             }
-            // Re-point the Run key at this exe (a rename reinstall moves it). Enable only: never disable at startup.
-            if !first && logon {
-                let _ = enable_logon(app.handle());
+            match logon_at_start(first, dev.is_some(), logon) {
+                Some(true) => { let _ = enable_logon(app.handle()); }
+                Some(false) => { let _ = app.autolaunch().disable(); }
+                None => {}
             }
             let (item, updates) = build_tray(app.handle(), logon)?;
             *app.state::<AppState>().logon_item.lock().unwrap() = Some(item);
@@ -941,6 +948,15 @@ mod tests {
         // equal-version files replaced too (a same-version rename rebuild).
         assert!(wxs.contains(r#"Schedule="afterInstallExecute""#), "a failed upgrade must leave the old version installed");
         assert!(wxs.contains(r#"<Property Id="REINSTALLMODE" Value="emus" />"#), "a same-version rebuild must replace the exe");
+    }
+
+    #[test]
+    fn start_up_makes_the_run_value_follow_the_saved_choice() {
+        assert_eq!(logon_at_start(false, false, true), Some(true), "on: re-pointed at this exe");
+        assert_eq!(logon_at_start(false, false, false), Some(false), "off: the MSI's value removed");
+        assert_eq!(logon_at_start(true, false, true), None, "first run: Finish decides");
+        assert_eq!(logon_at_start(true, false, false), None);
+        assert_eq!(logon_at_start(false, true, false), None, "dev: never the Run key");
     }
 
     #[test]

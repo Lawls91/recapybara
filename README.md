@@ -93,6 +93,8 @@ per-user MSI with the WiX 5.0.2 dotnet global tool, which it installs from NuGet
 - An upgrade installs the new version first and removes the old one only once that succeeded
   (`MajorUpgrade Schedule="afterInstallExecute"`), so one that fails (a corrupt package, error 1603) leaves the old
   version installed, working and uninstallable. A same-version rebuild still replaces the exe (`REINSTALLMODE=emus`).
+- A fresh install writes the Run value, but the app removes it at its next start when the saved settings have start at
+  logon off (a reinstall over existing settings keeps the user's choice).
 - Uninstall (Apps & features) removes the exe, the shortcut and the Run value. Settings
   (`%APPDATA%\com.lawls91.meetingcapture`) and the library stay.
 - The frozen values in `installer/wix/Package.wxs` (D50) are pinned by a test in `src-tauri/src/lib.rs`.
