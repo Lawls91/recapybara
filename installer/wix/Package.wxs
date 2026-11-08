@@ -17,9 +17,14 @@
            Scope="perUser" Compressed="yes">
 
     <!-- AllowSameVersionUpgrades: a rebuild with the same version (a rename) is a full remove-then-install,
-         so one Apps & features entry and the shortcut is recreated under the new name. -->
+         so one Apps & features entry and the shortcut is recreated under the new name.
+         Schedule afterInstallInitialize: the old version's removal runs inside the new install's transaction, so a
+         failure after it (a corrupt cabinet, 1603 at file copy) rolls back to the old version, installed and working.
+         WiX's default, afterInstallValidate, commits the removal on its own first: such a failure left no app at all.
+         It is still a full remove-then-install (costing runs before the removal in both), so it asks no more of the
+         component rules than the default did; only the later schedules (afterInstallExecute/Finalize) do. -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed."
-                  AllowSameVersionUpgrades="yes" />
+                  AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="app.ico" SourceFile="$(var.IconFile)" />

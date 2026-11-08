@@ -937,6 +937,8 @@ mod tests {
         ] {
             assert!(wxs.contains(frozen), "Package.wxs lost frozen identifier: {frozen}");
         }
+        // The old version's removal in the new install's transaction: a failed upgrade rolls back to it.
+        assert!(wxs.contains(r#"Schedule="afterInstallInitialize""#), "a failed upgrade must leave the old version installed");
     }
 
     #[test]
