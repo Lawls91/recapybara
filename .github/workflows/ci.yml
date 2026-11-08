@@ -110,12 +110,15 @@ jobs:
           $t = Join-Path $env:USERPROFILE 'AppData\Local\Temp'
           "TEMP=$t" >> $env:GITHUB_ENV
           "TMP=$t" >> $env:GITHUB_ENV
-      # gsudo runs the suite at Medium integrity (not elevated); the workspace was made by the elevated runner.
+      # gsudo (pinned, hash-checked) runs the suite at Medium integrity, not elevated. The workspace was made by the
+      # elevated runner, so the de-elevated tests are given write access to it.
       - name: De-elevation (gsudo)
         run: |
-          winget install gerardog.gsudo --accept-source-agreements --accept-package-agreements --disable-interactivity
-          $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH','User')
-          Split-Path (Get-Command gsudo -ErrorAction Stop).Source >> $env:GITHUB_PATH
+          $zip = Join-Path $env:RUNNER_TEMP 'gsudo.zip'
+          Invoke-WebRequest 'https://github.com/gerardog/gsudo/releases/download/v2.6.1/gsudo.portable.zip' -OutFile $zip
+          if ((Get-FileHash $zip).Hash -ne '21130BF178D7B9891207F00BFF56F05B6B363CE9CEC7B2D084E45FB12EE51F44') { throw 'gsudo.portable.zip hash mismatch' }
+          Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'gsudo')
+          Join-Path $env:RUNNER_TEMP 'gsudo\x64' >> $env:GITHUB_PATH
           icacls "$env:GITHUB_WORKSPACE" /grant "Everyone:(OI)(CI)F"
       - uses: actions/setup-node@v5
         with:
