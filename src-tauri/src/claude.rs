@@ -390,7 +390,8 @@ fn log_run(file: &Path, run: &ClaudeRun, wall: Duration, stdout: &str) {
 mod tests {
     use super::*;
 
-    // Expected values are folder names observed under ~/.claude/projects on Jack's machine.
+    // Expected values follow folder names observed under ~/.claude/projects: every character but an ASCII letter or
+    // digit became "-". The paths are neutral stand-ins of the same shape (D34).
     #[test]
     fn slug_matches_observed_notebook_folder() {
         assert_eq!(
@@ -402,10 +403,10 @@ mod tests {
     #[test]
     fn slug_matches_observed_worktree_folder() {
         let s = slug(Path::new(
-            r"C:\Users\alex\AppData\Local\Temp\claude\E--repos-toolbox\11111111-2222-3333-4444-555555555555\scratchpad\gitrepo\.claude\worktrees\sample-session-name",
+            r"C:\Users\alex\AppData\Local\Temp\claude\E--repos-app\00000000-0000-4000-8000-000000000001\scratchpad\gitrepo\.claude\worktrees\happy-otter",
         ));
         assert!(s.contains("gitrepo--claude-worktrees"), "{s}");
-        assert_eq!(s, "C--Users-alex-AppData-Local-Temp-claude-E--repos-toolbox-11111111-2222-3333-4444-555555555555-scratchpad-gitrepo--claude-worktrees-sample-session-name");
+        assert_eq!(s, "C--Users-alex-AppData-Local-Temp-claude-E--repos-app-00000000-0000-4000-8000-000000000001-scratchpad-gitrepo--claude-worktrees-happy-otter");
     }
 
     fn temp(name: &str) -> std::path::PathBuf {

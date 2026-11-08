@@ -918,8 +918,8 @@ Ask Robin about the 403
     #[test]
     fn search_ignores_case() {
         let lib = search_library("search2");
-        assert_eq!(search(&lib, "Orbit"), [hit("B", "notes", "Follow up on Orbit with Speaker B", None)]);
-        assert_eq!(search(&lib, "  Orbit "), search(&lib, "Orbit"), "padding trimmed too");
+        assert_eq!(search(&lib, "orbit"), [hit("B", "notes", "Follow up on Orbit with Speaker B", None)]);
+        assert_eq!(search(&lib, "  oRbIt "), search(&lib, "Orbit"), "padding trimmed too");
     }
 
     #[test]

@@ -75,13 +75,13 @@ export const at = (days, hh, mm = 0) => {
 export const STATE_SEEDS = {
   scheduled: ["Bug Triage", 1, 16],
   inCall: ["Sprint planning", 0, 23, 30],
-  awaitingTranscript: ["Partner sync", 0, 0, 30],
+  awaitingTranscript: ["Platform sync", 0, 0, 30],
   noTranscript: ["Backlog Refinement", -1, 13],
   notReachable: ["Partner sync", -1, 12],
   captureFailed: ["Tooling guild", -1, 11, 30],
   transcriptReady: ["Ad-hoc call", -1, 10],
   summarising: ["Team standup", -1, 9],
-  done: ["Planning call", -2, 15],
+  done: ["Release retro", -2, 15],
   summaryFailed: ["Design review", -2, 14],
   skipped: ["1:1 Jack and Robin", -2, 9],
 };

@@ -461,7 +461,7 @@ mod tests {
     fn a_quote_in_the_cue_at_that_time_is_verified_ignoring_case_and_punctuation() {
         for (at, quote, verified) in [
             ("00:00:10", "the approach of adding", true),
-            ("00:00:10", "So we agreed, approach", true),
+            ("00:00:10", "So we AGREED, the approach", true),
             ("00:00:10", "ship it on Friday", false),
             ("00:00:15", "the approach of adding", false),
         ] {
@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn short_quotes_and_items_without_citations_are_unverified_but_kept() {
-        let short = checked(CUE, item(vec![cite("00:00:10", "that approach")]));
+        let short = checked(CUE, item(vec![cite("00:00:10", "the approach")]));
         assert_eq!((short.verified, short.citations[0].check), (false, Check::TooShort));
         let none = checked(CUE, item(vec![]));
         assert!(!none.verified);
@@ -742,10 +742,10 @@ mod tests {
 
     #[test]
     fn a_key_with_no_matching_lookup_is_marked_unverified() {
-        let (item, line) = keyed("keynone", &["PROJ-707"], vec![lookup("getJiraIssue", FOUND)]);
-        assert_eq!(item.missing_keys, ["PROJ-707"]);
+        let (item, line) = keyed("keynone", &["XYZ-0707"], vec![lookup("getJiraIssue", FOUND)]);
+        assert_eq!(item.missing_keys, ["XYZ-0707"]);
         assert_eq!(line, "- Track it. [00:00:10] (unverified key)");
-        assert_eq!(keyed("keyempty", &["PROJ-707"], vec![]).0.missing_keys, ["PROJ-707"], "no lookup at all");
+        assert_eq!(keyed("keyempty", &["XYZ-0707"], vec![]).0.missing_keys, ["XYZ-0707"], "no lookup at all");
     }
 
     #[test]
@@ -768,7 +768,7 @@ mod tests {
             assert!(!found(p).contains(&"PROJ-123".to_string()), "{why}");
         }
         // One error elsewhere in the run doesn't undo a clean lookup.
-        assert_eq!(found_keys(&[lookup("getJiraIssue", r#"{"error":true}"#), lookup("getJiraIssue", r#"{"key":"PROJ-123"}"#)]), ["PROJ-123"]);
+        assert_eq!(found_keys(&[lookup("getJiraIssue", r#"{"error":true}"#), lookup("getJiraIssue", r#"{"key":"proj-123"}"#)]), ["PROJ-123"]);
     }
 
     #[test]
@@ -798,7 +798,7 @@ mod tests {
         for not_key in ["PROJ", "DONE", "PROJ-", "-12", "E-1", "1PM-2", "_AB-1", "PROJ-12a", "PR OJ-1"] {
             assert!(!is_ticket_key(not_key), "{not_key}");
         }
-        for key in ["PROJ-1000", "PROJ-707", "AB2-9", "AB_C-1"] {
+        for key in ["PROJ-1000", "XYZ-0707", "AB2-9", "AB_C-1"] {
             assert!(is_ticket_key(key), "{key}");
         }
     }

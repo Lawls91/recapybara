@@ -2,8 +2,8 @@ import { expect, test } from "vitest";
 import { byMeeting, markParts, metaHits, snippet, turnOfHit, type Hit } from "./search";
 
 test("a snippet marks every match, ignoring case, and escapes the file's text", () => {
-  expect(snippet("Follow up on Orbit, then Orbit <b>again</b>", "Orbit")).toBe(
-    "Follow up on <mark>Orbit</mark>, then <mark>Orbit</mark> &#60;b&#62;again&#60;/b&#62;",
+  expect(snippet("Follow up on Orbit, then orbit <b>again</b>", "orbit")).toBe(
+    "Follow up on <mark>Orbit</mark>, then <mark>orbit</mark> &#60;b&#62;again&#60;/b&#62;",
   );
   // The query is text, never a pattern or markup.
   expect(snippet("a.b axb", "a.b")).toBe("<mark>a.b</mark> axb");
@@ -55,13 +55,13 @@ test("a transcript hit finds its own turn when two start in the same second", ()
 test("a meeting's title, organiser and attendees are hits too, each saying what matched", () => {
   const m = (id: string, subject: string, organiser: string | null, attendees: string[]) => ({ id, subject, organiser, attendees });
   const meetings = [
-    m("A", "Partner sync", "Robin Sample", ["Speaker A", "Katya Lane"]),
+    m("A", "Partner sync", "Robin Sample", ["Speaker A", "Katya Robins"]),
     m("B", "Retry design", null, ["Speaker B"]),
   ];
   expect(metaHits(meetings, "partner")).toEqual([{ id: "A", tab: "summary", line: "Partner sync", at: null, field: "Title" }]);
   expect(metaHits(meetings, "ROBIN")).toEqual([
     { id: "A", tab: "summary", line: "Robin Sample", at: null, field: "Organiser" },
-    { id: "A", tab: "summary", line: "Katya Lane", at: null, field: "Attendees" },
+    { id: "A", tab: "summary", line: "Katya Robins", at: null, field: "Attendees" },
   ]);
   expect(metaHits(meetings, "speaker")).toEqual([
     { id: "A", tab: "summary", line: "Speaker A", at: null, field: "Attendees" },

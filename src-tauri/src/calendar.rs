@@ -176,7 +176,12 @@ pub struct Found {
 
 /// The Teams events in the run's captured payloads (D9), from `now` - 2 h to `ahead(now)`.
 pub fn parse(captured: &[Value], now: DateTime<Utc>) -> Result<Vec<Event>, String> {
-    counted_in(captured, now - LOOK_BACK, ahead(now), &[]).map(|f| f.events)
+    parse_in(captured, now, &Local)
+}
+
+/// `parse` with the working day taken in `tz` (tests pin it, so they don't hang on the machine's zone).
+fn parse_in<Tz: TimeZone>(captured: &[Value], now: DateTime<Utc>, tz: &Tz) -> Result<Vec<Event>, String> {
+    counted_in(captured, now - LOOK_BACK, working_day_end(now, tz), &[]).map(|f| f.events)
 }
 
 /// The Teams events overlapping `from` to `to` in a search run's captured payloads (D9). The search pages are
@@ -612,10 +617,13 @@ mod tests {
     #[test]
     fn the_cache_keeps_events_from_two_hours_ago_to_the_end_of_the_next_working_day() {
         // Refinement starts 14:00 and Focus ends 17:00 on Thursday the 5th; Partner sync starts 09:00 on Friday the 6th.
-        assert_eq!(subjects(&parse(&all_teams(), t("2026-11-05T19:00:01Z")).unwrap()), ["Partner sync"], "ended over 2 h ago");
-        assert_eq!(subjects(&parse(&all_teams(), t("2026-11-05T09:00:00Z")).unwrap()), ["Backlog Refinement", "Focus", "Partner sync"], "Thursday: Friday is in");
-        // Wednesday: Thursday is the next working day, so Friday's Partner sync is past it (for local offsets -9 h to +8 h).
-        assert_eq!(subjects(&parse(&all_teams(), t("2026-11-04T12:00:00Z")).unwrap()), ["Backlog Refinement", "Focus"], "Wednesday: Friday is out");
+        // The working day in UTC, rather than the machine's zone.
+        let utc = chrono::FixedOffset::east_opt(0).unwrap();
+        let kept = |now: &str| parse_in(&all_teams(), t(now), &utc).unwrap();
+        assert_eq!(subjects(&kept("2026-11-05T19:00:01Z")), ["Partner sync"], "ended over 2 h ago");
+        assert_eq!(subjects(&kept("2026-11-05T09:00:00Z")), ["Backlog Refinement", "Focus", "Partner sync"], "Thursday: Friday is in");
+        // Wednesday: Thursday is the next working day, so Friday's Partner sync is past it.
+        assert_eq!(subjects(&kept("2026-11-04T12:00:00Z")), ["Backlog Refinement", "Focus"], "Wednesday: Friday is out");
     }
 
     #[test]
@@ -773,8 +781,10 @@ mod tests {
         assert_eq!(r.capture, r.allowed_tools);
         assert!(r.prompt.contains("afterDateTime 2026-11-05T10:00:00Z"));
         let before = r.prompt.split("beforeDateTime ").nth(1).unwrap().split(',').next().unwrap();
-        let local = t(before).with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string();
-        assert_eq!(local, "2026-11-07 00:00", "the local midnight ending Friday");
+        // The window ends at ahead(): a local midnight, the end of the next working day (that rule is checked in fixed
+        // zones above, so this holds in any machine zone).
+        assert_eq!(t(before), ahead(now()));
+        assert_eq!(t(before).with_timezone(&Local).format("%H:%M").to_string(), "00:00", "a local midnight");
     }
 
     #[test]
@@ -811,7 +821,10 @@ mod tests {
         };
         let (from, to) = import_window("2026-11-04", "2026-11-06", today).unwrap();
         let (got, unreadable) = super::search(from, to, run).unwrap();
-        assert_eq!(subjects(&got), ["Backlog Refinement", "Focus", "Late call", "Partner sync"], "the late call once, not once per day");
+        // Sorted: the late call sits at local midnight, so where it falls among the others depends on the zone.
+        let mut found = subjects(&got);
+        found.sort_unstable();
+        assert_eq!(found, ["Backlog Refinement", "Focus", "Late call", "Partner sync"], "the late call once, not once per day");
         assert_eq!(unreadable, 0);
         let mut windows: Vec<String> = prompts.lock().unwrap().iter().map(|(kind, p)| {
             assert_eq!(*kind, "search");

@@ -748,7 +748,7 @@ mod tests {
         assert!(matches!(judged(&[failure("MCP error -32001: timed out after 1,403 ms")]), Attempt::Missed(_)));
         assert!(matches!(judged(&[read(URL, blocks("Error: synthetic transient failure"))]), Attempt::Missed(_)));
         assert_eq!(judged(&[read(URL, blocks("Error: 403 Forbidden"))]), Attempt::Unreachable);
-        // Recorded verbatim in Research (a shared mailbox), through either hook.
+        // Recorded verbatim in Research (a shared-mailbox organiser), through either hook.
         const RECORDED: &str = "403 3003: User does not have access to lookup meeting";
         assert_eq!(judged(&[read(URL, blocks(RECORDED))]), Attempt::Unreachable);
         assert_eq!(judged(&[failure(RECORDED)]), Attempt::Unreachable);

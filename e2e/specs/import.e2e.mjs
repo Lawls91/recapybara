@@ -10,7 +10,7 @@ const folders = () => fs.readdirSync(root("library"));
 describe("import a transcript", () => {
   before(async () => {
     seed("upcoming", { subject: "Bug Triage", start: at(1, 16), state: "scheduled" });
-    seed("yesterday", { subject: "Planning call", start: at(-1, 15), state: "done" });
+    seed("yesterday", { subject: "Release retro", start: at(-1, 15), state: "done" });
     seed("missing", { subject: "Backlog Refinement", start: at(-1, 13), state: "noTranscript", joinUrl: "https://teams.example/r", organiser: "Robin Sample" });
     await browser.refresh();
     await expect(rows()).toBeElementsArrayOfSize(3);

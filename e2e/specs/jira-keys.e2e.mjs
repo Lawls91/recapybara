@@ -20,7 +20,7 @@ const KEYED = {
   structuredOutput: {
     overview: "Synthetic ticket review.",
     sections: [],
-    decisions: [decision("Ship PROJ-123 first.", "PROJ-123"), decision("Park PROJ-404.", "PROJ-404"), decision("Close PROJ-707.", "PROJ-707")],
+    decisions: [decision("Ship PROJ-123 first.", "PROJ-123"), decision("Park PROJ-404.", "PROJ-404"), decision("Close XYZ-0707.", "XYZ-0707")],
     actions: [],
     questions: [],
     corrections: [],
@@ -58,8 +58,8 @@ describe("Jira key check", () => {
     await expect(markers("Ship PROJ-123 first.")).toBeElementsArrayOfSize(0);
     // Controls: an error answer doesn't count, and a key with no lookup isn't found.
     await expect(markers("Park PROJ-404.")).toBeElementsArrayOfSize(1);
-    await expect(markers("Close PROJ-707.")).toBeElementsArrayOfSize(1);
-    const chip = await markers("Close PROJ-707.")[0];
+    await expect(markers("Close XYZ-0707.")).toBeElementsArrayOfSize(1);
+    const chip = await markers("Close XYZ-0707.")[0];
     expect((await chip.getCSSProperty("border-top-style")).value).toBe("dashed"); // amber, like No citation (D43)
     expect((await chip.getCSSProperty("color")).parsed.hex).toBe("#8f5200"); // --tr-warn
 

@@ -3,7 +3,7 @@ import { Key } from "webdriverio";
 import { at, invoke, seed } from "../helpers.mjs";
 
 // Ticket 15: search (D28, D45), and ticket 10's search inside the series filter (D17). Synthetic meetings only.
-const REL = "2026-11-05 1000 Release review";
+const EXPORT = "2026-11-05 1000 Export review";
 const STANDUP = "2026-11-04 0930 Team stand-up";
 const SPRINT = "2026-11-03 1400 Sprint review";
 const REF_A = "2026-11-02 1300 Backlog Refinement";
@@ -14,8 +14,8 @@ const REFINEMENT = "https://teams.example/j/refinement";
 const hms = (s) => [s / 3600, (s / 60) % 60, s % 60].map((n) => String(Math.floor(n)).padStart(2, "0")).join(":");
 const TURNS = [
   ...Array.from({ length: 52 }, (_, i) => [5 + i * 20, i % 2 ? "Speaker B" : "Speaker A", `Filler turn ${i} about the rollout.`]),
-  [1060, "Speaker A", "So the job runs twice on v2?"],
-  [1072, "Speaker B", "Only when the policy has a nested rule."],
+  [1060, "Speaker A", "So the export runs twice on v2?"],
+  [1072, "Speaker B", "Only when the report has a second page."],
   [1085, "Speaker C", "Orbit is different on v2 versus v1"],
   [1099, "Speaker A", "Then we can't assume the old ordering holds."],
 ];
@@ -45,10 +45,10 @@ describe("search", () => {
   before(async () => {
     await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance: "light" } });
     const meeting = (subject, days, extra = {}) => ({ subject, start: at(days, 10), end: at(days, 11), state: "done", source: "connector", ...extra });
-    seed(REL, meeting("Release review", -1, { joinUrl: "https://teams.example/j/release" }), {
+    seed(EXPORT, meeting("Export review", -1, { joinUrl: "https://teams.example/j/export" }), {
       "transcript.vtt": VTT,
       "transcript.md": TRANSCRIPT_MD,
-      "summary.md": "# Release review\n\n## Open questions\n\n- Orbit behaviour on v2 still needs confirming\n",
+      "summary.md": "# Export review\n\n## Open questions\n\n- Orbit behaviour on v2 still needs confirming\n",
     });
     seed(STANDUP, meeting("Team stand-up", -2, { state: "transcriptReady" }), { "notes.md": "Katya pulls the dumps\nFollow up on Orbit with Katya\n" });
     seed(SPRINT, meeting("Sprint review", -3), { "summary.md": "# Sprint review\n\n- The filter chain ships next sprint.\n", "notes.md": "Nothing on that here\n" });
@@ -61,8 +61,8 @@ describe("search", () => {
   it("typing Orbit filters the list in place to the matching meetings, each with its snippet lines, the match highlighted", async () => {
     await typeQuery("Orbit");
     await browser.waitUntil(async () => (await ids()).length === 3, { timeout: 5000, timeoutMsg: "the list never filtered" });
-    expect(await ids()).toEqual([REL, STANDUP, REF_A]);
-    expect(await snips(REL)).toEqual([
+    expect(await ids()).toEqual([EXPORT, STANDUP, REF_A]);
+    expect(await snips(EXPORT)).toEqual([
       { tab: "Summary", line: "Orbit behaviour on v2 still needs confirming", marks: ["Orbit"] },
       { tab: "Transcript 00:18:05", line: "Speaker C: Orbit is different on v2 versus v1", marks: ["Orbit"] },
     ]);
@@ -76,13 +76,13 @@ describe("search", () => {
     await snip(STANDUP, 0).click();
     await expect($(`#notes[data-id="${STANDUP}"]`)).toBeDisplayed();
     await expect($("#tab-notes")).toHaveElementClass("on");
-    await snip(REL, 0).click();
-    await expect($("#detail-title")).toHaveText("Release review");
+    await snip(EXPORT, 0).click();
+    await expect($("#detail-title")).toHaveText("Export review");
     await expect($("#tab-summary")).toHaveElementClass("on");
   });
 
   it("clicking a transcript snippet at [00:18:05] opens the Transcript tab scrolled to that turn, with the match marked", async () => {
-    await snip(REL, 1).click();
+    await snip(EXPORT, 1).click();
     await expect($("#tab-transcript")).toHaveElementClass("on");
     const turn = await browser.execute(() => {
       const t = document.querySelector(".turn.hl");
@@ -120,7 +120,7 @@ describe("search", () => {
     // Clearing the chip keeps the query: every Orbit meeting again.
     await $("#series-clear").click();
     await browser.waitUntil(async () => (await ids()).length === 3, { timeout: 5000 });
-    expect(await ids()).toEqual([REL, STANDUP, REF_A]);
+    expect(await ids()).toEqual([EXPORT, STANDUP, REF_A]);
   });
 
   it("Esc in the search box clears the query and gives the whole list back", async () => {
@@ -144,16 +144,16 @@ describe("search", () => {
         return a.classList.contains("row") ? `row ${a.dataset.id}` : `not a row: ${a.className}`;
       });
     }
-    expect(into).toBe(`row ${REL}`);
+    expect(into).toBe(`row ${EXPORT}`);
     expect(await browser.execute(() => document.querySelectorAll('#meeting-list [tabindex="0"]').length)).toBe(1);
     // The snippets are options of the list, reached with the arrows; Enter opens one on its tab.
     expect(await browser.execute(() => [...document.querySelectorAll(".snip")].every((s) => s.getAttribute("role") === "option"))).toBe(true);
     await browser.keys("ArrowDown");
     await browser.keys("ArrowDown");
-    expect(await browser.execute(() => document.activeElement?.id)).toBe((await snip(REL, 1).getAttribute("id")));
+    expect(await browser.execute(() => document.activeElement?.id)).toBe((await snip(EXPORT, 1).getAttribute("id")));
     await browser.keys("Enter");
     await expect($("#tab-transcript")).toHaveElementClass("on");
-    await expect($("#detail-title")).toHaveText("Release review");
+    await expect($("#detail-title")).toHaveText("Export review");
     // S and Del on a snippet act on nothing.
     await browser.keys("ArrowDown");
     await browser.keys("ArrowDown");

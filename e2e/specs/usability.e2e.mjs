@@ -7,7 +7,7 @@ import { at, claudeRecords, fixture, freshFixture, invoke, refreshCalendar, root
 // focus back to the opener, live status, the Awaiting transcript card, the status line's layout and sticky day
 // headers, and the library-missing banner (D42, D45). Synthetic meetings only.
 const PARTNER = "s2 Partner sync";
-const AWAIT = "s2 Partner sync";
+const AWAIT = "s2 Platform sync";
 const FILLERS = Array.from({ length: 8 }, (_, i) => `s2 Filler ${i}`);
 // Upcoming: one in progress now, two tomorrow, one the day after.
 const NOW = "s2 In progress";
@@ -95,10 +95,10 @@ describe("usability quick wins", () => {
       end: at(-1, 13),
       state: "noTranscript",
       organiser: "Robin Sample",
-      attendees: ["Speaker A", "Katya Lane"],
+      attendees: ["Speaker A", "Katya Robins"],
     }, { "notes.md": "Ask Robin about the audit log\n" });
     seed(AWAIT, {
-      subject: "Partner sync",
+      subject: "Platform sync",
       start: new Date(AWAIT_END - 3600e3).toISOString(),
       end: new Date(AWAIT_END).toISOString(),
       state: "awaitingTranscript",
@@ -172,7 +172,7 @@ describe("usability quick wins", () => {
     expect((await ids()).sort()).toEqual([AWAIT, PARTNER].sort());
     expect(await snips(PARTNER)).toEqual([
       { tab: "Organiser", line: "Robin Sample", marks: ["Robin"] },
-      { tab: "Attendees", line: "Katya Lane", marks: ["Robin"] },
+      { tab: "Attendees", line: "Katya Robins", marks: ["Robin"] },
       { tab: "My notes", line: "Ask Robin about the audit log", marks: ["Robin"] },
     ]);
     // A title or people snippet opens the meeting.

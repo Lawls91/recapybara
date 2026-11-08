@@ -26,7 +26,7 @@ test("the peek explains each failed check", () => {
 
 test("the quote is marked in the turn ignoring case and punctuation, on whole words", () => {
   const text = "So we agreed the approach of adding a simple retry limit field";
-  expect(markQuote(text, "THAT, approach of having")).toBe(
+  expect(markQuote(text, "THE, approach of adding")).toBe(
     "So we agreed <mark>the approach of adding</mark> a simple retry limit field",
   );
   expect(markQuote("A <b> and that approach", "that approach")).toBe("A &#60;b&#62; and <mark>that approach</mark>");
