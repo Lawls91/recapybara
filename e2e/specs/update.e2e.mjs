@@ -127,6 +127,7 @@ describe("self-update", () => {
   });
 
   it("Restart and update pressed during a check waits for it, so a summary started meanwhile still refuses it", async () => {
+    await expect($("#update-banner")).toBeDisplayed({ wait: 30000 });
     answer = { ...answer, delayMs: 4000 }; // the same newer version, answered late
     await checkInBackground();
     scenario({ structuredOutput: { overview: "Synthetic summary." }, delayMs: 10000 });

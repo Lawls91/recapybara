@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes (before, during and after a meeting), search, first run (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14, 15). v1 is single-user.
+Status: import (a transcript file, or from Teams), summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes (before, during and after a meeting), search, first run, the library skill for Claude, delete a meeting, CI, self-update (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14, 15, 16, 17, 18, and slice 19). v1 is single-user.
 
 ## Build and run
 
@@ -103,17 +103,20 @@ How the app updates (tauri-plugin-updater):
 
 - It reads `https://github.com/Lawls91/meeting-capture/releases/latest/download/latest.json` (`plugins.updater` in
   `src-tauri/tauri.conf.json`) once, 10 seconds after it starts, then once a day. Settings has **Check for updates**, and
-  so does the tray menu. A dev instance never checks or installs ("Updates are off in a dev instance").
+  so does the tray menu, which reads **Restart and update to version X** once one is ready (the window may be closed to
+  the tray). A dev instance never checks or installs ("Updates are off in a dev instance").
 - A newer version is downloaded and its minisign signature checked against the public key in `tauri.conf.json` before
   anything is shown; the signature must also name the version `latest.json` announces (`requireSignedVersion`). Then the
   meeting list shows "Version X is available" with **Restart and update**. A bad signature is refused ("Update refused:
   ..."). An automatic check that fails is only logged.
-- Nothing installs or restarts on its own. Restart and update is refused while a transcript is being fetched or a
-  summary written, with the reason on the banner. Otherwise the app saves notes, starts
-  `msiexec /i <msi> /passive /norestart` from a hidden `cmd` (after a 2 s pause, so the app has quit before msiexec looks
-  for files in use) and quits; once msiexec ends, the same `cmd` starts the app
-  again. The MSI is per-user, so there is no UAC prompt. Settings, the library and the start-at-logon choice are kept
-  (the MSI upgrade rules under Install).
+- Nothing installs or restarts on its own. Restart and update is refused while a transcript is being fetched, a
+  summary written or an import from Teams runs, with the reason on the banner (announced in the polite live region, as
+  the banner's other news is). Otherwise the app saves notes, the banner reads "Meeting capture will restart in a few
+  seconds." for 2 s, and the app writes the verified MSI to `%TEMP%`, starts a hidden
+  `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe` and quits (as the tray's Quit does, notes saved). That
+  PowerShell waits for the app's process to exit (up to 30 s), runs `msiexec /i <msi> /passive /norestart`, deletes the
+  MSI once msiexec ends, and starts the app again. The MSI is per-user, so there is no UAC prompt. Settings, the
+  library and the start-at-logon choice are kept (the MSI upgrade rules under Install).
 - Why not the plugin's own install: it runs msiexec the same way (ShellExecute "open", no RunAs, unelevated) but relaunches
   the app only through a custom action in the MSI reading `AUTOLAUNCHAPP`, and the MSI stays declarative (no custom
   actions). So the app runs msiexec itself and relaunches from outside the MSI.
@@ -157,7 +160,7 @@ past meetings' transcripts by date range, for meetings the app wasn't running fo
    or delete it. Being in the library, it is left out of a later Search of the same dates. When the import ends, a
    banner above the list keeps its report until dismissed: "Imported 3: 2 summarised, 0 not reachable, 1 no
    transcript, 0 failed." (plus ", 1 awaiting transcript" for one that ended under 2 hours ago and is still on its
-   retries). The progress and the report are announced (polite live regions).
+   retries, and ", 1 deleted" for one deleted while the import ran). The progress and the report are announced (polite live regions).
 
 **Cost:** one Claude run (haiku) per day searched (plus one read retry for a day whose reads failed), then two per
 meeting: one fetch run (haiku) and one summary run (the summary model, Sonnet by default). Importing 7 meetings found
@@ -189,6 +192,8 @@ It installs `llvm-tools-preview` and `cargo-llvm-cov` if missing; `@wdio/tauri-s
 (`MEETING_CAPTURE_DEV`), so a running Meeting capture doesn't collide with it, except in the `single-instance` and
 `real-folders` specs, which test the installed copy's path: close Meeting capture before those. The `first-run` specs
 start with no `settings.json`, and `first-run-no-claude` points `MEETING_CAPTURE_CLAUDE` at a path with nothing there.
+After each spec, `e2e/run.mjs` stops only the tauri-driver listening on its own `MC_E2E_PORT` (and that driver's
+msedgedriver), so runs on different ports can go at once.
 
 Test-only env vars (D36, D37):
 
@@ -322,8 +327,9 @@ it lands, and its start and outcome are announced (polite live region). The outc
 is summarised, a 403 is Not reachable, an empty list is No transcript again. A late transcript or newly granted access
 can change the answer, so it is offered on all three; never on an excluded series. A scheduled attempt shows
 "Fetching transcript" on its row too, only while its fetch runs (not while the tick briefly checks a meeting for a
-move), and the row is redrawn when it lands, even on an error. The stored reason is one plain line (at most 300 characters: stderr's first line,
-or "Claude Code not found. Install it or add it to PATH, then Try again.").
+move), and the row is redrawn when it lands, even on an error. The stored reason is one plain line (stderr's first line,
+or "Claude Code not found. Install it or add it to PATH, then Try again."); with its prefix ("Claude couldn't run: ...")
+it is at most 300 characters, cut at a word with an ellipsis.
 
 An event that ended under 120 minutes ago while the app was closed gets an attempt as soon as the calendar finds it,
 then the rest of the schedule from its end. `meeting.json` keeps `transcriptUrl`, `attempts`, `nextAttempt` and
