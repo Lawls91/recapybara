@@ -63,13 +63,15 @@ pub fn is_msi(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
 }
 
-/// Restart and update's hidden `cmd /c` line: msiexec on the MSI, waited for, then the app again (the new version, or the
+/// Restart and update's hidden `cmd /c` line: a 2 s pause (ping, the one wait cmd has without a console) so the app has
+/// quit before msiexec checks for files in use (live on the VM it was still exiting 0.6 s after msiexec started), then
+/// msiexec on the MSI, waited for, then the app again (the new version, or the
 /// old one if the install failed or was cancelled). The MSI is per-user, so msiexec runs unelevated with no UAC prompt;
 /// /passive shows only its progress bar. The relaunch lives here, not in the MSI, which stays declarative (no custom
 /// action, Jack q3/q4); tauri-plugin-updater's own install needs one (it passes AUTOLAUNCHAPP for the MSI to act on).
 /// ponytail: a `%` in a path would be expanded by cmd; temp and install paths have none in practice.
 pub fn install_line(msiexec: &Path, msi: &Path, exe: &Path) -> String {
-    format!(r#"/d /c start "" /wait "{}" /i "{}" /passive /norestart & start "" "{}""#, msiexec.display(), msi.display(), exe.display())
+    format!(r#"/d /c ping -n 3 127.0.0.1 >nul & start "" /wait "{}" /i "{}" /passive /norestart & start "" "{}""#, msiexec.display(), msi.display(), exe.display())
 }
 
 /// Restart and update waits while a capture or a summary is running: quitting would cut it off.
@@ -137,7 +139,7 @@ mod tests {
         );
         assert_eq!(
             line,
-            r#"/d /c start "" /wait "C:\Windows\System32\msiexec.exe" /i "C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi" /passive /norestart & start "" "C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe""#
+            r#"/d /c ping -n 3 127.0.0.1 >nul & start "" /wait "C:\Windows\System32\msiexec.exe" /i "C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi" /passive /norestart & start "" "C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe""#
         );
         assert!(is_msi(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0]));
         assert!(!is_msi(b"MZ an exe"), "an NSIS installer or anything else isn't run");

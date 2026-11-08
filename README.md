@@ -110,7 +110,8 @@ How the app updates (tauri-plugin-updater):
   ..."). An automatic check that fails is only logged.
 - Nothing installs or restarts on its own. Restart and update is refused while a transcript is being fetched or a
   summary written, with the reason on the banner. Otherwise the app saves notes, starts
-  `msiexec /i <msi> /passive /norestart` from a hidden `cmd` and quits; once msiexec ends, the same `cmd` starts the app
+  `msiexec /i <msi> /passive /norestart` from a hidden `cmd` (after a 2 s pause, so the app has quit before msiexec looks
+  for files in use) and quits; once msiexec ends, the same `cmd` starts the app
   again. The MSI is per-user, so there is no UAC prompt. Settings, the library and the start-at-logon choice are kept
   (the MSI upgrade rules under Install).
 - Why not the plugin's own install: it runs msiexec the same way (ShellExecute "open", no RunAs, unelevated) but relaunches
