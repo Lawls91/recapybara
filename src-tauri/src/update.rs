@@ -3,6 +3,7 @@
 use crate::library::{Listed, State};
 use std::{
     ffi::OsString,
+    path::Path,
     time::{Duration, SystemTime},
 };
 use tauri_plugin_updater::Error;
@@ -45,7 +46,6 @@ pub fn reason(e: &Error) -> String {
         Error::ReleaseNotFound | Error::Serialization(_) => "no release was found at the update address".into(),
         Error::Reqwest(_) | Error::Network(_) => "the update server couldn't be reached".into(),
         e if signature_bad(e) => "its signature isn't valid".into(),
-        Error::InvalidUpdaterFormat => "the download isn't an installer".into(),
         e => crate::claude::first_line(&e.to_string()),
     }
 }
@@ -58,8 +58,18 @@ pub fn check_failed(version: Option<&str>, e: &Error) -> String {
     }
 }
 
-pub fn install_failed(e: &Error) -> String {
-    format!("Couldn't update: {}", reason(e))
+/// An MSI (an OLE compound file) by its first bytes: nothing else is handed to msiexec.
+pub fn is_msi(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
+}
+
+/// Restart and update's hidden `cmd /c` line: msiexec on the MSI, waited for, then the app again (the new version, or the
+/// old one if the install failed or was cancelled). The MSI is per-user, so msiexec runs unelevated with no UAC prompt;
+/// /passive shows only its progress bar. The relaunch lives here, not in the MSI, which stays declarative (no custom
+/// action, Jack q3/q4); tauri-plugin-updater's own install needs one (it passes AUTOLAUNCHAPP for the MSI to act on).
+/// ponytail: a `%` in a path would be expanded by cmd; temp and install paths have none in practice.
+pub fn install_line(msiexec: &Path, msi: &Path, exe: &Path) -> String {
+    format!(r#"/d /c start "" /wait "{}" /i "{}" /passive /norestart & start "" "{}""#, msiexec.display(), msi.display(), exe.display())
 }
 
 /// Restart and update waits while a capture or a summary is running: quitting would cut it off.
@@ -106,8 +116,6 @@ mod tests {
         assert_eq!(check_failed(Some("0.2.0"), &mismatch), "Update refused: version 0.2.0's signature isn't valid");
         assert_eq!(check_failed(Some("0.2.0"), &Error::MissingSignedVersion), "Update refused: version 0.2.0's signature isn't valid");
         assert_eq!(check_failed(Some("0.2.0"), &Error::ReleaseNotFound), "Couldn't check for updates: no release was found at the update address");
-        assert_eq!(install_failed(&Error::InvalidUpdaterFormat), "Couldn't update: the download isn't an installer");
-        assert_eq!(install_failed(&Error::TempDirNotFound), "Couldn't update: failed to create temporary directory");
     }
 
     #[test]
@@ -118,6 +126,21 @@ mod tests {
         // The minisign public key file's contents, base64: "untrusted comment: minisign public key: 12A0DD3E5DD63A64".
         assert!(u["pubkey"].as_str().unwrap().starts_with("dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQTBERDNFNURENjNBNjQK"));
         assert_eq!(u["requireSignedVersion"], true, "the unsigned manifest can't pair a new version with an old package");
+    }
+
+    #[test]
+    fn restart_and_update_waits_for_msiexec_then_starts_the_app() {
+        let line = install_line(
+            Path::new(r"C:\Windows\System32\msiexec.exe"),
+            Path::new(r"C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi"),
+            Path::new(r"C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe"),
+        );
+        assert_eq!(
+            line,
+            r#"/d /c start "" /wait "C:\Windows\System32\msiexec.exe" /i "C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi" /passive /norestart & start "" "C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe""#
+        );
+        assert!(is_msi(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0]));
+        assert!(!is_msi(b"MZ an exe"), "an NSIS installer or anything else isn't run");
     }
 
     fn listed(state: State, fetching: bool) -> Listed {

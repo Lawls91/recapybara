@@ -43,7 +43,7 @@ struct AppState {
     /// No library chosen yet: the page shows first run until its Finish.
     first_run: Mutex<bool>,
     /// The newer version found and verified, ready to install; the lock also keeps checks one at a time.
-    update: tauri::async_runtime::Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
+    update: tauri::async_runtime::Mutex<Option<(String, Vec<u8>)>>,
     /// The last check that got an answer, for the daily check.
     last_check: Mutex<Option<SystemTime>>,
 }
@@ -601,14 +601,14 @@ async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
     let found = async { updater(app)?.check().await }.await.map_err(|e| update::check_failed(None, &e))?;
     match found {
         None => *ready = None,
-        Some(u) if ready.as_ref().is_some_and(|(r, _)| r.version == u.version) => {}
+        Some(u) if ready.as_ref().is_some_and(|(v, _)| *v == u.version) => {}
         Some(u) => {
             let bytes = u.download(|_, _| {}, || {}).await.map_err(|e| update::check_failed(Some(&u.version), &e))?;
-            *ready = Some((u, bytes));
+            *ready = Some((u.version, bytes));
         }
     }
     *state.last_check.lock().unwrap() = Some(SystemTime::now());
-    let version = ready.as_ref().map(|(u, _)| u.version.clone());
+    let version = ready.as_ref().map(|(v, _)| v.clone());
     let _ = app.emit("update-ready", &version);
     Ok(version)
 }
@@ -626,11 +626,12 @@ async fn check_updates(app: AppHandle) -> Result<String, String> {
 /// update-ready follows.
 #[tauri::command]
 fn update_ready(state: State<AppState>) -> Option<String> {
-    state.update.try_lock().ok()?.as_ref().map(|(u, _)| u.version.clone())
+    state.update.try_lock().ok()?.as_ref().map(|(v, _)| v.clone())
 }
 
-/// Restart and update, never on its own: refused while a capture or summary runs (update::busy). On Windows the
-/// plugin starts msiexec on the MSI (per-user, so no UAC prompt) and exits; the MSI starts the new version.
+/// Restart and update, never on its own: refused while a capture or summary runs (update::busy). The verified MSI goes
+/// to a temp file, msiexec runs it (per-user: no UAC prompt) from a hidden cmd that starts the app again once it ends
+/// (update::install_line), and the app quits so msiexec can replace its exe. The page has saved its notes first.
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -642,9 +643,25 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         return Err(why.into());
     }
     let ready = state.update.lock().await;
-    let (u, bytes) = ready.as_ref().ok_or("No update is ready. Check for updates first.")?;
-    // ponytail: the plugin ends the process itself, so the tray icon lingers until hovered.
-    u.install(bytes).map_err(|e| update::install_failed(&e))
+    let (version, bytes) = ready.as_ref().ok_or("No update is ready. Check for updates first.")?;
+    if !update::is_msi(bytes) {
+        return Err("Couldn't update: the download isn't an installer".into());
+    }
+    let msi = std::env::temp_dir().join(format!("{}-{version}.msi", app.package_info().name));
+    std::fs::write(&msi, bytes).map_err(|e| format!("Couldn't update: {e}"))?;
+    let msiexec = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into())).join(r"System32\msiexec.exe");
+    let exe = std::env::current_exe().map_err(|e| format!("Couldn't update: {e}"))?;
+    let line = update::install_line(&msiexec, &msi, &exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new("cmd").raw_arg(line).creation_flags(CREATE_NO_WINDOW).spawn().map_err(|e| format!("Couldn't update: {e}"))?;
+    }
+    #[cfg(not(windows))]
+    let _ = line;
+    app.exit(0);
+    Ok(())
 }
 
 fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>> {

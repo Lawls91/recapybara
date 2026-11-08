@@ -26,8 +26,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQTBERDNFNURENjNBNjQKUldSa090WmRQdDJnRXNHOG1BMkxwNG9yZFU2NVd0OFlMV0RQQXRtRWVURnJCVWozc3d3elhBbE0K",
       "endpoints": ["https://github.com/Lawls91/meeting-capture/releases/latest/download/latest.json"],
-      "requireSignedVersion": true,
-      "windows": { "installMode": "passive" }
+      "requireSignedVersion": true
     }
   },
   "bundle": {
