@@ -110,12 +110,15 @@ jobs:
           $t = Join-Path $env:USERPROFILE 'AppData\Local\Temp'
           "TEMP=$t" >> $env:GITHUB_ENV
           "TMP=$t" >> $env:GITHUB_ENV
-      # gsudo (pinned, hash-checked) runs the suite at Medium integrity, not elevated. The workspace was made by the
-      # elevated runner, so the de-elevated tests are given write access to it.
+      # gsudo runs the suite at Medium integrity, not elevated. Pinned and hash-checked, and fetched through the API
+      # (gh), since github.com's release download link has returned 504s while the API served the same file. The
+      # workspace was made by the elevated runner, so the de-elevated tests are given write access to it.
       - name: De-elevation (gsudo)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $zip = Join-Path $env:RUNNER_TEMP 'gsudo.zip'
-          Invoke-WebRequest 'https://github.com/gerardog/gsudo/releases/download/v2.6.1/gsudo.portable.zip' -OutFile $zip
+          gh release download v2.6.1 -R gerardog/gsudo -p gsudo.portable.zip -D $env:RUNNER_TEMP
+          $zip = Join-Path $env:RUNNER_TEMP 'gsudo.portable.zip'
           if ((Get-FileHash $zip).Hash -ne '21130BF178D7B9891207F00BFF56F05B6B363CE9CEC7B2D084E45FB12EE51F44') { throw 'gsudo.portable.zip hash mismatch' }
           Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'gsudo')
           Join-Path $env:RUNNER_TEMP 'gsudo\x64' >> $env:GITHUB_PATH
