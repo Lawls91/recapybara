@@ -259,7 +259,7 @@ describe("usability quick wins", () => {
 
   it("icon glyphs are hidden from screen readers: menu items' names and a banner's announced text hold none", async () => {
     const privateUse = /[-]/;
-    await $(`.row[data-id="${PARTNER}"]`).$(".kebab").click();
+    await $(`.row[data-id="${PARTNER}"] .kebab`).click();
     await expect($("#row-menu")).toBeDisplayed();
     const open = await $("#row-menu .mi").getComputedLabel();
     expect(open).toMatch(/^Open/);
