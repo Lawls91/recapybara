@@ -15,3 +15,16 @@ CLAUDE.local.md
 # except synthetic test fixtures.
 *.vtt
 !**/fixtures/**/*.vtt
+
+# Nor the other library files (README "Library layout"), except the synthetic fixtures and goldens.
+meeting.json
+transcript.md
+summary.md
+summary.json
+notes.md
+glossary.md
+!**/fixtures/**
+!src-tauri/tests/golden/**
+
+# Per-user Claude Code settings
+.claude/settings.local.json
