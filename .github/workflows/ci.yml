@@ -60,10 +60,9 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      # A failed run still saves the cargo cache, so the next run after a red one is warm too.
+      # Saved only by a run that passes: a cancelled run (a newer push) would save a partial target dir, and a cache
+      # key, once saved, is never replaced.
       - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
 
       - uses: taiki-e/install-action@v2
         with:
