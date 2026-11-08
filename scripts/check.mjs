@@ -1,4 +1,5 @@
-// `npm run check`: every suite, the local verdict until CI (Outline ticket 18).
+// `npm run check`: every suite. CI (.github/workflows/ci.yml) runs it with MC_CHECK_SKIP_E2E=1: E2E doesn't run on
+// GitHub's hosted Windows runners yet (README, CI), so it stays local.
 // Stops at the first failure and exits non-zero.
 //   0. tsc --noEmit
 //   1. cargo test under cargo-llvm-cov, failing under 80% Rust line coverage
@@ -40,5 +41,6 @@ step("cargo test + coverage", "cargo", [
 step("vitest", "npx", ["vitest", "run"]);
 step("tauri build (debug, no installer)", "npx", ["tauri", "build", "--debug", "--no-bundle"]);
 step("fake claude", "cargo", ["build", "-p", "fake-claude"]);
-step("e2e", "node", ["e2e/run.mjs"]);
+if (process.env.MC_CHECK_SKIP_E2E) console.log("\n>>> e2e: skipped (MC_CHECK_SKIP_E2E)");
+else step("e2e", "node", ["e2e/run.mjs"]);
 console.log("\ncheck PASSED");

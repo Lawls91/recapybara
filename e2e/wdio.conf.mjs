@@ -26,6 +26,8 @@ export const config = {
   reporters: ["spec"],
   mochaOpts: { timeout: 90000 },
   logLevel: "warn",
+  // In CI a session that can't start fails in one attempt rather than four (wdio's default 3 retries).
+  connectionRetryCount: process.env.CI ? 0 : 3,
   waitforTimeout: 10000,
   before: pinWindow,
   onReload: pinWindow,

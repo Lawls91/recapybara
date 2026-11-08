@@ -190,6 +190,31 @@ Fake claude scenarios (the file is read on every run, so it can be rewritten bet
 { "exitCode": 1 }                              // claude fails: the summary fails
 ```
 
+### CI
+
+`.github/workflows/ci.yml` runs on GitHub Actions (`windows-latest`) for every pull request and every push to `main`,
+and by hand (Actions tab, Run workflow, or `gh workflow run ci.yml --ref <branch>`). It runs `npm run check` with
+`MC_CHECK_SKIP_E2E=1`, so typecheck, cargo test under the 80% coverage gate, Vitest and the debug build, with only the
+fake claude and no secrets. It then runs the calendar tests again with the runner's clock set to UTC+14 and UTC-12,
+because the app takes the working day in the machine's zone. A push to `main` also builds the installer
+(`npm run msi`) and attaches it to the run as the `installer` artifact (kept 7 days). Cargo's build output,
+`node_modules` and `cargo-llvm-cov` are cached, so a run on unchanged Rust code skips the dependency builds.
+
+E2E doesn't run in CI yet, so the local `npm run check` (E2E included) stays the verdict for UI changes. On GitHub's
+hosted Windows runners msedgedriver starts the app but never gets a WebDriver session ("DevToolsActivePort file
+doesn't exist" after 60 s), while the same request works in about a second on a dev machine. The workflow keeps a
+ready `e2e` job, switched off with `if: false`; delete that line to try again.
+
+Reading a failure: open the failed run, then the red step.
+
+- **npm run check (without E2E)**: the log's last lines say `check FAILED at: <step>`, one of `typecheck`,
+  `cargo test + coverage`, `vitest`, `tauri build` or `fake claude`. A coverage failure ends with cargo-llvm-cov's
+  line total under 80%, and a test failure names the test above it. Rerun the same step locally (`npm run check`).
+- **Calendar tests at UTC+14 and UTC-12**: a calendar test depends on the machine's time zone, and the log shows which
+  zone failed. Pin the zone in the test (`parse_in` or `working_day_end` with a `FixedOffset`) rather than `Local`,
+  or compare in a way that doesn't depend on it.
+- **A setup or cache step**: a runner image or network problem, not the code. Rerun the job.
+
 ## Run log
 
 Every Claude run appends one JSON line to `runs.jsonl` in the app's data folder (`%APPDATA%\com.lawls91.meetingcapture`,
@@ -360,6 +385,6 @@ summary action read "Re-run summary". Settings' Appearance (`appearance`: `syste
 At start, and whenever the library path changes, the app writes its bundled skill (`src-tauri/skill/SKILL.md`, with
 the library path filled in) to `~/.claude/skills/meeting-capture/SKILL.md` if it is missing or differs (D33): written
 atomically, and left alone (file time unchanged) when it already matches. It gives your own Claude sessions the library
-path and layout, so "what did we decide in the release meeting?" finds the meeting with Read and Grep. The app writes
+path and layout, so "what did we decide in the export review meeting?" finds the meeting with Read and Grep. The app writes
 nothing else under `~/.claude`; its one other touch is deleting its own `runs` project folder (D7). Home is
 `MEETING_CAPTURE_HOME` if set, else your profile. Run `chezmoi add ~/.claude/skills/meeting-capture` once to sync it.

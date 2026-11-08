@@ -1,0 +1,149 @@
+# CI (Outline ticket 18): every PR runs `npm run check` (tsc, cargo test under the 80% coverage gate, Vitest and the
+# debug build) and then the calendar tests again in two far-apart time zones. A push to main also builds the
+# installer. Only the fake claude ever runs (D36); no secrets are used. E2E is off here for now (see the e2e job).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v5
+
+      # The runner's TEMP is the 8.3 path C:\Users\RUNNER~1\...; the fake claude only maps path characters seen in
+      # real ~/.claude/projects folder names, and "~" isn't one. The long form of the same folder is.
+      - name: Long TEMP path
+        run: |
+          $t = Join-Path $env:USERPROFILE 'AppData\Local\Temp'
+          "TEMP=$t" >> $env:GITHUB_ENV
+          "TMP=$t" >> $env:GITHUB_ENV
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # Restore and save as separate steps, so node_modules is cached even when a later step fails.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache/restore@v5
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+
+      - name: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Save node_modules
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: node_modules
+          key: ${{ steps.node-modules.outputs.cache-primary-key }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      # A failed run still saves the cargo cache, so the next run after a red one is warm too.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: npm run check (without E2E)
+        env:
+          MC_CHECK_SKIP_E2E: '1'
+        run: npm run check
+
+      # The calendar's working day is taken in the machine's zone (UTC on the runner); its tests must pass anywhere.
+      # Reuses the instrumented build from the check, so only the tests run.
+      - name: Calendar tests at UTC+14 and UTC-12
+        run: |
+          foreach ($zone in 'Line Islands Standard Time', 'Dateline Standard Time') {
+            tzutil /s $zone
+            "zone: $(tzutil /g), a new process reads $(pwsh -NoProfile -Command 'Get-Date -Format o')"
+            cargo llvm-cov --no-clean --workspace --summary-only -- calendar::
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
+      - name: Installer (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: npm run msi
+
+      - name: Upload installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v5
+        with:
+          name: installer
+          path: out/*.msi
+          retention-days: 7
+
+  # OFF: on GitHub's hosted Windows runners (windows-latest = Server 2025, WebView2 156; windows-2022, WebView2 131)
+  # msedgedriver launches the app but never gets a session: "DevToolsActivePort file doesn't exist" after 60 s, with
+  # only EBWebView\Default ever written to its scoped user-data dir under C:\Windows\SystemTemp. The same request
+  # starts a session in about a second on a dev machine. Until that is solved, E2E runs only in the local
+  # `npm run check`. Turn this job on by deleting its `if`.
+  e2e:
+    name: E2E (off on hosted runners, local npm run check only)
+    if: false
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Long TEMP path
+        run: |
+          $t = Join-Path $env:USERPROFILE 'AppData\Local\Temp'
+          "TEMP=$t" >> $env:GITHUB_ENV
+          "TMP=$t" >> $env:GITHUB_ENV
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # @wdio/tauri-service drives the app through tauri-driver, which drives msedgedriver.
+      - uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: tauri-driver
+      # msedgedriver must share the WebView2 runtime's major version: the runner's preinstalled one if it does,
+      # else that major's latest driver.
+      - name: msedgedriver matched to WebView2
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $wv = (Get-ItemProperty $key -ErrorAction SilentlyContinue).pv
+          if (-not $wv) { throw "No WebView2 runtime version at ${key}: the runner image has no evergreen WebView2." }
+          $major = $wv.Split('.')[0]
+          $dir = $env:EDGEWEBDRIVER
+          $have = if ($dir -and (Test-Path "$dir\msedgedriver.exe")) { (& "$dir\msedgedriver.exe" --version) -replace '.*?(\d+)\..*', '$1' }
+          if ($have -ne $major) {
+            $r = Invoke-WebRequest "https://msedgedriver.microsoft.com/LATEST_RELEASE_$major" -UseBasicParsing
+            $txt = if ($r.Content -is [byte[]]) { [Text.Encoding]::Unicode.GetString($r.Content) } else { $r.Content }
+            $ver = $txt -replace '[^\d.]', ''
+            $dir = Join-Path $env:RUNNER_TEMP "msedgedriver-$ver"
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$ver/edgedriver_win64.zip" -OutFile "$dir.zip"
+            Expand-Archive "$dir.zip" $dir
+          }
+          $dir >> $env:GITHUB_PATH
+          "WebView2 $wv; $(& "$dir\msedgedriver.exe" --version)"
+      - run: npx tauri build --debug --no-bundle
+      - run: cargo build -p fake-claude
+      - run: npm run e2e
