@@ -2109,6 +2109,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-winrt-notification",
+ "windows-registry",
  "windows-sys 0.61.2",
 ]
 

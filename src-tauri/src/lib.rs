@@ -23,6 +23,19 @@ use settings::Settings;
 
 /// Run-key value name, frozen (D50). Never derive it from productName.
 pub const RUN_KEY_NAME: &str = "com.lawls91.meetingcapture";
+
+/// The Run value, quoted as the MSI writes it, so an exe path with a space (a profile "First Last") still starts.
+pub fn run_value(exe: &Path) -> String {
+    format!("\"{}\" --autostart", exe.display())
+}
+
+/// Start at logon on: the autostart plugin's Run value (and Task Manager's approval), then the value written again,
+/// quoted (the plugin leaves the path bare). Every enable goes through here, the start-up re-point included, so an
+/// unquoted value an earlier version wrote is quoted at the next start or save.
+fn enable_logon(app: &AppHandle) -> Result<(), String> {
+    app.autolaunch().enable().map_err(|e| e.to_string())?;
+    platform::set_run_value(RUN_KEY_NAME, &run_value(&std::env::current_exe().map_err(|e| e.to_string())?))
+}
 /// Toast identity, frozen (D50): the MSI's Start-menu shortcut carries it.
 pub const AUMID: &str = "com.lawls91.meetingcapture";
 
@@ -108,8 +121,7 @@ fn apply_settings(app: &AppHandle, new: Settings) -> Result<(), String> {
     let mut new = new;
     new.start_at_logon &= !state.dev;
     if cur.start_at_logon != new.start_at_logon {
-        let al = app.autolaunch();
-        if new.start_at_logon { al.enable() } else { al.disable() }.map_err(|e| e.to_string())?;
+        if new.start_at_logon { enable_logon(app) } else { app.autolaunch().disable().map_err(|e| e.to_string()) }?;
     }
     settings::save(&state.data_dir, &new).map_err(|e| e.to_string())?;
     if cur.library_path != new.library_path {
@@ -554,9 +566,8 @@ fn finish_first_run(app: AppHandle, library: String, start_at_logon: bool) -> Re
         return Err(e);
     }
     if !state.dev {
-        let al = app.autolaunch();
         // Best effort, like the start-up re-point: a Run value that isn't there can't be removed again.
-        let _ = if logon { al.enable() } else { al.disable() };
+        let _ = if logon { enable_logon(&app) } else { app.autolaunch().disable().map_err(|e| e.to_string()) };
     }
     *state.first_run.lock().unwrap() = false;
     // The calendar and the fetches it makes due start now, into the library just chosen.
@@ -815,7 +826,7 @@ pub fn run() {
             }
             // Re-point the Run key at this exe (a rename reinstall moves it). Enable only: never disable at startup.
             if !first && logon {
-                let _ = app.autolaunch().enable();
+                let _ = enable_logon(app.handle());
             }
             let (item, updates) = build_tray(app.handle(), logon)?;
             *app.state::<AppState>().logon_item.lock().unwrap() = Some(item);
@@ -913,6 +924,14 @@ mod tests {
         ] {
             assert!(wxs.contains(frozen), "Package.wxs lost frozen identifier: {frozen}");
         }
+    }
+
+    #[test]
+    fn the_run_value_is_quoted_like_the_msis() {
+        let exe = Path::new(r"C:\Users\First Last\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe");
+        assert_eq!(run_value(exe), r#""C:\Users\First Last\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe" --autostart"#);
+        let wxs = include_str!("../../installer/wix/Package.wxs");
+        assert!(wxs.contains(r#"Value="&quot;[INSTALLFOLDER]meeting-capture.exe&quot; --autostart""#), "the MSI's own value, same shape");
     }
 
     #[test]

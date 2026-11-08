@@ -61,3 +61,17 @@ pub fn recycle(path: &std::path::Path, owner: isize) -> Result<(), String> {
 pub fn recycle(_path: &std::path::Path, _owner: isize) -> Result<(), String> {
     Err("Delete isn't built for this platform yet.".into())
 }
+
+/// Writes the HKCU Run value `name` (start at logon).
+#[cfg(windows)]
+pub fn set_run_value(name: &str, value: &str) -> Result<(), String> {
+    windows_registry::CURRENT_USER
+        .create(r"Software\Microsoft\Windows\CurrentVersion\Run")
+        .and_then(|k| k.set_string(name, value))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(windows))]
+pub fn set_run_value(_name: &str, _value: &str) -> Result<(), String> {
+    Ok(())
+}
