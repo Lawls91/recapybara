@@ -57,6 +57,9 @@ const checkInBackground = async () => {
   });
   await browser.waitUntil(() => hits.slice(before).includes("/latest.json"), { timeout: 10000 });
 };
+/** A fresh launch with `--update-result <version> <msiexec's exit code>`, the update script's relaunch. */
+const relaunch = (result) =>
+  browser.reloadSession({ browserName: "tauri", "tauri:options": { application: process.env.MC_APP, args: ["--update-result", ...result] } });
 const announced = () => browser.execute(() => document.getElementById("sr-status").textContent);
 
 const check = async (expected) => {
@@ -191,6 +194,30 @@ describe("self-update", () => {
   it("a 404 (no release, or a private repo) says it couldn't check", async () => {
     answer = { status: 404 };
     await check("Couldn't check for updates: no release was found at the update address");
+  });
+
+  it("a start after a failed install says so, and offers Try again once the update is found again", async () => {
+    serve(manifest(NEWER, goodSig));
+    await relaunch([NEWER, "1603"]); // as the update script relaunches the app after msiexec failed
+    const failed = `The update to version ${NEWER} didn't install: the installer failed (code 1603).`;
+    await expect($("#update-banner")).toBeDisplayed();
+    await expect($("#update-text")).toHaveText(failed);
+    expect(await announced()).toBe(failed);
+    await expect($("#update-install")).not.toBeDisplayed(); // nothing to install until the check finds it again
+    // The start-up check finds the same version: the message stays, and Try again is Restart and update.
+    await expect($("#update-install")).toBeDisplayed({ wait: 30000 });
+    await expect($("#update-install")).toHaveText("Try again");
+    await expect($("#update-text")).toHaveText(failed);
+    await $("#update-install").click();
+    await expect($("#update-text")).toHaveText(`${conf.productName} will restart in a few seconds.`);
+    await expect($("#update-text")).toHaveText(`${failed} Couldn't update: the download isn't an installer`, { wait: 10000 });
+  });
+
+  it("a start after a successful install shows no failure", async () => {
+    answer = { status: 404 };
+    await relaunch([NEWER, "0"]);
+    await browser.pause(3000); // the page has asked; a failure would show now (it showed at once above)
+    await expect($("#update-banner")).not.toBeDisplayed();
   });
 
   it("a dev instance never asked for an update", async () => {

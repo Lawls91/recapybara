@@ -78,9 +78,9 @@ pub fn tray_label(ready: Option<&str>) -> String {
 
 /// `p` as a PowerShell single-quoted string: nothing in it is expanded (`$`, `%`, a backtick), and each character
 /// PowerShell reads as a single quote (the typographic ones too) is doubled.
-fn ps_quoted(p: &Path) -> String {
+fn ps_quoted(p: impl std::fmt::Display) -> String {
     let mut s = String::from("'");
-    for c in p.display().to_string().chars() {
+    for c in p.to_string().chars() {
         if matches!(c, '\'' | '\u{2018}'..='\u{201B}') {
             s.push(c);
         }
@@ -92,15 +92,34 @@ fn ps_quoted(p: &Path) -> String {
 
 /// Restart and update's hidden helper, powershell.exe's arguments: it waits for the app (`pid`) to exit, so msiexec
 /// never meets its files in use, runs msiexec on the MSI and waits for it, deletes the MSI, then starts the app again
-/// (the new version, or the old one if the install failed or was cancelled). The MSI is per-user, so msiexec runs
+/// (the new version, or the old one if the install failed or was cancelled) with `--update-result <version> <msiexec's
+/// exit code>`, which `install_failed` reads. The MSI is per-user, so msiexec runs
 /// unelevated with no UAC prompt; /passive shows only its progress bar. The relaunch lives here, not in the MSI, which
 /// stays declarative (no custom action, Jack q3/q4); tauri-plugin-updater's own install needs one (it passes
 /// AUTOLAUNCHAPP for the MSI to act on). The script holds no double quote, so the command line can't split it.
-pub fn install_args(pid: u32, msiexec: &Path, msi: &Path, exe: &Path) -> String {
-    let (msiexec, msi, exe) = (ps_quoted(msiexec), ps_quoted(msi), ps_quoted(exe));
+pub fn install_args(pid: u32, msiexec: &Path, msi: &Path, exe: &Path, version: &str) -> String {
+    let (msiexec, msi, exe, version) = (ps_quoted(msiexec.display()), ps_quoted(msi.display()), ps_quoted(exe.display()), ps_quoted(version));
     format!(
-        "-NoProfile -NonInteractive -Command \"Wait-Process -Id {pid} -Timeout 30 -ErrorAction SilentlyContinue; & {msiexec} /i {msi} /passive /norestart | Out-Null; Remove-Item -LiteralPath {msi} -ErrorAction SilentlyContinue; & {exe}\""
+        "-NoProfile -NonInteractive -Command \"Wait-Process -Id {pid} -Timeout 30 -ErrorAction SilentlyContinue; & {msiexec} /i {msi} /passive /norestart | Out-Null; $code = $LASTEXITCODE; Remove-Item -LiteralPath {msi} -ErrorAction SilentlyContinue; & {exe} {RESULT_ARG} {version} $code\""
     )
+}
+
+/// The relaunch's argument: the version Restart and update tried, then msiexec's exit code.
+pub const RESULT_ARG: &str = "--update-result";
+
+/// What the banner says on a start after Restart and update failed: the version it tried and msiexec's exit code, from
+/// the relaunch's arguments. None for a success (0, or 3010: installed, a reboot pending) and for a start without the
+/// argument (a normal start, or after a crash).
+pub fn install_failed(args: &[String]) -> Option<(String, String)> {
+    let at = args.iter().position(|a| a == RESULT_ARG)?;
+    let (version, code) = (args.get(at + 1)?, args.get(at + 2)?.parse::<i64>().ok()?);
+    let why = match code {
+        0 | 3010 => return None,
+        1602 => "it was cancelled".to_string(),
+        1618 => "another installation was in progress".to_string(),
+        n => format!("the installer failed (code {n})"),
+    };
+    Some((version.clone(), format!("The update to version {version} didn't install: {why}.")))
 }
 
 /// Restart and update waits while a capture, a summary or an import from Teams is running: quitting would cut it off.
@@ -120,6 +139,7 @@ pub fn busy(list: &[Listed], importing: bool) -> Option<&'static str> {
 mod tests {
     use super::*;
     use crate::library::Meeting;
+    use std::path::PathBuf;
 
     #[test]
     fn the_test_overrides_hold_only_in_a_debug_build() {
@@ -168,10 +188,11 @@ mod tests {
             Path::new(r"C:\Windows\System32\msiexec.exe"),
             Path::new(r"C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi"),
             Path::new(r"C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe"),
+            "0.2.0",
         );
         assert_eq!(
             args,
-            r#"-NoProfile -NonInteractive -Command "Wait-Process -Id 4242 -Timeout 30 -ErrorAction SilentlyContinue; & 'C:\Windows\System32\msiexec.exe' /i 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' /passive /norestart | Out-Null; Remove-Item -LiteralPath 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' -ErrorAction SilentlyContinue; & 'C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe'""#
+            r#"-NoProfile -NonInteractive -Command "Wait-Process -Id 4242 -Timeout 30 -ErrorAction SilentlyContinue; & 'C:\Windows\System32\msiexec.exe' /i 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' /passive /norestart | Out-Null; $code = $LASTEXITCODE; Remove-Item -LiteralPath 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' -ErrorAction SilentlyContinue; & 'C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe' --update-result '0.2.0' $code""#
         );
         assert!(is_msi(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0]));
         assert!(!is_msi(b"MZ an exe"), "an NSIS installer or anything else isn't run");
@@ -179,9 +200,48 @@ mod tests {
 
     #[test]
     fn a_path_with_a_quote_a_percent_or_a_dollar_stays_one_literal_string() {
-        let args = install_args(1, Path::new("m.exe"), Path::new("C:\\O'Neil \u{2019}x\u{2019} 100% $HOME\\u.msi"), Path::new("a.exe"));
+        let args = install_args(1, Path::new("m.exe"), Path::new("C:\\O'Neil \u{2019}x\u{2019} 100% $HOME\\u.msi"), Path::new("a.exe"), "1.0.0-'$x");
         assert!(args.contains(r"/i 'C:\O''Neil ’’x’’ 100% $HOME\u.msi' /passive"), "{args}");
+        assert!(args.contains(r"--update-result '1.0.0-''$x' $code"), "{args}");
         assert_eq!(args.matches('"').count(), 2, "only the -Command string's own quotes");
+    }
+
+    /// The script itself, run by the same PowerShell: msiexec's exit code reaches the relaunch. Stand-ins for both
+    /// (batch files) record what they were given.
+    #[cfg(windows)]
+    #[test]
+    fn the_script_hands_msiexec_s_exit_code_to_the_relaunch() {
+        let dir = std::env::temp_dir().join(format!("mc-update-script-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (msiexec, exe, msi) = (dir.join("msiexec.cmd"), dir.join("app.cmd"), dir.join("u.msi"));
+        std::fs::write(&msiexec, "@exit /b 1603\r\n").unwrap();
+        std::fs::write(&exe, "@echo %*> \"%~dp0relaunched.txt\"\r\n").unwrap();
+        std::fs::write(&msi, "synthetic").unwrap();
+        let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+        use std::os::windows::process::CommandExt;
+        let out = std::process::Command::new(system).raw_arg(install_args(0x7FFF_FFF0, &msiexec, &msi, &exe, "0.2.0")).output().unwrap();
+        assert!(out.status.success() && out.stderr.is_empty(), "{out:?}");
+        let relaunched = std::fs::read_to_string(dir.join("relaunched.txt")).unwrap();
+        assert_eq!(relaunched.trim(), "--update-result 0.2.0 1603");
+        assert!(!msi.exists(), "the MSI is deleted");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_install_is_said_with_the_version_and_a_short_reason() {
+        let start = |a: &[&str]| install_failed(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let failed = |code: &str| start(&["mc.exe", "--update-result", "0.2.0", code]);
+        let said = |m: &str| Some(("0.2.0".to_string(), m.to_string()));
+        assert_eq!(failed("1603"), said("The update to version 0.2.0 didn't install: the installer failed (code 1603)."));
+        assert_eq!(failed("1602"), said("The update to version 0.2.0 didn't install: it was cancelled."));
+        assert_eq!(failed("1618"), said("The update to version 0.2.0 didn't install: another installation was in progress."));
+        assert_eq!(failed("-1"), said("The update to version 0.2.0 didn't install: the installer failed (code -1)."));
+        assert_eq!(failed("0"), None, "installed");
+        assert_eq!(failed("3010"), None, "installed, a reboot pending");
+        assert_eq!(start(&["mc.exe"]), None, "a normal start, or after a crash");
+        assert_eq!(start(&["mc.exe", "--autostart"]), None);
+        assert_eq!(start(&["mc.exe", "--update-result", "0.2.0"]), None, "no code: msiexec never ran");
+        assert_eq!(start(&["mc.exe", "--update-result", "0.2.0", "x"]), None);
     }
 
     #[test]

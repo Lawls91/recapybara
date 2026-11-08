@@ -1227,13 +1227,24 @@ function updateBanner(text: string, always = false) {
   $("update-text").textContent = text;
   if (text && (changed || always)) $("sr-status").textContent = text;
 }
-/** The banner: the version found, plus why Restart and update was refused, if it was. */
+/** The banner: the version found, or that the last Restart and update of it didn't install (then its button is Try
+ * again), plus why Restart and update was refused, if it was. The button shows only while an update is ready. */
 let updateVersion: string | null = null;
+let updateFailed: [string, string] | null = null; // this start follows a failed install: [version, message]
 function paintUpdate(version: string | null, refused = "") {
   updateVersion = version;
-  $<HTMLButtonElement>("update-install").disabled = false;
-  updateBanner(version ? `Version ${version} is available.${refused ? ` ${refused}` : ""}` : "", !!refused);
+  const failed = updateFailed && (!version || version === updateFailed[0]) ? updateFailed[1] : "";
+  const text = failed || (version ? `Version ${version} is available.` : "");
+  const install = $<HTMLButtonElement>("update-install");
+  install.disabled = false;
+  install.hidden = !version;
+  install.textContent = failed ? "Try again" : "Restart and update";
+  updateBanner(text && `${text}${refused ? ` ${refused}` : ""}`, !!refused);
 }
+invoke<[string, string] | null>("update_failed").then((f) => {
+  updateFailed = f;
+  paintUpdate(updateVersion);
+});
 listen<string | null>("update-ready", (e) => paintUpdate(e.payload));
 // Restart and update went ahead: "will restart in a few seconds" until the window closes.
 listen<string>("update-restarting", (e) => {

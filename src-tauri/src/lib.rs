@@ -61,6 +61,8 @@ struct AppState {
     update: tauri::async_runtime::Mutex<Option<(String, Vec<u8>)>>,
     /// The last check that got an answer, for the daily check.
     last_check: Mutex<Option<SystemTime>>,
+    /// Started again after Restart and update failed: the version it tried and what the banner says (update::install_failed).
+    update_failed: Option<(String, String)>,
 }
 
 /// Env override (set and non-empty), else the real folder (D37).
@@ -651,6 +653,12 @@ fn update_ready(state: State<AppState>) -> Option<String> {
     state.update.try_lock().ok()?.as_ref().map(|(v, _)| v.clone())
 }
 
+/// The update this start follows that didn't install, if any: its version and the banner's message.
+#[tauri::command]
+fn update_failed(state: State<AppState>) -> Option<(String, String)> {
+    state.update_failed.clone()
+}
+
 /// Restart and update, never on its own: refused while a capture, summary or import runs (update::busy). The list says
 /// the app will restart (update-restarting) for update::NOTICE; then the verified MSI goes to a temp file, msiexec runs
 /// it (per-user: no UAC prompt) from a hidden PowerShell that waits for this process to exit and starts the app again
@@ -687,7 +695,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     std::fs::write(&msi, bytes).map_err(|e| format!("Couldn't update: {e}"))?;
     let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into())).join("System32");
     let exe = std::env::current_exe().map_err(|e| format!("Couldn't update: {e}"))?;
-    let args = update::install_args(std::process::id(), &system.join("msiexec.exe"), &msi, &exe);
+    let args = update::install_args(std::process::id(), &system.join("msiexec.exe"), &msi, &exe, version);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -819,7 +827,7 @@ pub fn run() {
             let logon = s.start_at_logon;
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None) });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None), update_failed: update::install_failed(&std::env::args().collect::<Vec<_>>()) });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -898,6 +906,7 @@ pub fn run() {
             finish_first_run,
             check_updates,
             update_ready,
+            update_failed,
             install_update
         ])
         .run(tauri::generate_context!())
