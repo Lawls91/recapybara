@@ -247,6 +247,43 @@ describe("usability quick wins", () => {
     await browser.waitUntil(async () => (await active()).id === "import-button", { timeout: 3000, timeoutMsg: "focus didn't come back to Import" });
   });
 
+  it("a transcript file imported from the header has its summary's progress and outcome in the status line", async () => {
+    scenario({ structuredOutput: SUMMARY, delayMs: 3000 });
+    await pickerAnswers(freshFixture("Retry design.vtt"));
+    await $("#import-button").click();
+    await $("#import-file").click();
+    await expect($("#calendar-status")).toHaveText("Summarising Retry design…", { wait: 10000 });
+    await expect($("#calendar-status")).toHaveText("Retry design: Summary ready.", { wait: 20000 });
+    expect(await $("#calendar-status").getAttribute("role")).toBe("status"); // a polite live region
+  });
+
+  it("icon glyphs are hidden from screen readers: menu items' names and a banner's announced text hold none", async () => {
+    const privateUse = /[-]/;
+    await $(`.row[data-id="${PARTNER}"]`).$(".kebab").click();
+    await expect($("#row-menu")).toBeDisplayed();
+    const open = await $("#row-menu .mi").getComputedLabel();
+    expect(open).toMatch(/^Open/);
+    expect(open).not.toMatch(privateUse);
+    await browser.keys("Escape");
+    await $("#import-button").click();
+    expect(await $("#import-file").getComputedLabel()).toBe("Transcript file…");
+    await browser.keys("Escape");
+    await pickerAnswers(fixture("bad.vtt"));
+    await $("#import-button").click();
+    await $("#import-file").click();
+    await expect($("#import-error")).toBeDisplayed();
+    // What the live region reads: its text, without what is hidden from screen readers.
+    const spoken = await browser.execute(() => {
+      const c = document.getElementById("import-error").cloneNode(true);
+      c.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+      return c.textContent.trim();
+    });
+    expect(spoken).toContain("bad.vtt");
+    expect(spoken).not.toMatch(privateUse);
+    expect(await browser.execute(() => document.querySelectorAll('i.ic:not([aria-hidden="true"])').length)).toBe(0);
+    await $("#import-error-close").click();
+  });
+
   it("a file the attach strip refuses is announced in a polite live region", async () => {
     await $(`.row[data-id="${PARTNER}"]`).click();
     await expect($("#attach-strip")).toBeDisplayed();

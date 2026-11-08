@@ -68,7 +68,8 @@ the list: two lines on what the app does, then
 - **Library folder**, with Choose library folder (the native picker). A dev instance offers its own `<dir>\library`;
   the installed copy has none until one is picked, and Finish waits for it.
 - **Start when I log in**, a plain checkbox, ticked (D31) and in sight, so it can be unticked before Finish. Finish
-  sets the Run value to match at once: written if ticked, removed if not (the MSI writes it at install). A dev instance
+  sets the Run value to match at once: written if ticked, removed if not (the MSI writes it at install). The app writes
+  it quoted as the MSI does (`"<exe>" --autostart`), and rewrites an unquoted one at each start. A dev instance
   shows it off and disabled with the Settings note, and never touches the Run key.
 
 **Finish** saves the folder and the choice to `settings.json` and lands on the list; Settings changes either later.
@@ -141,7 +142,9 @@ ignores.
 ## Import from Teams
 
 The list's Import button opens a menu: **Transcript file…** imports a `.vtt` you pick, and **From Teams…** fetches
-past meetings' transcripts by date range, for meetings the app wasn't running for.
+past meetings' transcripts by date range, for meetings the app wasn't running for. A transcript file's summary shows
+its progress in the status line ("Summarising Retry design…", then "Retry design: Summary ready."), a polite live
+region, until the next calendar refresh.
 
 1. Pick From and To (the last 7 days by default). To can't be later than today, and the range is at most 31 days.
 2. **Search** runs one calendar search per day of those dates, 4 days at once, and says how many Teams meetings with

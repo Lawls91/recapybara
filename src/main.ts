@@ -196,7 +196,7 @@ async function loadSettings() {
   // Excluded series, each with Remove (D46).
   $("excluded-series").innerHTML = current.excludedSeries.length
     ? `<div class="exl">${current.excludedSeries
-        .map((s, i) => `<div class="exr"><span class="exn">${esc(s.subject || s.joinUrl)}</span><button class="lnk" id="include-${i}" data-include="${i}"><i class="ic">&#xE74D;</i>Remove</button></div>`)
+        .map((s, i) => `<div class="exr"><span class="exn">${esc(s.subject || s.joinUrl)}</span><button class="lnk" id="include-${i}" data-include="${i}"><i aria-hidden="true" class="ic">&#xE74D;</i>Remove</button></div>`)
         .join("")}</div>`
     : `<p class="desc">No series excluded.</p>`;
   $("excluded-series").querySelectorAll<HTMLElement>("[data-include]").forEach(
@@ -360,6 +360,7 @@ async function loadMeetings() {
   await runSearch();
   renderList();
   await renderDetail();
+  followImports();
 }
 
 // ---------- search (D28, D45) ----------
@@ -429,7 +430,7 @@ function drawList() {
             return `<div id="row-${slug(m.id)}" class="row f-${look(m).family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
               <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
               ${mark(m)}
-              <button id="kebab-${slug(m.id)}" class="kebab" tabindex="-1" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button>
+              <button id="kebab-${slug(m.id)}" class="kebab" tabindex="-1" title="More" aria-label="More actions"><i aria-hidden="true" class="ic">&#xE712;</i></button>
             </div>${snippets(m.id)}`;
           })
           .join(""),
@@ -445,7 +446,7 @@ const snippets = (id: string) =>
   (hits?.get(id) ?? [])
     .map(
       (h, i) =>
-        `<div class="snip" role="option" tabindex="-1" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i class="ic">${h.field ? FIELDS[h.field] : TABS[h.tab].icon}</i>${h.field ?? TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></div>`,
+        `<div class="snip" role="option" tabindex="-1" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i aria-hidden="true" class="ic">${h.field ? FIELDS[h.field] : TABS[h.tab].icon}</i>${h.field ?? TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></div>`,
     )
     .join("");
 
@@ -534,7 +535,7 @@ function openMenu(m: Meeting, x: number, y: number, from: string | null) {
       (i) =>
         (i.sep ? `<div class="msep"></div>` : "") +
         `<button class="mi${i.bold ? " pri" : ""}${i.danger ? " dng" : ""}${i.later ? " dis" : ""}" id="menu-${i.id}" role="menuitem"${i.later ? " disabled" : ""}>
-          <i class="ic">${i.icon}</i><span>${i.label}</span><span class="k">${i.later ? "Later" : (i.key ?? "")}</span></button>`,
+          <i aria-hidden="true" class="ic">${i.icon}</i><span>${i.label}</span><span class="k">${i.later ? "Later" : (i.key ?? "")}</span></button>`,
     )
     .join("");
   placeMenu(menu, x, y);
@@ -661,7 +662,29 @@ async function importFiles(paths: string[], id: string | null) {
   refusals = [];
   $("import-error").hidden = true;
   // Outcomes arrive as library-changed / import-refused events, which also cover a bypassed dialog.
-  for (const path of paths) await invoke("import_transcript", { path, id }).catch(() => {});
+  for (const path of paths) {
+    const done = await invoke<string>("import_transcript", { path, id }).catch(() => null);
+    if (done) imported.add(done);
+  }
+  if (imported.size) await loadMeetings(); // a list that holds them, so followImports finds them
+}
+
+/** Transcript files imported or attached here, until their summary ends: its progress and outcome go to the status
+ * line, a polite live region, as Import from Teams' progress does. The outcome stays until the next calendar refresh. */
+const imported = new Set<string>();
+let fileImport: string | null = null;
+function followImports() {
+  const was = fileImport;
+  for (const id of imported) {
+    const m = byId(id);
+    if (!m) imported.delete(id);
+    else if (m.state === "summarising") fileImport = `Summarising ${m.subject || m.id}…`;
+    else if (m.state === "done" || m.state === "summaryFailed") {
+      imported.delete(id);
+      fileImport = `${m.subject || m.id}: ${look(m).label}.`;
+    }
+  }
+  if (fileImport !== was) loadCalendarStatus();
 }
 
 // The Import button's menu: a transcript file (D15) or Import from Teams.
@@ -873,12 +896,12 @@ const turnHead = (at: string, who: string) => `<b class="th"><span class="tm">[$
 
 function attachStrip() {
   if (!refusals.length) {
-    return `<div id="attach-strip" class="strip"><i class="ic big">&#xE896;</i>
+    return `<div id="attach-strip" class="strip"><i aria-hidden="true" class="ic big">&#xE896;</i>
       <div class="st"><b>Attach the transcript</b><span>Download the .vtt from this meeting's Teams recap and drop it here.</span></div>
       <button id="attach-choose" class="btn">Choose file</button></div>`;
   }
   const n = refusals.length;
-  return `<div id="attach-strip" class="strip err"><i class="ic big">&#xE7BA;</i>
+  return `<div id="attach-strip" class="strip err"><i aria-hidden="true" class="ic big">&#xE7BA;</i>
     <div class="st"><b>${n === 1 ? "The file wasn’t attached" : `${n} files weren’t attached`}</b>
     ${refusals
       .map((r) => {
@@ -1074,7 +1097,7 @@ async function renderDetail() {
   const meta = [when, t ? `${t.minutes} min transcript` : "", mark(m)].filter(Boolean).join(`<span class="sep">·</span>`);
   const people = [m.organiser ? `${m.organiser} (organiser)` : "", ...m.attendees].filter(Boolean).map(esc).join(", ");
   const head = `<div class="ttlrow"><h2 id="detail-title" class="ttl">${esc(m.subject || m.id)}</h2>
-      <button id="detail-menu" class="kebab" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button></div>
+      <button id="detail-menu" class="kebab" title="More" aria-label="More actions"><i aria-hidden="true" class="ic">&#xE712;</i></button></div>
     <div class="dmeta" id="detail-meta">${meta}</div>${people ? `<div class="att">${people}</div>` : ""}`;
 
   const sumStatus =
@@ -1167,14 +1190,15 @@ $<HTMLSelectElement>("appearance").onchange = (e) => save({ appearance: (e.targe
 async function loadCalendarStatus() {
   const line = calendarLine(await invoke<CalendarStatus>("calendar_status"));
   const el = $("calendar-status");
-  el.textContent = importing ?? line.text;
-  el.classList.toggle("err", !importing && line.error);
+  el.textContent = importing ?? fileImport ?? line.text;
+  el.classList.toggle("err", !importing && !fileImport && line.error);
 }
 $("refresh-button").onclick = () => {
   checkLibrary();
   invoke("refresh_calendar").catch(() => {});
 };
 listen("calendar-changed", async () => {
+  if (!imported.size) fileImport = null; // a finished import's outcome gives way to the calendar's line
   await loadCalendarStatus();
   await loadMeetings();
 });
