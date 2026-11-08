@@ -695,7 +695,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     std::fs::write(&msi, bytes).map_err(|e| format!("Couldn't update: {e}"))?;
     let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into())).join("System32");
     let exe = std::env::current_exe().map_err(|e| format!("Couldn't update: {e}"))?;
-    let args = update::install_args(std::process::id(), &system.join("msiexec.exe"), &msi, &exe, version);
+    let args = update::install_args(std::process::id(), &system.join("msiexec.exe"), &msi, &exe, &state.data_dir.join(update::RESULT_FILE), version);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -825,9 +825,13 @@ pub fn run() {
                 library::recover(std::path::Path::new(lib));
             }
             let logon = s.start_at_logon;
+            // Restart and update's outcome, said once: read, then deleted.
+            let result = data_dir.join(update::RESULT_FILE);
+            let update_failed = std::fs::read_to_string(&result).ok().and_then(|t| update::install_failed(&t));
+            let _ = std::fs::remove_file(&result);
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None), update_failed: update::install_failed(&std::env::args().collect::<Vec<_>>()) });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None), update_failed });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;

@@ -57,9 +57,13 @@ const checkInBackground = async () => {
   });
   await browser.waitUntil(() => hits.slice(before).includes("/latest.json"), { timeout: 10000 });
 };
-/** A fresh launch with `--update-result <version> <msiexec's exit code>`, the update script's relaunch. */
-const relaunch = (result) =>
-  browser.reloadSession({ browserName: "tauri", "tauri:options": { application: process.env.MC_APP, args: ["--update-result", ...result] } });
+/** What Restart and update's script leaves in the data folder for the app it starts again: the version it tried, then
+ * msiexec's exit code (its Set-Content writes a line each). */
+const resultFile = path.join(process.env.MEETING_CAPTURE_DATA_DIR, "update-result.txt");
+const relaunch = (version, code) => {
+  fs.writeFileSync(resultFile, `${version}\r\n${code}\r\n`);
+  return browser.reloadSession();
+};
 const announced = () => browser.execute(() => document.getElementById("sr-status").textContent);
 
 const check = async (expected) => {
@@ -198,7 +202,7 @@ describe("self-update", () => {
 
   it("a start after a failed install says so, and offers Try again once the update is found again", async () => {
     serve(manifest(NEWER, goodSig));
-    await relaunch([NEWER, "1603"]); // as the update script relaunches the app after msiexec failed
+    await relaunch(NEWER, 1603); // as the update script leaves it after msiexec failed
     const failed = `The update to version ${NEWER} didn't install: the installer failed (code 1603).`;
     await expect($("#update-banner")).toBeDisplayed();
     await expect($("#update-text")).toHaveText(failed);
@@ -213,11 +217,19 @@ describe("self-update", () => {
     await expect($("#update-text")).toHaveText(`${failed} Couldn't update: the download isn't an installer`, { wait: 10000 });
   });
 
+  it("the start after that one says no more of it: the update is offered as before", async () => {
+    await browser.reloadSession(); // a normal start, or one after a crash: no result left
+    expect(fs.existsSync(resultFile)).toBe(false); // read once, then deleted
+    await expect($("#update-text")).toHaveText(`Version ${NEWER} is available.`, { wait: 30000 });
+    await expect($("#update-install")).toHaveText("Restart and update");
+  });
+
   it("a start after a successful install shows no failure", async () => {
     answer = { status: 404 };
-    await relaunch([NEWER, "0"]);
-    await browser.pause(3000); // the page has asked; a failure would show now (it showed at once above)
+    await relaunch(NEWER, 0);
+    await browser.pause(3000); // the page has asked; a failure would show by now (it showed at once above)
     await expect($("#update-banner")).not.toBeDisplayed();
+    expect(fs.existsSync(resultFile)).toBe(false);
   });
 
   it("a dev instance never asked for an update", async () => {
