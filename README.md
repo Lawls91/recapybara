@@ -93,6 +93,47 @@ per-user MSI with the WiX 5.0.2 dotnet global tool, which it installs from NuGet
   (`%APPDATA%\com.lawls91.meetingcapture`) and the library stay.
 - The frozen values in `installer/wix/Package.wxs` (D50) are pinned by a test in `src-tauri/src/lib.rs`.
 
+## Updates
+
+**While the repo is private the app can't reach any update**: GitHub answers the update address with a 404, so an
+automatic check fails quietly and Check for updates says "Couldn't check for updates: no release was found at the
+update address". Everything below works as soon as the repo is public.
+
+How the app updates (tauri-plugin-updater):
+
+- It reads `https://github.com/Lawls91/meeting-capture/releases/latest/download/latest.json` (`plugins.updater` in
+  `src-tauri/tauri.conf.json`) once, 10 seconds after it starts, then once a day. Settings has **Check for updates**, and
+  so does the tray menu. A dev instance never checks or installs ("Updates are off in a dev instance").
+- A newer version is downloaded and its minisign signature checked against the public key in `tauri.conf.json` before
+  anything is shown; the signature must also name the version `latest.json` announces (`requireSignedVersion`). Then the
+  meeting list shows "Version X is available" with **Restart and update**. A bad signature is refused ("Update refused:
+  ..."). An automatic check that fails is only logged.
+- Nothing installs or restarts on its own. Restart and update is refused while a transcript is being fetched or a
+  summary written, with the reason on the banner. Otherwise the app saves notes, starts
+  `msiexec /i <msi> /passive /norestart` from a hidden `cmd` and quits; once msiexec ends, the same `cmd` starts the app
+  again. The MSI is per-user, so there is no UAC prompt. Settings, the library and the start-at-logon choice are kept
+  (the MSI upgrade rules under Install).
+- Why not the plugin's own install: it runs msiexec the same way (ShellExecute "open", no RunAs, unelevated) but relaunches
+  the app only through a custom action in the MSI reading `AUTOLAUNCHAPP`, and the MSI stays declarative (no custom
+  actions). So the app runs msiexec itself and relaunches from outside the MSI.
+
+Cutting a release:
+
+1. On an up-to-date `main`: `pwsh -File scripts\release.ps1 0.2.0`. It sets the version in `tauri.conf.json`,
+   `src-tauri/Cargo.toml`, `package.json` and both lock files, commits "Release v0.2.0" and tags `v0.2.0`.
+2. `git push origin main v0.2.0`. The tag runs `.github/workflows/release.yml`: it fails at once if the tag doesn't match
+   all three versions, builds the MSI (`npm run msi`), signs it with the `TAURI_SIGNING_PRIVATE_KEY` and
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets (`tauri signer sign --app-version`), writes `latest.json` and publishes a
+   GitHub Release holding `<productName with dashes>-<version>.msi`, its `.sig` and `latest.json`.
+   The workflow can also be run by hand (Actions, Release, Run workflow) with a version; it tags the commit itself.
+3. A tag with a suffix, `v0.2.0-test`, builds the same version as a **pre-release**, which `releases/latest` (so the
+   app) never offers: a dry run of the workflow. Delete it afterwards (`gh release delete v0.2.0-test --cleanup-tag`).
+
+Pull requests never run the release workflow, so they never see the secrets. The private key lives only in those
+secrets (and Jack's password manager); the public key is in `tauri.conf.json`. Tests and E2E use a throwaway key made at
+run time: a debug build reads `MEETING_CAPTURE_UPDATE_URL` and `MEETING_CAPTURE_UPDATE_PUBKEY`, which a release build
+ignores.
+
 ## Import from Teams
 
 The list's Import button opens a menu: **Transcript file…** imports a `.vtt` you pick, and **From Teams…** fetches
