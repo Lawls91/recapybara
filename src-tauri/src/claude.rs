@@ -284,6 +284,20 @@ pub fn sweep_captures(runs_dir: &Path) {
 
 /// Runs isolated in `runs_dir`, then deletes Claude Code's copies under `home` (D7),
 /// whether the run succeeded or not. Returns stdout and the captured hook payloads.
+/// A failed run said shortly, for a card: not found gets D40's fix, ending "then `then`."; anything else its first
+/// line (stderr's first line), at most 300 characters.
+pub fn failure(e: &io::Error, then: &str) -> String {
+    if e.kind() == io::ErrorKind::NotFound {
+        return format!("Claude Code not found. Install it or add it to PATH, then {then}.");
+    }
+    first_line(&e.to_string())
+}
+
+/// The first line of `s`, at most 300 characters: what a card shows of raw tool or stderr text.
+pub fn first_line(s: &str) -> String {
+    s.trim().lines().next().unwrap_or_default().chars().take(300).collect()
+}
+
 pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) -> io::Result<Output> {
     fs::create_dir_all(runs_dir).map_err(|e| io::Error::new(e.kind(), format!("create {}: {e}", runs_dir.display())))?;
     let _going = InFlight::start();

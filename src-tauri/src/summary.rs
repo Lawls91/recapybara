@@ -377,7 +377,7 @@ pub fn summarise<R: Into<Output>>(dir: &Path, model: &str, run: impl FnOnce(&Cla
         let m = first.as_ref().map_err(|e| e.to_string())?;
         let vtt = fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
         let glossary = dir.parent().and_then(|lib| fs::read_to_string(lib.join(library::GLOSSARY)).ok()).unwrap_or_default();
-        let out: Output = run(&run_for(m, &vtt, &glossary, model)).map_err(|e| run_failure(&e))?.into();
+        let out: Output = run(&run_for(m, &vtt, &glossary, model)).map_err(|e| crate::claude::failure(&e, "Re-run summary"))?.into();
         let (mut s, raw) = parse_result(&out.stdout)?;
         check(&mut s, &vtt);
         found = found_keys(&out.captured);
@@ -400,14 +400,6 @@ pub fn summarise<R: Into<Output>>(dir: &Path, model: &str, run: impl FnOnce(&Cla
     m.last_summary = Some(chrono::Local::now().fixed_offset());
     library::save(dir, &m).map_err(|e| e.to_string())?;
     outcome
-}
-
-/// A failed claude run, said shortly: not found gets D40's fix; otherwise the first line (stderr's first line).
-fn run_failure(e: &io::Error) -> String {
-    if e.kind() == io::ErrorKind::NotFound {
-        return "Claude Code not found. Install it or add it to PATH, then Re-run summary.".into();
-    }
-    e.to_string().lines().next().unwrap_or_default().chars().take(300).collect()
 }
 
 /// Marks the meeting "summarising" before its run starts, refusing a second run while one is going.

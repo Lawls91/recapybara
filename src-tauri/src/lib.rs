@@ -402,9 +402,10 @@ async fn retry_fetch(app: AppHandle, id: String) -> Result<(), String> {
         let started = || {
             let _ = app.emit("meeting-changed", &id);
         };
-        let m = fetch::retry(&lib, &id, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::session_version(&program), excluded, started)?;
+        let landed = fetch::retry(&lib, &id, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::session_version(&program), excluded, started);
+        // Always, even for an error after it was taken: the row mustn't stay on "Fetching transcript".
         let _ = app.emit("meeting-changed", &id);
-        after_fetch(&app, &id, &m, &excluded());
+        after_fetch(&app, &id, &landed?, &excluded());
         Ok(())
     })
     .await
@@ -428,7 +429,7 @@ async fn teams_search(app: AppHandle, from: String, to: String) -> Result<serde_
         let (found, left_out) = fetch::eligible(events, &lib, &excluded, |id| state.calendar.deleted(id), chrono::Utc::now());
         let meetings: Vec<_> = found.iter().map(|e| serde_json::json!({ "id": e.id, "subject": e.subject, "start": e.start, "organiser": e.organiser })).collect();
         state.teams.found(search, &from, &to, found);
-        Ok(serde_json::json!({ "meetings": meetings, "leftOut": left_out, "unreadable": unreadable }))
+        Ok(serde_json::json!({ "meetings": meetings, "leftOut": left_out, "unreadable": unreadable, "atOnce": fetch::SUMMARIES }))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -471,12 +472,13 @@ fn teams_import(app: AppHandle, from: String, to: String, ids: Vec<String>) -> R
                 },
             )
         });
-        if std::panic::catch_unwind(job).is_err() {
+        let made = std::panic::catch_unwind(job).unwrap_or_else(|_| {
             eprintln!("import: panicked");
-        }
+            vec![]
+        });
         state.teams.finished();
         let _ = app.emit("teams-import", None::<String>);
-        let _ = app.emit("teams-import-report", fetch::import_report(&lib, &events));
+        let _ = app.emit("teams-import-report", fetch::import_report(&lib, &made, &excluded()));
     });
     Ok(())
 }

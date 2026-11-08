@@ -81,7 +81,8 @@ pub struct Listed {
     pub excluded: bool,
     /// Fetch attempts still to come (D12), for the Awaiting transcript card.
     pub attempts_left: u32,
-    /// A fetch attempt for it is running now (the scheduler's, Try again or Import from Teams).
+    /// A fetch attempt holds it now (its claim). Try again and the scheduler redraw the list as they take it; an import's
+    /// shows on the next redraw while it runs.
     pub fetching: bool,
 }
 

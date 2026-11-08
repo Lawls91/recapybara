@@ -229,9 +229,12 @@ access to this transcript (403: you are not the organiser, or the organiser rest
 the last attempt's reason in plain words (kept as `fetchError` in `meeting.json`, e.g. "Teams sent a size-limit notice
 instead of the transcript."). Each card has **Try again** and **Import transcript**. Try again runs one fetch attempt
 now, through the same fetch code and per-meeting claim as the schedule (refused while another fetch has the meeting);
-the row and card read "Fetching transcript" while it runs, and its outcome lands like any attempt's: a capture is
-summarised, a 403 is Not reachable, an empty list is No transcript again. A late transcript or newly granted access can
-change the answer, so it is offered on all three.
+the row and card read "Fetching transcript" (in the neutral working colour) while it runs, Try again is disabled until
+it lands, and its start and outcome are announced (polite live region). The outcome lands like any attempt's: a capture
+is summarised, a 403 is Not reachable, an empty list is No transcript again. A late transcript or newly granted access
+can change the answer, so it is offered on all three; never on an excluded series. A scheduled attempt shows
+"Fetching transcript" on its row too. The stored reason is one plain line (at most 300 characters: stderr's first line,
+or "Claude Code not found. Install it or add it to PATH, then Try again.").
 
 An event that ended under 120 minutes ago while the app was closed gets an attempt as soon as the calendar finds it,
 then the rest of the schedule from its end. `meeting.json` keeps `transcriptUrl`, `attempts`, `nextAttempt` and

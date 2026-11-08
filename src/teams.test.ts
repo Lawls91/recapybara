@@ -25,9 +25,10 @@ test("the Search outcome counts the meetings found and those left out", () => {
   expect(foundText(0, 0, 1)).toBe("Found no Teams meetings with a transcript. 1 couldn't be read. Search again to retry.");
 });
 
-test("before Import, the hint counts the ticked meetings and their rough time: a minute each, two at once", () => {
-  expect(importHint(0)).toBe("Tick at least one meeting to import.");
-  expect(importHint(1)).toBe("1 meeting to import, about 1 min.");
-  expect(importHint(3)).toBe("3 meetings to import, about 2 min.");
-  expect(importHint(10)).toBe("10 meetings to import, about 5 min.");
+test("before Import, the hint counts the ticked meetings and their rough time: a minute each, so many at once", () => {
+  expect(importHint(0, 2)).toBe("Tick at least one meeting to import.");
+  expect(importHint(1, 2)).toBe("1 meeting to import, about 1 min.");
+  expect(importHint(3, 2)).toBe("3 meetings to import, about 2 min.");
+  expect(importHint(10, 2)).toBe("10 meetings to import, about 5 min.");
+  expect(importHint(10, 1)).toBe("10 meetings to import, about 10 min.");
 });

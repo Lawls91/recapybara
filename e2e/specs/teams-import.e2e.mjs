@@ -242,19 +242,39 @@ describe("import from Teams", () => {
   });
 
   it("the review list scrolls when long, Select none and Select all work, a checkbox ticks from the keyboard, and Import takes only the ticked ones", async () => {
-    // The last import's report stays until dismissed.
-    await expect($("#import-report")).toBeDisplayed();
-    await $("#import-report-close").click();
+    // Whatever an earlier test left: no report showing before this import.
+    if (await $("#import-report").isDisplayed()) await $("#import-report-close").click();
     await expect($("#import-report")).not.toBeDisplayed();
-    // Ten more meetings, two a day over the last five days, none in the library.
-    const many = Array.from({ length: 10 }, (_, i) => event(60 + i, `Teams import pick ${i}`, daysAgo(1 + (i % 5), 8 + Math.floor(i / 5) * 2)));
+    // Ten more meetings, two a day over the last five days, none in the library; pick 1's title is long.
+    const LONG = "Teams import pick 1 with a deliberately long meeting title that has to wrap onto the next line";
+    const many = Array.from({ length: 10 }, (_, i) => event(60 + i, i === 1 ? LONG : `Teams import pick ${i}`, daysAgo(1 + (i % 5), 8 + Math.floor(i / 5) * 2)));
     const t = calendar([...many, D], [...many, D].map((e) => `https://teams.example/j/${e.id}`), { structuredOutput: { overview: "Synthetic summary." } });
     t.hooks.push(...many.map((e) => transcriptRead(e, body(e, vtt(e.id)))));
     scenario(t);
     await $("#import-button").click();
     await $("#import-teams").click();
     await $("#teams-search").click();
-    await expect($("#teams-hint")).toHaveText("10 meetings to import, about 5 min.", { wait: 60000 });
+    await expect($("#teams-review")).toBeDisplayed({ wait: 60000 });
+    await expect($("#teams-hint")).toHaveText("10 meetings to import, about 5 min.");
+    // A long title wraps: all of it and the organiser after it lie inside its row and the list, at 1100 and at 760 px.
+    const longRow = () =>
+      browser.execute((title) => {
+        const label = [...document.querySelectorAll("#teams-list label")].find((l) => l.textContent.includes(title));
+        const o = label.querySelector(".ro");
+        const [t, l, list] = [o.parentElement, label.getBoundingClientRect(), document.getElementById("teams-list").getBoundingClientRect()]; // the title holds the organiser
+        const r = o.getBoundingClientRect();
+        const inside = (a, b) => a.left >= b.left - 0.5 && a.right <= b.right + 0.5;
+        return { organiser: o.textContent, shown: r.width > 0 && inside(r, l) && inside(r, list) && r.top >= l.top && r.bottom <= l.bottom + 0.5, clipped: t.scrollWidth > t.clientWidth + 1 };
+      }, LONG);
+    expect(await longRow()).toEqual({ organiser: "· Robin Sample", shown: true, clipped: false });
+    const size = await browser.getWindowSize();
+    await browser.setWindowSize(760, 600);
+    try {
+      await browser.waitUntil(async () => (await browser.execute(() => innerWidth)) < 800, { timeout: 5000, timeoutMsg: "the window never narrowed" });
+      expect(await longRow()).toEqual({ organiser: "· Robin Sample", shown: true, clipped: false });
+    } finally {
+      await browser.setWindowSize(size.width, size.height);
+    }
     expect((await review()).map((r) => r.checked)).toEqual(Array(10).fill(true));
     const box = await browser.execute(() => {
       const l = document.getElementById("teams-list");

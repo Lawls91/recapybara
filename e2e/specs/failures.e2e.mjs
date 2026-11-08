@@ -15,16 +15,19 @@ const NT = event(41, "s3 No transcript call", daysAgo(3, 9));
 const NR = event(42, "s3 Not reachable call", daysAgo(3, 11));
 const CF = event(43, "s3 Capture failed call", daysAgo(3, 13));
 const CF2 = event(44, "s3 Blocked later call", daysAgo(3, 15));
+const CF3 = event(45, "s3 Unsaved retry call", daysAgo(3, 17));
 const SIZE_LIMIT = "Teams sent a size-limit notice instead of the transcript.";
 const SEEDS = [
   [NT, "noTranscript", 5, null],
   [NR, "notReachable", 1, null],
   [CF, "captureFailed", 1, SIZE_LIMIT],
   [CF2, "captureFailed", 5, "Claude couldn't run: claude exited with exit code: 1"],
+  [CF3, "captureFailed", 1, "Claude didn't read the transcript link."],
 ];
 const folder = (e) => `s3 ${e.id}`;
 const meetingJson = (e) => JSON.parse(fs.readFileSync(root("library", folder(e), "meeting.json"), "utf8"));
 const row = (e) => $(`.row[data-id="${folder(e)}"]`);
+const announced = () => browser.execute(() => document.getElementById("sr-status").textContent);
 const FORBIDDEN = JSON.stringify({ error: { code: "Forbidden", message: "Request failed with status code 403" } });
 /** The page's transcript picker answers `path`, as if picked (the native dialog is bypassed; see usability.e2e). */
 const pickerAnswers = (path) =>
@@ -67,13 +70,21 @@ describe("capture failure states", () => {
     }
   });
 
-  it("Try again fetches once now: the row shows it fetching, then a transcript there now is captured and summarised", async () => {
+  it("Try again fetches once now: the row shows it fetching in the neutral colour, Try again is disabled meanwhile, it is announced, then a transcript there now is captured and summarised", async () => {
     scenario({ structuredOutput: { overview: "Synthetic summary." }, delayMs: 2500, hooks: [transcriptRead(CF, body(CF, vtt("late")))] });
     await row(CF).click();
     await expect($("#fetch-retry")).toBeDisplayed();
     await $("#fetch-retry").click();
     await expect(row(CF).$(".lbl")).toHaveText("Fetching transcript");
     await expect($("#fetch-card h5")).toHaveText("Fetching transcript");
+    expect((await row(CF).getAttribute("class")).split(" ")).toContain("f-work"); // the working colour, not the failure red
+    await expect($("#fetch-retry")).toHaveAttribute("aria-disabled", "true");
+    expect(await announced()).toBe("Fetching the transcript for s3 Capture failed call…");
+    // A second press while it fetches does nothing: no refusal banner, still one fetch.
+    await $("#fetch-retry").click();
+    await browser.pause(500);
+    await expect($("#import-error")).not.toBeDisplayed();
+    await browser.waitUntil(async () => (await announced()) === "s3 Capture failed call: Summarising.", { timeout: 30000, timeoutMsg: "the outcome was never announced" });
     await expect(row(CF).$(".lbl")).toHaveText("Summary ready", { wait: 30000 });
     expect(fetchesOf(CF).length).toBe(1);
     expect(fs.readFileSync(root("library", folder(CF), "transcript.vtt"), "utf8")).toBe(vtt("late"));
@@ -100,6 +111,7 @@ describe("capture failure states", () => {
     await row(CF2).click();
     await expect($("#fetch-reason")).toHaveText("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
     expect(meetingJson(CF2).fetchError).toBeUndefined();
+    expect(await announced()).toBe("s3 Blocked later call: Not reachable.");
     expect([NT, NR, CF2].map((e) => fetchesOf(e).length)).toEqual([1, 1, 1]);
   });
 
@@ -110,5 +122,23 @@ describe("capture failure states", () => {
     await $("#import-now").click();
     await expect(row(CF2).$(".lbl")).toHaveText("Summary ready", { wait: 30000 });
     expect(fs.existsSync(root("library", folder(CF2), "transcript.vtt"))).toBe(true);
+  });
+
+  it("Try again that fails after it took the meeting still leaves Fetching: the row is back to Capture failed and the error shows", async () => {
+    const json = root("library", folder(CF3), "meeting.json");
+    scenario({ structuredOutput: { overview: "Synthetic summary." }, delayMs: 2500, hooks: [transcriptRead(CF3, body(CF3, null))] });
+    await row(CF3).click();
+    await expect($("#fetch-retry")).toBeDisplayed();
+    await $("#fetch-retry").click();
+    await expect(row(CF3).$(".lbl")).toHaveText("Fetching transcript");
+    fs.chmodSync(json, 0o444); // read-only: the attempt's save fails once the run is over
+    try {
+      await expect(row(CF3).$(".lbl")).toHaveText("Capture failed", { wait: 20000 });
+      await expect($("#import-error")).toBeDisplayed();
+      await expect($("#fetch-retry")).not.toHaveAttribute("aria-disabled", "true");
+    } finally {
+      fs.chmodSync(json, 0o666);
+    }
+    expect(fetchesOf(CF3).length).toBe(1);
   });
 });

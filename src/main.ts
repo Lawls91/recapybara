@@ -302,9 +302,11 @@ const time = (iso: string | null) =>
   iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
 const span = (m: Meeting) => [time(m.start), time(m.end)].filter(Boolean).join("–");
 
+/** A fetch holding the meeting now shows on its row and card, in the neutral working colour. */
+const look = (m: Meeting) => (m.fetching ? { family: "work", label: "Fetching transcript" } : STATES[m.state]);
+
 function mark(m: Meeting) {
-  // A fetch running now (Try again, the scheduler's or an import's) shows on the row and the card.
-  const { family, label } = m.fetching ? { family: "work", label: "Fetching transcript" } : STATES[m.state];
+  const { family, label } = look(m);
   return `<span class="mark f-${family}"><i class="dot b-${family}${family === "up" ? " ring" : ""}${family === "live" ? " pulse" : ""}"></i><span class="lbl">${label}</span></span>`;
 }
 
@@ -387,7 +389,7 @@ function drawList() {
           .map((m) => {
             const adHoc = m.source === "import" && !m.joinUrl && !m.eventId;
             const second = [span(m), adHoc ? "imported" : (m.organiser ?? "")].filter(Boolean).map(esc).join(" · ");
-            return `<div id="row-${slug(m.id)}" class="row f-${STATES[m.state].family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
+            return `<div id="row-${slug(m.id)}" class="row f-${look(m).family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
               <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
               ${mark(m)}
               <button id="kebab-${slug(m.id)}" class="kebab" tabindex="-1" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button>
@@ -690,8 +692,9 @@ $("teams-search").onclick = async () => {
   $<HTMLButtonElement>("teams-search").disabled = true;
   teamsMessage("Searching your calendar\u2026");
   try {
-    const r = await invoke<{ meetings: Found[]; leftOut: number; unreadable: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
+    const r = await invoke<{ meetings: Found[]; leftOut: number; unreadable: number; atOnce: number }>("teams_search", { from: teamsFrom.value, to: teamsTo.value });
     if (at !== teamsSearch) return;
+    teamsAtOnce = r.atOnce;
     const n = r.meetings.length;
     teamsMessage(foundText(n, r.leftOut, r.unreadable));
     // The review list: every meeting found, ticked; Import takes only the ticked ones.
@@ -700,7 +703,7 @@ $("teams-search").onclick = async () => {
       .map((f, i) => {
         const d = new Date(f.start);
         const when = `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }).replace(",", "")} ${time(f.start)}`;
-        return `<label id="teams-item-${i}"><input type="checkbox" value="${esc(f.id)}" checked /><span class="rw">${esc(when)}</span> <span class="rt">${esc(f.subject)}${f.organiser ? ` <span class="ro">· ${esc(f.organiser)}</span>` : ""}</span></label>`;
+        return `<label id="teams-item-${i}"><input type="checkbox" value="${esc(f.id)}" checked /><span class="rw">${esc(when)}</span> <span class="rvt">${esc(f.subject)}${f.organiser ? ` <span class="ro">· ${esc(f.organiser)}</span>` : ""}</span></label>`;
       })
       .join("");
     $("teams-review").hidden = n === 0;
@@ -720,11 +723,13 @@ interface Found {
   start: string;
   organiser: string | null;
 }
+/** Summaries at once, as the last search reported (fetch::SUMMARIES). */
+let teamsAtOnce = 2;
 const ticked = () => [...document.querySelectorAll<HTMLInputElement>("#teams-list input:checked")].map((i) => i.value);
 /** How many are ticked and about how long they take; Import needs at least one. */
 function paintTeamsHint() {
   const n = ticked().length;
-  $("teams-hint").textContent = importHint(n);
+  $("teams-hint").textContent = importHint(n, teamsAtOnce);
   $<HTMLButtonElement>("teams-go").disabled = !n;
 }
 $("teams-list").addEventListener("change", paintTeamsHint);
@@ -850,11 +855,33 @@ function attachStrip() {
 /** A capture failure's card (mirrors Summary failed's): why, then Try again and Import transcript. While its fetch
  * runs, it says so, and Try again stays focusable but does nothing. */
 function fetchCard(m: Meeting) {
-  const busy = !!m.fetching;
+  const busy = !!m.fetching || retrying.has(m.id);
   const title = busy ? `<i class="spin"></i>Fetching transcript` : STATES[m.state].label;
   const why = busy ? "Asking Teams for this meeting’s transcript again…" : failureReason(m);
   return `<div class="card${busy ? "" : " err"}" id="fetch-card"><h5>${title}</h5><p id="fetch-reason">${esc(why)}</p>
     <div class="acts"><button class="btn pri" id="fetch-retry"${busy ? ` aria-disabled="true"` : ""}>Try again</button><button class="btn" id="import-now">Import transcript</button></div></div>`;
+}
+
+/** Meetings whose Try again is in flight: a second press does nothing, and the card stays busy until it lands. */
+const retrying = new Set<string>();
+/** Try again (one fetch now), its progress and outcome announced in the polite live region. */
+async function tryAgain(m: Meeting) {
+  if (m.fetching || retrying.has(m.id)) return;
+  retrying.add(m.id);
+  $("sr-status").textContent = `Fetching the transcript for ${m.subject || m.id}…`;
+  renderDetail();
+  try {
+    await invoke("retry_fetch", { id: m.id });
+    await loadMeetings();
+    const now = byId(m.id);
+    if (now) $("sr-status").textContent = `${now.subject || now.id}: ${look(now).label}.`;
+  } catch (e) {
+    $("sr-status").textContent = `The transcript wasn’t fetched. ${String(e)}`;
+    failed(e);
+  } finally {
+    retrying.delete(m.id);
+    renderDetail();
+  }
 }
 
 function summaryBody(m: Meeting) {
@@ -1055,7 +1082,7 @@ async function renderDetail() {
     if (choose) choose.onclick = () => chooseFile(m.id);
   }
   const retry = document.getElementById("fetch-retry");
-  if (retry && !m.fetching) retry.onclick = () => invoke("retry_fetch", { id: m.id }).catch(failed);
+  if (retry) retry.onclick = () => tryAgain(m);
   const action = document.getElementById("summary-action");
   if (action) action.onclick = () => runSummary(m.id);
   det.querySelectorAll<HTMLElement>(".chip[data-cite]").forEach((b) => (b.onclick = () => openPeek(b)));

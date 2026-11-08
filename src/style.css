@@ -1041,6 +1041,16 @@ select {
 .teams .revlist .ro {
   color: var(--mc-txt2);
 }
+/* A long title wraps, so the organiser after it stays readable. */
+.teams .revlist .rvt {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
 /* A capture failure's card (reason, Try again, Import transcript) sits above its attach strip. */
 #fetch-card {
   margin-bottom: 14px;
