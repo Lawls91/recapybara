@@ -26,7 +26,7 @@ const SEEDS = [
 ];
 const folder = (e) => `s3 ${e.id}`;
 const meetingJson = (e) => JSON.parse(fs.readFileSync(root("library", folder(e), "meeting.json"), "utf8"));
-const row = (e) => $(`.row[data-id="${folder(e)}"]`);
+const row = (e, part = "") => $(`.row[data-id="${folder(e)}"] ${part}`.trim());
 const announced = () => browser.execute(() => document.getElementById("sr-status").textContent);
 const FORBIDDEN = JSON.stringify({ error: { code: "Forbidden", message: "Request failed with status code 403" } });
 /** The page's transcript picker answers `path`, as if picked (the native dialog is bypassed; see usability.e2e). */
@@ -75,7 +75,7 @@ describe("capture failure states", () => {
     await row(CF).click();
     await expect($("#fetch-retry")).toBeDisplayed();
     await $("#fetch-retry").click();
-    await expect(row(CF).$(".lbl")).toHaveText("Fetching transcript");
+    await expect(row(CF, ".lbl")).toHaveText("Fetching transcript");
     await expect($("#fetch-card h5")).toHaveText("Fetching transcript");
     expect((await row(CF).getAttribute("class")).split(" ")).toContain("f-work"); // the working colour, not the failure red
     await expect($("#fetch-retry")).toHaveAttribute("aria-disabled", "true");
@@ -85,7 +85,7 @@ describe("capture failure states", () => {
     await browser.pause(500);
     await expect($("#import-error")).not.toBeDisplayed();
     await browser.waitUntil(async () => (await announced()) === "s3 Capture failed call: Summarising.", { timeout: 30000, timeoutMsg: "the outcome was never announced" });
-    await expect(row(CF).$(".lbl")).toHaveText("Summary ready", { wait: 30000 });
+    await expect(row(CF, ".lbl")).toHaveText("Summary ready", { wait: 30000 });
     expect(fetchesOf(CF).length).toBe(1);
     expect(fs.readFileSync(root("library", folder(CF), "transcript.vtt"), "utf8")).toBe(vtt("late"));
     expect(meetingJson(CF).attempts).toBe(2);
@@ -104,10 +104,10 @@ describe("capture failure states", () => {
       const before = SEEDS.find((x) => x[0] === e)[2];
       await browser.waitUntil(() => meetingJson(e).attempts === before + 1, { timeout: 30000, timeoutMsg: `${e.subject}'s attempt never landed` });
     }
-    await expect(row(NR).$(".lbl")).toHaveText("Summary ready", { wait: 30000 });
-    await expect(row(NT).$(".lbl")).toHaveText("No transcript");
+    await expect(row(NR, ".lbl")).toHaveText("Summary ready", { wait: 30000 });
+    await expect(row(NT, ".lbl")).toHaveText("No transcript");
     expect(meetingJson(NT).attempts).toBe(6);
-    await expect(row(CF2).$(".lbl")).toHaveText("Not reachable");
+    await expect(row(CF2, ".lbl")).toHaveText("Not reachable");
     await row(CF2).click();
     await expect($("#fetch-reason")).toHaveText("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
     expect(meetingJson(CF2).fetchError).toBeUndefined();
@@ -120,7 +120,7 @@ describe("capture failure states", () => {
     await row(CF2).click();
     await expect($("#import-now")).toBeDisplayed();
     await $("#import-now").click();
-    await expect(row(CF2).$(".lbl")).toHaveText("Summary ready", { wait: 30000 });
+    await expect(row(CF2, ".lbl")).toHaveText("Summary ready", { wait: 30000 });
     expect(fs.existsSync(root("library", folder(CF2), "transcript.vtt"))).toBe(true);
   });
 
@@ -130,10 +130,10 @@ describe("capture failure states", () => {
     await row(CF3).click();
     await expect($("#fetch-retry")).toBeDisplayed();
     await $("#fetch-retry").click();
-    await expect(row(CF3).$(".lbl")).toHaveText("Fetching transcript");
+    await expect(row(CF3, ".lbl")).toHaveText("Fetching transcript");
     fs.chmodSync(json, 0o444); // read-only: the attempt's save fails once the run is over
     try {
-      await expect(row(CF3).$(".lbl")).toHaveText("Capture failed", { wait: 20000 });
+      await expect(row(CF3, ".lbl")).toHaveText("Capture failed", { wait: 20000 });
       await expect($("#import-error")).toBeDisplayed();
       await expect($("#fetch-retry")).not.toHaveAttribute("aria-disabled", "true");
     } finally {

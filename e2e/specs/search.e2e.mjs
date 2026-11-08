@@ -110,7 +110,7 @@ describe("search", () => {
   it("searching Orbit with the series filter on returns only matches inside that series", async () => {
     await typeQuery("");
     await browser.waitUntil(async () => (await ids()).length === 5, { timeout: 5000 });
-    await $(`.row[data-id="${REF_B}"]`).$(".kebab").click();
+    await $(`.row[data-id="${REF_B}"] .kebab`).click();
     await $("#menu-series").click();
     await expect($("#series-chip")).toHaveText("Series: Backlog Refinement ×");
     await typeQuery("Orbit");

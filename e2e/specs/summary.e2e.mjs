@@ -45,14 +45,14 @@ const importLong = (s) => {
   scenario(s);
   return invoke("import_transcript", { path: freshFixture(LONG), id: null });
 };
-const row = (id) => $(`.row[data-id="${id}"]`);
+const row = (id, part = "") => $(`.row[data-id="${id}"] ${part}`.trim());
 const chip = (label) => $(`button.chip=${label}`);
 const css = (sel, prop) => browser.execute((s, p) => getComputedStyle(document.querySelector(s))[p], sel, prop);
 const rect = (sel) => browser.execute((s) => document.querySelector(s).getBoundingClientRect().toJSON(), sel);
 /** Imports the long fixture with a valid summary and waits for it on the Summary tab. */
 const summarised = async () => {
   const id = await importLong({ structuredOutput: VALID });
-  await expect(row(id).$(".lbl")).toHaveText("Summary ready");
+  await expect(row(id, ".lbl")).toHaveText("Summary ready");
   await expect($("#summary")).toBeDisplayed();
   return id;
 };
@@ -65,8 +65,8 @@ describe("summarise with checked citations", () => {
 
   it("importing a transcript starts its summary: Summarising, then Summary ready, with no click", async () => {
     const id = await importLong({ structuredOutput: VALID, delayMs: 3000 });
-    await expect(row(id).$(".lbl")).toHaveText("Summarising");
-    await expect(row(id).$(".lbl")).toHaveText("Summary ready", { wait: 15000 });
+    await expect(row(id, ".lbl")).toHaveText("Summarising");
+    await expect(row(id, ".lbl")).toHaveText("Summary ready", { wait: 15000 });
   });
 
   it("the run gets -p and D7's isolation flags plus --json-schema, never --bare, and no ANTHROPIC_API_KEY", async () => {
@@ -142,7 +142,7 @@ describe("summarise with checked citations", () => {
 
     scenario({ structuredOutput: VALID });
     await $("#summary-action").click();
-    await expect(row(id).$(".lbl")).toHaveText("Summary ready");
+    await expect(row(id, ".lbl")).toHaveText("Summary ready");
     scenario({ exitCode: 1 });
     await invoke("summarise", { id });
     await expect($("#tab-summary")).toHaveText(expect.stringContaining("Failed"));
@@ -188,8 +188,8 @@ describe("summarise with checked citations", () => {
     // The menu item's native dialog feeds this command (bypassed, as in the import spec).
     scenario({ structuredOutput: { ...VALID, overview: "Replaced transcript summary." }, delayMs: 2000 });
     await invoke("import_transcript", { path: freshFixture("Sprint review.vtt"), id });
-    await expect(row(id).$(".lbl")).toHaveText("Summarising");
-    await expect(row(id).$(".lbl")).toHaveText("Summary ready", { wait: 15000 });
+    await expect(row(id, ".lbl")).toHaveText("Summarising");
+    await expect(row(id, ".lbl")).toHaveText("Summary ready", { wait: 15000 });
     expect(fs.readFileSync(root("library", id, "transcript.vtt"))).toEqual(fs.readFileSync(fixture("Sprint review.vtt")));
     expect(claudeRecords().length).toBe(runs + 1);
     await expect($(".ovw")).toHaveText("Replaced transcript summary.");
@@ -199,18 +199,18 @@ describe("summarise with checked citations", () => {
     await expect($("#import-error")).toHaveText(expect.stringContaining("bad.vtt: doesn't start with WEBVTT"));
     expect(fs.readFileSync(root("library", id, "transcript.vtt"))).toEqual(vtt);
     expect(claudeRecords().length).toBe(runs + 1);
-    await expect(row(id).$(".lbl")).toHaveText("Summary ready");
+    await expect(row(id, ".lbl")).toHaveText("Summary ready");
     await $("#import-error-close").click();
   });
 
   it("a malformed result marks the meeting Summary failed with no summary.md; re-running with a valid one shows it", async () => {
     const id = await importLong({ stdout: "{not json" });
-    await expect(row(id).$(".lbl")).toHaveText("Summary failed");
+    await expect(row(id, ".lbl")).toHaveText("Summary failed");
     expect(fs.existsSync(root("library", id, "summary.md"))).toBe(false);
     await expect($("#summary-error")).toHaveText("Claude's result isn't JSON.");
     scenario({ structuredOutput: VALID });
     await $("#summary-action").click();
-    await expect(row(id).$(".lbl")).toHaveText("Summary ready");
+    await expect(row(id, ".lbl")).toHaveText("Summary ready");
     await expect($("#summary")).toBeDisplayed();
     expect(fs.existsSync(root("library", id, "summary.md"))).toBe(true);
   });

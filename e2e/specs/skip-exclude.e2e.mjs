@@ -14,9 +14,9 @@ const withTranscripts = (events) => {
 const meetingOf = async (e) => (await invoke("list_meetings")).find((m) => m.eventId === e.id);
 const until = (e, state, timeout) =>
   browser.waitUntil(async () => (await meetingOf(e))?.state === state, { timeout, timeoutMsg: `${e.subject} never became ${state}` });
-const row = (id) => $(`.row[data-id="${id}"]`);
+const row = (id, part = "") => $(`.row[data-id="${id}"] ${part}`.trim());
 const menu = async (id, item) => {
-  await row(id).$(".kebab").click();
+  await row(id, ".kebab").click();
   await $(`#menu-${item}`).click();
 };
 const onDisk = (m) => JSON.parse(fs.readFileSync(root("library", m.id, "meeting.json"), "utf8"));
@@ -40,13 +40,13 @@ describe("skip and exclude series", () => {
     await refreshCalendar();
     await menu(skipped.uri, "skip");
     const m = await meetingOf(skipped);
-    await expect(row(m.id).$(".lbl")).toHaveText("Skipped");
+    await expect(row(m.id, ".lbl")).toHaveText("Skipped");
     expect(onDisk(m)).toMatchObject({ state: "skipped", skipped: true });
 
     await until(kept, "done", 85000); // its end, the next 30 s tick, then its fetch and summary
     expect(fetchesOf(kept)).toHaveLength(1);
     expect(fetchesOf(skipped)).toEqual([]);
-    await expect(row(m.id).$(".lbl")).toHaveText("Skipped");
+    await expect(row(m.id, ".lbl")).toHaveText("Skipped");
   });
 
   it("after a restart a skipped meeting is still skipped, and catch-up never fetches it", async () => {
@@ -58,7 +58,7 @@ describe("skip and exclude series", () => {
     const m = await meetingOf(skipped);
     expect(m.state).toBe("skipped");
     expect(onDisk(m)).toMatchObject({ state: "skipped", skipped: true });
-    await expect(row(m.id).$(".lbl")).toHaveText("Skipped");
+    await expect(row(m.id, ".lbl")).toHaveText("Skipped");
     expect(fetchesOf(skipped)).toEqual([]);
   });
 
@@ -68,11 +68,11 @@ describe("skip and exclude series", () => {
     scenario(calendar([series, other], [joinUrl(series), joinUrl(other)]));
     await refreshCalendar();
     await menu(series.uri, "exclude");
-    await expect(row(series.uri).$(".lbl")).toHaveText("Skipped");
+    await expect(row(series.uri, ".lbl")).toHaveText("Skipped");
 
     await browser.reloadSession();
-    await expect(row(series.uri).$(".lbl")).toHaveText("Skipped"); // after the start-up refresh
-    await expect(row(other.uri).$(".lbl")).toHaveText("Scheduled");
+    await expect(row(series.uri, ".lbl")).toHaveText("Skipped"); // after the start-up refresh
+    await expect(row(other.uri, ".lbl")).toHaveText("Scheduled");
     await row(series.uri).click();
     await expect($("#state-sentence")).toHaveText("Skipped, not captured");
     await expect($("#include-series")).toBeDisplayed();
@@ -85,7 +85,7 @@ describe("skip and exclude series", () => {
     await $("#include-0").click();
     await expect($("#excluded-series")).toHaveText("No series excluded.");
     await $("#settings-back").click();
-    await expect(row(series.uri).$(".lbl")).toHaveText("Scheduled");
+    await expect(row(series.uri, ".lbl")).toHaveText("Scheduled");
   });
 
   it("Unskip on a meeting that ended 30 minutes ago starts a fetch, while one that ended 3 hours ago only clears the skip", async () => {
@@ -106,7 +106,7 @@ describe("skip and exclude series", () => {
     }
     await until(recent, "done", 60000);
     expect(fetchesOf(recent)).toHaveLength(1);
-    await expect(row(`seed ${old.id}`).$(".lbl")).toHaveText("No transcript");
+    await expect(row(`seed ${old.id}`, ".lbl")).toHaveText("No transcript");
     expect(fetchesOf(old)).toEqual([]);
     expect(JSON.parse(fs.readFileSync(root("library", `seed ${old.id}`, "meeting.json"), "utf8")).skipped).toBe(false);
   });
@@ -116,7 +116,7 @@ describe("skip and exclude series", () => {
     scenario(calendar([a, b], [joinUrl(a), joinUrl(b)]));
     await refreshCalendar();
     const idOf = async (e) => (await meetingOf(e)).id;
-    const labelIs = (id, label) => expect(row(id).$(".lbl")).toHaveText(label);
+    const labelIs = (id, label) => expect(row(id, ".lbl")).toHaveText(label);
 
     await row(a.uri).click(); // opens it and puts the keyboard cursor on it
     await browser.keys("s");

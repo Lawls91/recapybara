@@ -25,7 +25,7 @@ const meetingOf = async (e) => (await invoke("list_meetings")).find((m) => m.eve
 const until = (e, state) =>
   browser.waitUntil(async () => (await meetingOf(e))?.state === state, { timeout: 60000, timeoutMsg: `${e.subject} never became ${state}` });
 const folder = (m, ...p) => root("library", m.id, ...p);
-const row = (id) => $(`.row[data-id="${id}"]`);
+const row = (id, part = "") => $(`.row[data-id="${id}"] ${part}`.trim());
 const argAfter = (argv, flag) => argv[argv.indexOf(flag) + 1];
 
 describe("auto-fetch after a meeting", () => {
@@ -51,14 +51,14 @@ describe("auto-fetch after a meeting", () => {
     const m = await meetingOf(fetched);
     expect(fs.readFileSync(folder(m, "transcript.vtt"), "utf8")).toBe(vtt("retro"));
     expect(m.source).toBe("connector");
-    await expect(row(m.id).$(".lbl")).toHaveText("Summary ready");
+    await expect(row(m.id, ".lbl")).toHaveText("Summary ready");
   });
 
   it("the size-limit stub is capture failed with no transcript.vtt, beside the meeting the same run accepted", async () => {
     await until(stubbed, "captureFailed");
     const m = await meetingOf(stubbed);
     expect(fs.existsSync(folder(m, "transcript.vtt"))).toBe(false);
-    await expect(row(m.id).$(".lbl")).toHaveText("Capture failed");
+    await expect(row(m.id, ".lbl")).toHaveText("Capture failed");
     await until(fetched, "done");
     expect(fs.existsSync(folder(await meetingOf(fetched), "transcript.vtt"))).toBe(true);
     await row(m.id).click();
@@ -68,15 +68,15 @@ describe("auto-fetch after a meeting", () => {
   it("a 403 is not reachable, and importing a .vtt into it then summarises normally", async () => {
     await until(forbidden, "notReachable");
     const m = await meetingOf(forbidden);
-    await expect(row(m.id).$(".lbl")).toHaveText("Not reachable");
+    await expect(row(m.id, ".lbl")).toHaveText("Not reachable");
     await invoke("import_transcript", { path: freshFixture(), id: m.id });
     await until(forbidden, "done");
-    await expect(row(m.id).$(".lbl")).toHaveText("Summary ready");
+    await expect(row(m.id, ".lbl")).toHaveText("Summary ready");
   });
 
   it("a 3003 through the PostToolUseFailure hook is not reachable", async () => {
     await until(failed, "notReachable");
-    await expect(row((await meetingOf(failed)).id).$(".lbl")).toHaveText("Not reachable");
+    await expect(row((await meetingOf(failed)).id, ".lbl")).toHaveText("Not reachable");
   });
 
   it("the fetch run sets MAX_MCP_OUTPUT_TOKENS=200000, hooks PostToolUse on read_resource and uses haiku", async () => {
@@ -130,6 +130,6 @@ describe("auto-fetch after a meeting", () => {
     expect(JSON.parse(fs.readFileSync(path.join(lib2, m.id, "meeting.json"), "utf8")).attempts).toBe(5);
     // The +120 attempt was its last: an empty list then is "no transcript".
     await until(empty, "noTranscript");
-    await expect(row((await meetingOf(empty)).id).$(".lbl")).toHaveText("No transcript");
+    await expect(row((await meetingOf(empty)).id, ".lbl")).toHaveText("No transcript");
   });
 });

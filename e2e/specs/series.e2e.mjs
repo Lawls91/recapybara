@@ -14,7 +14,7 @@ const SEEDS = [
 const ids = () => browser.execute(() => [...document.querySelectorAll("#meeting-list .row")].map((r) => r.dataset.id));
 const menuLabels = () =>
   browser.execute(() => [...document.querySelectorAll("#row-menu .mi span:first-of-type")].map((s) => s.textContent));
-const row = (id) => $(`.row[data-id="${id}"]`);
+const row = (id, part = "") => $(`.row[data-id="${id}"] ${part}`.trim());
 
 describe("show all in this series", () => {
   before(async () => {
@@ -28,7 +28,7 @@ describe("show all in this series", () => {
 
   it("lists exactly the 3 occurrences, newest first, under the chip Series: Backlog Refinement ×; clicking × restores all 5", async () => {
     await expect($("#series-filter")).not.toBeDisplayed();
-    await row("ref week 2").$(".kebab").click();
+    await row("ref week 2", ".kebab").click();
     await $("#menu-series").click();
     await expect($("#series-chip")).toHaveText("Series: Backlog Refinement ×");
     expect(await ids()).toEqual(["ref week 3", "ref week 2", "ref week 1"]);
@@ -41,18 +41,18 @@ describe("show all in this series", () => {
   it("an imported ad-hoc meeting has no Show all in this series item, while a Teams meeting does", async () => {
     await invoke("import_transcript", { path: freshFixture(), id: null });
     const adHoc = (await invoke("list_meetings")).find((m) => m.source === "import");
-    await row(adHoc.id).$(".kebab").click();
+    await row(adHoc.id, ".kebab").click();
     await expect($("#row-menu")).toBeDisplayed();
     expect(await menuLabels()).not.toContain("Show all in this series");
     await browser.keys("Escape");
-    await row("partner").$(".kebab").click();
+    await row("partner", ".kebab").click();
     expect(await menuLabels()).toContain("Show all in this series");
     await browser.keys("Escape");
   });
 
   it("Show all in this series keeps focus on the row it was opened from", async () => {
     await row("ref week 2").click();
-    await row("ref week 2").$(".kebab").click();
+    await row("ref week 2", ".kebab").click();
     await $("#menu-series").click();
     await expect($("#series-chip")).toBeDisplayed();
     expect(await browser.execute(() => document.activeElement?.dataset.id ?? null)).toBe("ref week 2");

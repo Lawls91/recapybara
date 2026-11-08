@@ -16,11 +16,11 @@ const D41 = {
   summaryFailed: ["Summary failed", "rgb(192, 57, 43)"],
   skipped: ["Skipped", "rgb(121, 129, 144)"],
 };
-const row = (state) => $(`.row[data-state="${state}"]`);
+const row = (state, part = "") => $(`.row[data-state="${state}"] ${part}`.trim());
 const menuLabels = () =>
   browser.execute(() => [...document.querySelectorAll("#row-menu .mi span:first-of-type")].map((s) => s.textContent));
 const closeMenu = () => browser.keys("Escape");
-const kebab = (state) => row(state).$(".kebab").click();
+const kebab = (state) => row(state, ".kebab").click();
 const rightClick = (state) => row(state).click({ button: "right" });
 
 describe("meeting list", () => {
@@ -33,7 +33,7 @@ describe("meeting list", () => {
 
   it("each meeting state draws its D41 dot colour and label", async () => {
     for (const [state, [label, rgb]] of Object.entries(D41)) {
-      await expect(row(state).$(".lbl")).toHaveText(label);
+      await expect(row(state, ".lbl")).toHaveText(label);
       const dot = await browser.execute((s) => {
         const cs = getComputedStyle(document.querySelector(`.row[data-state="${s}"] .dot`));
         return s === "scheduled" ? cs.borderTopColor : cs.backgroundColor;

@@ -3,7 +3,7 @@ import { calendar, claudeRecords, event, hourFromNow, hhmm, invoke, M365, refres
 
 // Ticket 07: the calendar refresh (D9). Synthetic events in the connector's shape (Research, Calendar data shape):
 // the search answers concatenated event objects plus a paging object, times as {dateTime, timeZone}.
-const row = (e) => $(`.row[data-id="${e.uri}"]`);
+const row = (e, part = "") => $(`.row[data-id="${e.uri}"] ${part}`.trim());
 const argAfter = (argv, flag) => argv[argv.indexOf(flag) + 1];
 
 describe("calendar refresh", () => {
@@ -18,9 +18,9 @@ describe("calendar refresh", () => {
     await refreshCalendar();
 
     for (const [e, start] of [[events[0], a], [events[1], b]]) {
-      await expect(row(e).$(".rt")).toHaveText(e.subject);
-      await expect(row(e).$(".lbl")).toHaveText("Scheduled");
-      await expect(row(e).$(".r2")).toHaveText(expect.stringContaining(hhmm(start)));
+      await expect(row(e, ".rt")).toHaveText(e.subject);
+      await expect(row(e, ".lbl")).toHaveText("Scheduled");
+      await expect(row(e, ".r2")).toHaveText(expect.stringContaining(hhmm(start)));
     }
     await expect(row(events[2])).not.toBeExisting(); // control: no join URL, not a Teams meeting
     await expect($("#calendar-status")).toHaveText(/^Updated \d\d:\d\d$/);
@@ -38,7 +38,7 @@ describe("calendar refresh", () => {
     await refreshCalendar();
 
     expect(claudeRecords().at(-1).hooks.map((h) => h.exitCode)).toEqual([0, 0]); // both responses went through the hook
-    await expect(row(e).$(".rt")).toHaveText("Subject from the raw response");
+    await expect(row(e, ".rt")).toHaveText("Subject from the raw response");
     await expect($$(".rt*=Subject Claude retyped")).toBeElementsArrayOfSize(0);
   });
 
@@ -59,14 +59,14 @@ describe("calendar refresh", () => {
     const e = event(5, "Kept through a failure", hourFromNow(6));
     scenario(calendar([e], ["https://teams.example/l/meetup-join/kept"]));
     await refreshCalendar();
-    await expect(row(e).$(".lbl")).toHaveText("Scheduled");
+    await expect(row(e, ".lbl")).toHaveText("Scheduled");
 
     scenario({ exitCode: 1 });
     await refreshCalendar();
     await expect($("#calendar-status")).toHaveText(
       "Claude Code couldn't refresh the calendar. Check you're signed in (run claude once), then Refresh calendar.",
     );
-    await expect(row(e).$(".lbl")).toHaveText("Scheduled");
+    await expect(row(e, ".lbl")).toHaveText("Scheduled");
 
     // The list's refresh button runs it too; the next good refresh clears the error.
     scenario(calendar([e], ["https://teams.example/l/meetup-join/kept"]));
@@ -82,7 +82,7 @@ describe("calendar refresh", () => {
     expect(reads()).toBe(2);
     await refreshCalendar();
     expect(reads()).toBe(0);
-    for (const e of events) await expect(row(e).$(".lbl")).toHaveText("Scheduled");
+    for (const e of events) await expect(row(e, ".lbl")).toHaveText("Scheduled");
     await expect($("#calendar-status")).toHaveText(/^Updated \d\d:\d\d$/);
   });
 
@@ -94,6 +94,6 @@ describe("calendar refresh", () => {
     await refreshCalendar();
     await expect($("#calendar-status")).toHaveText(/^Updated \d\d:\d\d · 1 event couldn't be read$/);
     expect(claudeRecords().at(-1).argv[1]).toBe(`Call read_resource once on each of these uris, exactly as given: "${bad.uri}". Reply DONE.`);
-    await expect(row(good).$(".lbl")).toHaveText("Scheduled");
+    await expect(row(good, ".lbl")).toHaveText("Scheduled");
   });
 });

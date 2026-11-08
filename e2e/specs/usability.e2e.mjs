@@ -296,7 +296,7 @@ describe("usability quick wins", () => {
 
   it("Esc on a row's menu, the detail menu, a citation's peek or Settings gives focus back to what opened it", async () => {
     await $(`.row[data-id="${AWAIT}"]`).click();
-    await $(`.row[data-id="${PARTNER}"]`).$(".kebab").click();
+    await $(`.row[data-id="${PARTNER}"] .kebab`).click();
     await expect($("#row-menu")).toBeDisplayed();
     await browser.keys("Escape");
     await expect($("#row-menu")).not.toBeDisplayed();
