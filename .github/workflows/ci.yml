@@ -96,14 +96,11 @@ jobs:
           path: out/*.msi
           retention-days: 7
 
-  # OFF: on GitHub's hosted Windows runners (windows-latest = Server 2025, WebView2 156; windows-2022, WebView2 131)
-  # msedgedriver launches the app but never gets a session: "DevToolsActivePort file doesn't exist" after 60 s, with
-  # only EBWebView\Default ever written to its scoped user-data dir under C:\Windows\SystemTemp. The same request
-  # starts a session in about a second on a dev machine. Until that is solved, E2E runs only in the local
-  # `npm run check`. Turn this job on by deleting its `if`.
+  # E2E runs de-elevated: hosted runners run jobs as an administrator, and WebView2 150+ ignores
+  # WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS in an elevated app, which is how msedgedriver opens the DevTools port. Run
+  # elevated, a session never starts ("DevToolsActivePort file doesn't exist" after 60 s). See tauri-apps/wry#1782.
   e2e:
-    name: E2E (off on hosted runners, local npm run check only)
-    if: false
+    name: E2E
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -113,6 +110,13 @@ jobs:
           $t = Join-Path $env:USERPROFILE 'AppData\Local\Temp'
           "TEMP=$t" >> $env:GITHUB_ENV
           "TMP=$t" >> $env:GITHUB_ENV
+      # gsudo runs the suite at Medium integrity (not elevated); the workspace was made by the elevated runner.
+      - name: De-elevation (gsudo)
+        run: |
+          winget install gerardog.gsudo --accept-source-agreements --accept-package-agreements --disable-interactivity
+          $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH','User')
+          Split-Path (Get-Command gsudo -ErrorAction Stop).Source >> $env:GITHUB_PATH
+          icacls "$env:GITHUB_WORKSPACE" /grant "Everyone:(OI)(CI)F"
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -145,4 +149,8 @@ jobs:
           "WebView2 $wv; $(& "$dir\msedgedriver.exe" --version)"
       - run: npx tauri build --debug --no-bundle
       - run: cargo build -p fake-claude
-      - run: npm run e2e
+      - name: E2E smoke (one spec)
+        run: |
+          gsudo --integrity Medium pwsh -NoProfile -Command "whoami /groups | Select-String Mandatory; npm run e2e window; exit `$LASTEXITCODE"
+      - name: npm run e2e
+        run: gsudo --integrity Medium pwsh -NoProfile -Command "npm run e2e; exit `$LASTEXITCODE"
