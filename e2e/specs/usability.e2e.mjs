@@ -281,6 +281,12 @@ describe("usability quick wins", () => {
     expect(spoken).toContain("bad.vtt");
     expect(spoken).not.toMatch(privateUse);
     expect(await browser.execute(() => document.querySelectorAll('i.ic:not([aria-hidden="true"])').length)).toBe(0);
+    // One name, said once: NVDA reads a name then a description, so a title repeating the aria-label was "Dismiss Dismiss".
+    expect(await $("#import-error-close").getComputedLabel()).toBe("Dismiss");
+    const repeated = await browser.execute(() =>
+      [...document.querySelectorAll("button[aria-label][title]")].filter((b) => b.title === b.getAttribute("aria-label")).map((b) => b.id),
+    );
+    expect(repeated).toEqual([]);
     await $("#import-error-close").click();
   });
 
