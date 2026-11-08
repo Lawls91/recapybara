@@ -250,10 +250,11 @@ because the app takes the working day in the machine's zone. A push to `main` al
 (`npm run msi`) and attaches it to the run as the `installer` artifact (kept 7 days). Cargo's build output,
 `node_modules` and `cargo-llvm-cov` are cached, so a run on unchanged Rust code skips the dependency builds.
 
-E2E doesn't run in CI yet, so the local `npm run check` (E2E included) stays the verdict for UI changes. On GitHub's
-hosted Windows runners msedgedriver starts the app but never gets a WebDriver session ("DevToolsActivePort file
-doesn't exist" after 60 s), while the same request works in about a second on a dev machine. The workflow keeps a
-ready `e2e` job, switched off with `if: false`; delete that line to try again.
+The `e2e` job runs the whole E2E suite (`npm run e2e`, the fake claude only) beside it, against a debug build. It runs
+the suite de-elevated, at Medium integrity through gsudo: hosted runners run jobs as an administrator, and WebView2
+150+ ignores `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` in an elevated app, which is how msedgedriver opens the DevTools
+port, so run elevated a session never starts ("DevToolsActivePort file doesn't exist" after 60 s; tauri-apps/wry#1782).
+A local `npm run check` runs the same suite, so it stays the verdict before pushing.
 
 Reading a failure: open the failed run, then the red step.
 
@@ -263,6 +264,8 @@ Reading a failure: open the failed run, then the red step.
 - **Calendar tests at UTC+14 and UTC-12**: a calendar test depends on the machine's time zone, and the log shows which
   zone failed. Pin the zone in the test (`parse_in` or `working_day_end` with a `FixedOffset`) rather than `Local`,
   or compare in a way that doesn't depend on it.
+- **npm run e2e**: the log names each spec (`=== e2e: <spec>`) and ends with `e2e: <n>/<m> spec files passed`; the
+  failing spec's `✖` lines say which test and why. Rerun it locally with `npm run e2e <spec>` after a debug build.
 - **A setup or cache step**: a runner image or network problem, not the code. Rerun the job.
 
 ## Run log

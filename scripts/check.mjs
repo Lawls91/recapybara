@@ -1,5 +1,5 @@
-// `npm run check`: every suite. CI (.github/workflows/ci.yml) runs it with MC_CHECK_SKIP_E2E=1: E2E doesn't run on
-// GitHub's hosted Windows runners yet (README, CI), so it stays local.
+// `npm run check`: every suite. CI (.github/workflows/ci.yml) runs it with MC_CHECK_SKIP_E2E=1 and runs E2E in a
+// job of its own, de-elevated (README, CI).
 // Stops at the first failure and exits non-zero.
 //   0. tsc --noEmit
 //   1. cargo test under cargo-llvm-cov, failing under 80% Rust line coverage

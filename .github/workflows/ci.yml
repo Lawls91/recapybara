@@ -1,6 +1,6 @@
 # CI (Outline ticket 18): every PR runs `npm run check` (tsc, cargo test under the 80% coverage gate, Vitest and the
 # debug build) and then the calendar tests again in two far-apart time zones. A push to main also builds the
-# installer. Only the fake claude ever runs (D36); no secrets are used. E2E is off here for now (see the e2e job).
+# installer. The E2E suite runs beside it in its own job. Only the fake claude ever runs (D36); no secrets are used.
 name: CI
 
 on:
@@ -155,8 +155,5 @@ jobs:
           "WebView2 $wv; $(& "$dir\msedgedriver.exe" --version)"
       - run: npx tauri build --debug --no-bundle
       - run: cargo build -p fake-claude
-      - name: E2E smoke (one spec)
-        run: |
-          gsudo --integrity Medium pwsh -NoProfile -Command "whoami /groups | Select-String Mandatory; npm run e2e window; exit `$LASTEXITCODE"
       - name: npm run e2e
         run: gsudo --integrity Medium pwsh -NoProfile -Command "npm run e2e; exit `$LASTEXITCODE"
