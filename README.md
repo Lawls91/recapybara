@@ -90,8 +90,9 @@ per-user MSI with the WiX 5.0.2 dotnet global tool, which it installs from NuGet
 - Renaming: change `productName` only, rebuild, install over the old build. The fixed UpgradeCode makes it an in-place
   upgrade: one Apps & features entry, the new name on the shortcut and window title, settings kept. An upgrade writes
   the Run value only if it was already there, so start at logon turned off stays off.
-- An upgrade that fails (a corrupt package, error 1603) rolls back: the old version stays installed and working. Its
-  removal runs inside the new install's transaction (`MajorUpgrade Schedule="afterInstallInitialize"`).
+- An upgrade installs the new version first and removes the old one only once that succeeded
+  (`MajorUpgrade Schedule="afterInstallExecute"`), so one that fails (a corrupt package, error 1603) leaves the old
+  version installed, working and uninstallable. A same-version rebuild still replaces the exe (`REINSTALLMODE=emus`).
 - Uninstall (Apps & features) removes the exe, the shortcut and the Run value. Settings
   (`%APPDATA%\com.lawls91.meetingcapture`) and the library stay.
 - The frozen values in `installer/wix/Package.wxs` (D50) are pinned by a test in `src-tauri/src/lib.rs`.

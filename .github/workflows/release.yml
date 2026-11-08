@@ -49,6 +49,24 @@ jobs:
       - name: Build the MSI
         run: npm run msi
 
+      # A broken cabinet never ships: an administrative extract (no install, nothing registered) must unpack the exe
+      # byte for byte as built, or the run fails before anything is signed or published.
+      - name: The MSI unpacks
+        run: |
+          $msi = (Resolve-Path '${{ steps.release.outputs.msi }}').Path
+          $dir = Join-Path $env:RUNNER_TEMP 'msi-extract'
+          $log = Join-Path $env:RUNNER_TEMP 'msi-extract.log'
+          $p = Start-Process msiexec -Wait -PassThru -ArgumentList '/a', "`"$msi`"", '/qn', "TARGETDIR=`"$dir`"", '/l*v', "`"$log`""
+          $exe = Get-ChildItem $dir -Recurse -Filter meeting-capture.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $built = (Get-FileHash out/payload/meeting-capture.exe).Hash # what build-msi.ps1 packed
+          $got = if ($exe) { (Get-FileHash $exe.FullName).Hash }
+          if ($p.ExitCode -ne 0 -or $got -ne $built) {
+            Get-Content $log -Tail 40 -ErrorAction SilentlyContinue
+            Write-Error "the MSI doesn't unpack (msiexec $($p.ExitCode), exe hash '$got', built '$built')"
+            exit 1
+          }
+          "unpacked $($exe.FullName), SHA256 $got, as built"
+
       - name: Sign the MSI
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

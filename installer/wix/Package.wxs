@@ -16,15 +16,25 @@
            UpgradeCode="{6D924D52-CF86-41C9-8AD5-364EF36A2E0D}"
            Scope="perUser" Compressed="yes">
 
-    <!-- AllowSameVersionUpgrades: a rebuild with the same version (a rename) is a full remove-then-install,
-         so one Apps & features entry and the shortcut is recreated under the new name.
-         Schedule afterInstallInitialize: the old version's removal runs inside the new install's transaction, so a
-         failure after it (a corrupt cabinet, 1603 at file copy) rolls back to the old version, installed and working.
-         WiX's default, afterInstallValidate, commits the removal on its own first: such a failure left no app at all.
-         It is still a full remove-then-install (costing runs before the removal in both), so it asks no more of the
-         component rules than the default did; only the later schedules (afterInstallExecute/Finalize) do. -->
+    <!-- Schedule afterInstallExecute: the new version installs first; the old one is removed only once that install
+         has committed, so a failed install (a corrupt cabinet, 1603 at file copy) never touches the old product, which
+         stays installed, registered and uninstallable. Removing the old version inside the new install's transaction
+         (afterInstallInitialize) rolled the files back but left the old product only advertised (no ARP entry, an
+         uninstall that removed nothing); WiX's default, afterInstallValidate, left no app at all.
+         This schedule leans on the component rules, which hold here:
+         - Each component's GUID is WiX's auto GUID, made from its key path (the exe's install path, the Run value, the
+           shortcut component's registry value), so the same resource keeps the same GUID across versions: the new
+           product shares it and the old product's removal leaves it alone ("another client exists").
+         - The shortcut's name follows productName, so its key-path value name does too: a rename makes a new shortcut
+           component, and the old product's removal deletes the old-name shortcut with its own component.
+         - REINSTALLMODE emus (default omus): e replaces a versioned file of an equal version too, so a same-version
+           rebuild (a rename, AllowSameVersionUpgrades) still replaces the exe, whose version Tauri stamps; a newer
+           version replaces it under either. Not amus: a would also overwrite newer files and modified unversioned
+           files; the payload is the one versioned exe, so e is all that is needed.
+         AllowSameVersionUpgrades: a same-version rebuild upgrades in place, so one Apps & features entry. -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed."
-                  AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize" />
+                  AllowSameVersionUpgrades="yes" Schedule="afterInstallExecute" />
+    <Property Id="REINSTALLMODE" Value="emus" />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="app.ico" SourceFile="$(var.IconFile)" />
@@ -62,7 +72,8 @@
                 Target="[INSTALLFOLDER]meeting-capture.exe" WorkingDirectory="INSTALLFOLDER">
         <ShortcutProperty Key="System.AppUserModel.ID" Value="com.lawls91.meetingcapture" />
       </Shortcut>
-      <RegistryValue Root="HKCU" Key="Software\com.lawls91.meetingcapture" Name="StartMenu"
+      <!-- Named after the shortcut, so a rename changes this component's auto GUID (see MajorUpgrade). -->
+      <RegistryValue Root="HKCU" Key="Software\com.lawls91.meetingcapture" Name="StartMenu $(var.ProductName)"
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>
 

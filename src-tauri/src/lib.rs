@@ -937,8 +937,10 @@ mod tests {
         ] {
             assert!(wxs.contains(frozen), "Package.wxs lost frozen identifier: {frozen}");
         }
-        // The old version's removal in the new install's transaction: a failed upgrade rolls back to it.
-        assert!(wxs.contains(r#"Schedule="afterInstallInitialize""#), "a failed upgrade must leave the old version installed");
+        // The old version is removed only after the new one installed: a failed upgrade never touches it. That needs
+        // equal-version files replaced too (a same-version rename rebuild).
+        assert!(wxs.contains(r#"Schedule="afterInstallExecute""#), "a failed upgrade must leave the old version installed");
+        assert!(wxs.contains(r#"<Property Id="REINSTALLMODE" Value="emus" />"#), "a same-version rebuild must replace the exe");
     }
 
     #[test]
