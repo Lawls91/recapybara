@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Meeting capture MSI: per-user (no UAC), unsigned, no custom actions. Built by scripts\build-msi.ps1.
+  Meeting capture MSI: per-user (no UAC), unsigned. Built by scripts\build-msi.ps1. Its one custom action starts the
+  app after an update (LaunchApp below).
 
   Frozen layer (D50), never derived from productName; src-tauri/src/lib.rs pins each one in a test:
     - UpgradeCode, so every later build (a rename included) upgrades in place
@@ -30,6 +31,16 @@
                       Name="com.lawls91.meetingcapture" Type="raw" />
     </Property>
 
+    <!-- Restart and update (slice 19): tauri-plugin-updater runs msiexec /i <msi> /passive /promptrestart
+         AUTOLAUNCHAPP=True LAUNCHAPPARGS="..." through ShellExecute "open" (no RunAs), then exits. The package is
+         per-user, so msiexec runs unelevated with no UAC prompt; this starts the new version once the install has
+         finished. LAUNCHAPPARGS is left out on purpose: an app started at logon (in the tray) comes back with its window
+         open, as the user who chose Restart and update expects. A plain install (no AUTOLAUNCHAPP) starts nothing. -->
+    <CustomAction Id="LaunchApp" FileRef="AppExe" ExeCommand="" Return="asyncNoWait" Impersonate="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="AUTOLAUNCHAPP AND NOT Installed" />
+    </InstallExecuteSequence>
+
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsDir" Name="Programs">
         <Directory Id="INSTALLFOLDER" Name="com.lawls91.meetingcapture" />
@@ -46,7 +57,7 @@
 
   <Fragment>
     <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(var.PayloadDir)\**" />
+      <File Id="AppExe" Source="$(var.PayloadDir)\meeting-capture.exe" />
     </ComponentGroup>
 
     <!-- No Icon= attribute: the shortcut takes its icon from the exe (tauri-build embeds icon.ico), a path

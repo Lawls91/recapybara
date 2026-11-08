@@ -22,6 +22,14 @@
     ],
     "security": { "csp": null }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQTBERDNFNURENjNBNjQKUldSa090WmRQdDJnRXNHOG1BMkxwNG9yZFU2NVd0OFlMV0RQQXRtRWVURnJCVWozc3d3elhBbE0K",
+      "endpoints": ["https://github.com/Lawls91/meeting-capture/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": false,
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]

@@ -36,6 +36,18 @@ describe("settings", () => {
     expect(runKey()).toBe(before);
   });
 
+  it("a dev instance never checks or installs updates", async () => {
+    if (!(await $("#settings-view").isDisplayed())) await $("#settings-button").click();
+    await expect($("#update-status")).toHaveText("Updates are off in a dev instance");
+    await expect($("#check-updates")).toBeDisabled();
+    // The backend refuses too, whatever calls it.
+    for (const cmd of ["check_updates", "install_update"]) {
+      const outcome = await browser.execute((c) => window.__TAURI_INTERNALS__.invoke(c).then(() => "done", String), cmd);
+      expect(outcome).toBe("Updates are off in a dev instance");
+    }
+    await expect($("#update-banner")).not.toBeDisplayed();
+  });
+
   it("a library path set in settings is still shown after the app restarts", async () => {
     const chosen = root("chosen-library");
     // Change folder's native dialog is bypassed: save what it would have returned.

@@ -1,5 +1,5 @@
 //! Tauri shell: window, tray, single instance, autostart, first run, commands.
-use std::{ffi::OsString, path::{Path, PathBuf}, sync::Mutex};
+use std::{ffi::OsString, path::{Path, PathBuf}, sync::Mutex, time::SystemTime};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -7,6 +7,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_updater::UpdaterExt;
 
 pub mod calendar;
 pub mod claude;
@@ -16,6 +17,7 @@ mod platform;
 pub mod settings;
 mod skill;
 pub mod summary;
+pub mod update;
 
 use settings::Settings;
 
@@ -40,6 +42,10 @@ struct AppState {
     dev: bool,
     /// No library chosen yet: the page shows first run until its Finish.
     first_run: Mutex<bool>,
+    /// The newer version found and verified, ready to install; the lock also keeps checks one at a time.
+    update: tauri::async_runtime::Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
+    /// The last check that got an answer, for the daily check.
+    last_check: Mutex<Option<SystemTime>>,
 }
 
 /// Env override (set and non-empty), else the real folder (D37).
@@ -570,6 +576,77 @@ fn is_dev(state: State<AppState>) -> bool {
     state.dev
 }
 
+/// The updater: tauri.conf.json's endpoint and key, or a debug build's test overrides (update::debug_only).
+fn updater(app: &AppHandle) -> tauri_plugin_updater::Result<tauri_plugin_updater::Updater> {
+    let env = |v: &str| update::debug_only(cfg!(debug_assertions), std::env::var_os(v));
+    let mut b = app.updater_builder().timeout(std::time::Duration::from_secs(120));
+    if let Some(url) = env("MEETING_CAPTURE_UPDATE_URL") {
+        b = b.endpoints(vec![url.parse()?])?;
+    }
+    if let Some(key) = env("MEETING_CAPTURE_UPDATE_PUBKEY") {
+        b = b.pubkey(key);
+    }
+    b.build()
+}
+
+/// One check: the manifest, then a newer version's package, downloaded and verified now, so a bad signature is refused
+/// here and Restart and update installs at once. Returns the version ready to install, if any; the page hears it as
+/// update-ready. A dev instance never checks.
+async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
+    let state = app.state::<AppState>();
+    if state.dev {
+        return Err(update::DEV_OFF.into());
+    }
+    let mut ready = state.update.lock().await;
+    let found = async { updater(app)?.check().await }.await.map_err(|e| update::check_failed(None, &e))?;
+    match found {
+        None => *ready = None,
+        Some(u) if ready.as_ref().is_some_and(|(r, _)| r.version == u.version) => {}
+        Some(u) => {
+            let bytes = u.download(|_, _| {}, || {}).await.map_err(|e| update::check_failed(Some(&u.version), &e))?;
+            *ready = Some((u, bytes));
+        }
+    }
+    *state.last_check.lock().unwrap() = Some(SystemTime::now());
+    let version = ready.as_ref().map(|(u, _)| u.version.clone());
+    let _ = app.emit("update-ready", &version);
+    Ok(version)
+}
+
+/// Settings' and the tray's Check for updates.
+#[tauri::command]
+async fn check_updates(app: AppHandle) -> Result<String, String> {
+    Ok(match check_updates_now(&app).await? {
+        Some(v) => update::available(&v),
+        None => update::up_to_date(&app.package_info().version.to_string()),
+    })
+}
+
+/// The version ready to install, for a page (re)loaded after the check found it. None while a check is going: its
+/// update-ready follows.
+#[tauri::command]
+fn update_ready(state: State<AppState>) -> Option<String> {
+    state.update.try_lock().ok()?.as_ref().map(|(u, _)| u.version.clone())
+}
+
+/// Restart and update, never on its own: refused while a capture or summary runs (update::busy). On Windows the
+/// plugin starts msiexec on the MSI (per-user, so no UAC prompt) and exits; the MSI starts the new version.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if state.dev {
+        return Err(update::DEV_OFF.into());
+    }
+    let lib = state.settings.lock().unwrap().library_path.clone();
+    if let Some(why) = update::busy(&lib.map(|l| library::list(Path::new(&l))).unwrap_or_default()) {
+        return Err(why.into());
+    }
+    let ready = state.update.lock().await;
+    let (u, bytes) = ready.as_ref().ok_or("No update is ready. Check for updates first.")?;
+    // ponytail: the plugin ends the process itself, so the tray icon lingers until hovered.
+    u.install(bytes).map_err(|e| update::install_failed(&e))
+}
+
 fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>> {
     let name = display_name(app);
     let dev = app.state::<AppState>().dev;
@@ -577,7 +654,7 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh calendar now", true, None::<&str>)?;
     let logon_item = CheckMenuItem::with_id(app, "logon", "Start at logon", !dev, logon, None::<&str>)?;
-    let updates = MenuItem::with_id(app, "updates", "Check for updates", false, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", "Check for updates", !dev, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &settings, &refresh, &logon_item, &updates, &quit])?;
     TrayIconBuilder::with_id("main")
@@ -590,6 +667,11 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
             "settings" => {
                 show_main(app);
                 let _ = app.emit("open-settings", ());
+            }
+            "updates" => {
+                show_main(app);
+                let _ = app.emit("open-settings", ());
+                let _ = app.emit("check-updates", ());
             }
             "refresh" => {
                 let app = app.clone();
@@ -645,6 +727,7 @@ pub fn run() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let real_data = match &dev {
                 Some(dir) => dir.join("data"),
@@ -671,7 +754,7 @@ pub fn run() {
             let logon = s.start_at_logon;
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first) });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None) });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -689,6 +772,21 @@ pub fn run() {
                 fetch_due(&handle);
                 std::thread::sleep(calendar::TICK);
             });
+            // Updates: once shortly after start, then daily (a failed check tries again on the next poll).
+            if dev.is_none() {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(update::START_DELAY);
+                    loop {
+                        if update::due(*handle.state::<AppState>().last_check.lock().unwrap(), SystemTime::now()) {
+                            if let Err(e) = tauri::async_runtime::block_on(check_updates_now(&handle)) {
+                                eprintln!("update check: {e}");
+                            }
+                        }
+                        std::thread::sleep(update::POLL);
+                    }
+                });
+            }
             if first || !std::env::args().any(|a| a == "--autostart") {
                 show_main(app.handle());
             }
@@ -731,7 +829,10 @@ pub fn run() {
             is_dev,
             is_first_run,
             claude_check,
-            finish_first_run
+            finish_first_run,
+            check_updates,
+            update_ready,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

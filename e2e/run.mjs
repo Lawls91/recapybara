@@ -47,6 +47,14 @@ const portFree = (port) =>
 // MC_E2E_PORT moves tauri-driver off 4444 (wdio.conf.mjs passes it as tauriDriverPort); the service picks its own
 // free native port.
 const DRIVER_PORT = Number(process.env.MC_E2E_PORT || 4444);
+const freePort = () =>
+  new Promise((resolve) => {
+    const s = net.createServer().listen(0, "127.0.0.1", () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
+  });
+const tauriCli = path.join(repo, "node_modules", "@tauri-apps", "cli", "tauri.js");
 
 const only = process.argv[2];
 const specs = fs
@@ -86,11 +94,24 @@ for (const spec of specs) {
     MEETING_CAPTURE_DEV: path.join(root, "dev"),
     // The app must strip it from every claude it runs (D6); the fake's record shows whether it did.
     ANTHROPIC_API_KEY: "sk-e2e-parent-key-must-not-leak",
+    // A debug build's update check (slice 19) goes here, never to GitHub: nothing listens, so it fails, logged.
+    MEETING_CAPTURE_UPDATE_URL: "http://127.0.0.1:9/latest.json",
   };
   // Claude Code not installed: nothing at the path it is run from.
   if (name === "first-run-no-claude") env.MEETING_CAPTURE_CLAUDE = path.join(root, "not-installed", "claude.exe");
   // These two test the installed copy's own path, so they run without dev mode.
   if (name === "real-folders" || name === "single-instance") delete env.MEETING_CAPTURE_DEV;
+  // Updates run only in the installed copy's path, against the spec's own server and a throwaway key made here (never
+  // committed): the app reads both at launch.
+  if (name === "update") {
+    delete env.MEETING_CAPTURE_DEV;
+    const key = path.join(root, "updater.key");
+    execFileSync(process.execPath, [tauriCli, "signer", "generate", "--ci", "-p", "", "-w", key, "-f"], { stdio: "ignore" });
+    env.E2E_UPDATE_KEY = key;
+    env.E2E_UPDATE_PORT = String(await freePort());
+    env.MEETING_CAPTURE_UPDATE_URL = `http://127.0.0.1:${env.E2E_UPDATE_PORT}/latest.json`;
+    env.MEETING_CAPTURE_UPDATE_PUBKEY = fs.readFileSync(`${key}.pub`, "utf8").trim();
+  }
   if (name === "real-folders") {
     delete env.MEETING_CAPTURE_DATA_DIR;
     delete env.MEETING_CAPTURE_HOME;

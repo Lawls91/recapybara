@@ -22,6 +22,10 @@
           <button id="refresh-button" class="ib sm" title="Refresh calendar" aria-label="Refresh calendar"><i class="ic">&#xE72C;</i></button>
         </div>
         <div id="banners" aria-live="polite">
+          <p id="update-banner" class="import-error report" hidden>
+            <span id="update-text"></span>
+            <button id="update-install" class="btn">Restart and update</button>
+          </p>
           <div id="library-missing" class="import-error" hidden>
             <span id="library-missing-text"></span>
             <button id="library-choose" class="btn">Choose folder</button>
@@ -82,6 +86,14 @@
               <option value="light">Light</option>
               <option value="dark">Dark</option>
             </select>
+          </section>
+          <section>
+            <h3>Updates</h3>
+            <p class="desc">Checks once a day. An update installs only when you choose Restart and update.</p>
+            <div class="fieldrow">
+              <span id="update-status" class="desc" role="status" aria-live="polite"></span>
+              <button id="check-updates" class="btn">Check for updates</button>
+            </div>
           </section>
           <section>
             <h3>Excluded series</h3>

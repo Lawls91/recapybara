@@ -1191,6 +1191,40 @@ invoke<boolean>("is_dev").then((dev) => {
   $<HTMLInputElement>("start-at-logon").disabled = dev;
 });
 
+// ---------- updates (slice 19): checked at start and daily by the backend; installed only on Restart and update ----------
+
+/** The banner: the version found, plus why Restart and update was refused, if it was. */
+let updateVersion: string | null = null;
+function paintUpdate(version: string | null, refused = "") {
+  updateVersion = version;
+  $("update-banner").hidden = !version;
+  $("update-text").textContent = version ? `Version ${version} is available.${refused ? ` ${refused}` : ""}` : "";
+}
+listen<string | null>("update-ready", (e) => paintUpdate(e.payload));
+invoke<string | null>("update_ready").then((v) => paintUpdate(v));
+async function checkUpdates() {
+  const status = $("update-status");
+  status.textContent = "Checking for updates…";
+  status.classList.remove("err");
+  try {
+    status.textContent = await invoke<string>("check_updates");
+  } catch (e) {
+    status.textContent = String(e);
+    status.classList.add("err");
+  }
+}
+$("check-updates").onclick = checkUpdates;
+listen("check-updates", checkUpdates); // the tray's Check for updates, after it opened Settings
+$("update-install").onclick = async () => {
+  flushNotes(); // the app exits once the installer starts
+  await invoke("install_update").catch((e) => paintUpdate(updateVersion, String(e)));
+};
+invoke<boolean>("is_dev").then((dev) => {
+  if (!dev) return;
+  $("update-status").textContent = "Updates are off in a dev instance";
+  $<HTMLButtonElement>("check-updates").disabled = true;
+});
+
 // ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------
 
 /** The library first run will save: a dev instance's own default until one is chosen; none for the installed copy. */

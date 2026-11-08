@@ -858,6 +858,12 @@ button {
 .fieldrow .btn {
   height: 32px;
 }
+/* Settings' update line: "You're up to date (version 0.1.0)" beside Check for updates. */
+#update-status {
+  flex: 1;
+  align-self: center;
+  margin: 0;
+}
 /* First run: Start when I log in, a plain checkbox in sight; the Claude Code check's not-found line. */
 .check {
   display: flex;
