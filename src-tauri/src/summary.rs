@@ -377,7 +377,9 @@ pub fn summarise<R: Into<Output>>(dir: &Path, model: &str, run: impl FnOnce(&Cla
         let m = first.as_ref().map_err(|e| e.to_string())?;
         let vtt = fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
         let glossary = dir.parent().and_then(|lib| fs::read_to_string(lib.join(library::GLOSSARY)).ok()).unwrap_or_default();
-        let out: Output = run(&run_for(m, &vtt, &glossary, model)).map_err(|e| crate::claude::failure(&e, "Re-run summary"))?.into();
+        // The fix names the card's own button (D49): Run summary until a summary exists.
+        let button = if dir.join(library::SUMMARY_MD).exists() { "Re-run summary" } else { "Run summary" };
+        let out: Output = run(&run_for(m, &vtt, &glossary, model)).map_err(|e| crate::claude::failure(&e, button))?.into();
         let (mut s, raw) = parse_result(&out.stdout)?;
         check(&mut s, &vtt);
         found = found_keys(&out.captured);
@@ -647,10 +649,11 @@ mod tests {
             let _ = summarise(&dir, "opus", run);
             library::load(&dir).unwrap().summary_error.unwrap_or_default()
         };
-        assert_eq!(
-            why(Box::new(|_| Err(io::Error::new(io::ErrorKind::NotFound, "run claude: program not found")))),
-            "Claude Code not found. Install it or add it to PATH, then Re-run summary."
-        );
+        let missing = || -> Box<dyn FnOnce(&ClaudeRun) -> io::Result<String>> { Box::new(|_| Err(io::Error::new(io::ErrorKind::NotFound, "run claude: program not found"))) };
+        // The fix names the card's button: Run summary before the first summary, Re-run summary after.
+        assert_eq!(why(missing()), "Claude Code not found. Install it or add it to PATH, then Run summary.");
+        fs::write(dir.join(library::SUMMARY_MD), "# Why").unwrap();
+        assert_eq!(why(missing()), "Claude Code not found. Install it or add it to PATH, then Re-run summary.");
         let denied = json!({ "is_error": false, "result": "", "permission_denials": [{ "tool_name": "StructuredOutput" }] });
         assert_eq!(why(Box::new(move |_| Ok(denied.to_string()))), "Claude returned no structured summary (denied: StructuredOutput).");
         assert_eq!(why(Box::new(|_| Ok("{not json".into()))), "Claude's result isn't JSON.");

@@ -283,7 +283,7 @@ pub fn sweep_captures(runs_dir: &Path) {
 }
 
 /// A failed run said shortly, for a card: not found gets D40's fix, ending "then `then`."; anything else its first
-/// line (stderr's first line), at most 300 characters.
+/// line (stderr's first line), clipped.
 pub fn failure(e: &io::Error, then: &str) -> String {
     if e.kind() == io::ErrorKind::NotFound {
         return format!("Claude Code not found. Install it or add it to PATH, then {then}.");
@@ -291,9 +291,27 @@ pub fn failure(e: &io::Error, then: &str) -> String {
     first_line(&e.to_string())
 }
 
-/// The first line of `s`, at most 300 characters: what a card shows of raw tool or stderr text.
+/// The first line of `s`, clipped: what a card shows of raw tool or stderr text.
 pub fn first_line(s: &str) -> String {
-    s.trim().lines().next().unwrap_or_default().chars().take(300).collect()
+    clip(s.trim().lines().next().unwrap_or_default())
+}
+
+/// The longest reason a card shows, its ellipsis included.
+pub const CLIP: usize = 300;
+
+/// `s` in at most CLIP characters: cut at the last space with an ellipsis, or mid-word when that space would drop most
+/// of it (one long token, such as a path).
+pub fn clip(s: &str) -> String {
+    if s.chars().count() <= CLIP {
+        return s.into();
+    }
+    // One character more than is kept, so a word ending right at the limit stays whole.
+    let head: String = s.chars().take(CLIP).collect();
+    let cut = match head.rfind(char::is_whitespace) {
+        Some(i) if head[..i].chars().count() >= CLIP / 2 => &head[..i],
+        _ => &head[..head.char_indices().nth(CLIP - 1).unwrap().0],
+    };
+    format!("{}\u{2026}", cut.trim_end())
 }
 
 /// Runs isolated in `runs_dir`, then deletes Claude Code's copies under `home` (D7),
@@ -389,6 +407,20 @@ fn log_run(file: &Path, run: &ClaudeRun, wall: Duration, stdout: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reason_is_at_most_300_characters_cut_at_a_word_with_an_ellipsis() {
+        assert_eq!(clip("short"), "short");
+        assert_eq!(clip(&"z".repeat(300)), "z".repeat(300), "300 fits");
+        // 60 words of 4 and their spaces fill exactly 300: the 60th word ends at the limit and stays whole.
+        let words = "word ".repeat(70);
+        assert_eq!(clip(&words), format!("{}\u{2026}", ["word"; 60].join(" ")));
+        assert_eq!(clip(&words).chars().count(), 300);
+        // A space only in the first half: cut mid-token rather than drop it all.
+        let token = format!("Claude couldn't run: {}", "y".repeat(500));
+        assert_eq!(clip(&token), format!("Claude couldn't run: {}\u{2026}", "y".repeat(278)));
+        assert_eq!(first_line(&format!("{}\nsecond line", "ab ".repeat(120))), format!("{}\u{2026}", ["ab"; 100].join(" ")));
+    }
 
     // Expected values follow folder names observed under ~/.claude/projects: every character but an ASCII letter or
     // digit became "-". The paths are neutral stand-ins of the same shape (D34).

@@ -416,7 +416,7 @@ fn attempt(
         Attempt::Invalid(why) => {
             eprintln!("fetch: capture failed for {}: {why}", dir.display());
             m.state = State::CaptureFailed;
-            m.fetch_error = Some(why);
+            m.fetch_error = Some(crate::claude::clip(&why));
         }
         Attempt::Empty => retry(&mut m, State::NoTranscript),
         Attempt::Missed(why) => {
@@ -424,7 +424,7 @@ fn attempt(
             retry(&mut m, State::CaptureFailed);
             // Kept only once it is Capture failed: an attempt going back to its retries has nothing to show.
             if m.state == State::CaptureFailed {
-                m.fetch_error = Some(why);
+                m.fetch_error = Some(crate::claude::clip(&why));
             }
         }
     }
@@ -531,12 +531,18 @@ pub fn retry(
     attempt(&dir, &m, now, &mut run, &version, &excluded).map_err(|e| e.to_string())
 }
 
-/// Import from Teams' end report: how each folder the import made (`import`'s ids) ended up. One skipped, deleted or
-/// excluded during the run isn't counted.
+/// Import from Teams' end report: how each folder the import made (`import`'s ids) ended up, one deleted during the
+/// run included. One skipped or excluded during the run isn't counted.
 pub fn import_report(lib: &Path, ids: &[String], excluded: &[String]) -> String {
-    let mut n = [0; 5]; // summarised, not reachable, no transcript, failed, awaiting
+    let mut n = [0; 6]; // summarised, not reachable, no transcript, failed, awaiting, deleted
     for id in ids {
-        let Some(m) = library::load(&lib.join(id)).ok().filter(|m| !library::excluded(m, excluded)) else { continue };
+        let Ok(m) = library::load(&lib.join(id)) else {
+            n[5] += 1;
+            continue;
+        };
+        if library::excluded(&m, excluded) {
+            continue;
+        }
         let i = match m.state {
             State::Done => 0,
             State::NotReachable => 1,
@@ -548,7 +554,8 @@ pub fn import_report(lib: &Path, ids: &[String], excluded: &[String]) -> String 
         n[i] += 1;
     }
     let waiting = if n[4] > 0 { format!(", {} awaiting transcript", n[4]) } else { String::new() };
-    format!("Imported {}: {} summarised, {} not reachable, {} no transcript, {} failed{waiting}.", n.iter().sum::<u32>(), n[0], n[1], n[2], n[3])
+    let deleted = if n[5] > 0 { format!(", {} deleted", n[5]) } else { String::new() };
+    format!("Imported {}: {} summarised, {} not reachable, {} no transcript, {} failed{waiting}{deleted}.", n.iter().sum::<u32>(), n[0], n[1], n[2], n[3])
 }
 
 /// Import from Teams' choice from the searched events: those with a `meetingTranscriptUrl` that have ended. Ones
@@ -615,6 +622,11 @@ impl TeamsImport {
 
     pub fn finished(&self) {
         self.0.lock().unwrap().running = false;
+    }
+
+    /// An import is running (Restart and update waits for it).
+    pub fn running(&self) -> bool {
+        self.0.lock().unwrap().running
     }
 }
 
@@ -1426,7 +1438,9 @@ mod tests {
         let again = t.searching();
         t.found(again, "2026-11-01", "2026-11-07", vec![event(3, start(), end())]);
         assert_eq!(t.start("2026-11-01", "2026-11-07").unwrap_err(), "An import from Teams is already running.");
+        assert!(t.running());
         t.finished();
+        assert!(!t.running());
         assert_eq!(t.start("2026-11-01", "2026-11-07").unwrap()[0].id, "SYNTH-3", "the result was kept for after");
         t.finished();
         assert!(t.start("2026-11-01", "2026-11-07").is_err(), "taken once");
@@ -1542,7 +1556,11 @@ mod tests {
         assert_eq!((m.state, m.fetch_error.as_deref()), (State::CaptureFailed, Some("Claude couldn't run: claude exited with exit code: 1: Error: synthetic first line")));
         let long = io::Error::other("y".repeat(500));
         let m = retry(&lib, &id, now, |_| Err(io::Error::new(long.kind(), long.to_string())), none, Vec::new, || {}).unwrap();
-        assert_eq!(m.fetch_error.unwrap(), format!("Claude couldn't run: {}", "y".repeat(300)));
+        // At most 300 characters with its prefix, the ellipsis included: mid-token for one long token, else at a space.
+        assert_eq!(m.fetch_error.unwrap(), format!("Claude couldn't run: {}\u{2026}", "y".repeat(278)));
+        let words = io::Error::other("lorem ipsum ".repeat(40));
+        let m = retry(&lib, &id, now, |_| Err(io::Error::new(words.kind(), words.to_string())), none, Vec::new, || {}).unwrap();
+        assert_eq!(m.fetch_error.unwrap(), format!("Claude couldn't run: {}\u{2026}", ["lorem ipsum"; 23].join(" ")));
         let missing = |_: &ClaudeRun| Err(io::Error::new(io::ErrorKind::NotFound, r"run C:\synthetic\claude.exe: program not found"));
         let m = retry(&lib, &id, now, missing, none, Vec::new, || {}).unwrap();
         assert_eq!(m.fetch_error.as_deref(), Some("Claude Code not found. Install it or add it to PATH, then Try again."));
@@ -1551,7 +1569,7 @@ mod tests {
         let m = retry(&lib, &id, now, |_| Ok(Output { stdout: String::new(), captured: vec![raw.clone()] }), none, Vec::new, || {}).unwrap();
         assert_eq!(m.fetch_error.as_deref(), Some("Reading the transcript failed: MCP error -32001: synthetic timeout"));
         let m = retry(&lib, &id, now, answer(blocks(&body(&[]))), none, Vec::new, || {}).unwrap();
-        assert_eq!((m.state, m.fetch_error, m.attempts), (State::NoTranscript, None, 7));
+        assert_eq!((m.state, m.fetch_error, m.attempts), (State::NoTranscript, None, 8));
 
         // Its series excluded (a stale page, a direct call): refused before any run (D17).
         assert_eq!(retry(&lib, &id, now, |_| panic!("excluded"), none, || vec!["https://teams.example/j/1".into()], || panic!("excluded")).unwrap_err(), "This meeting's series is excluded.");
@@ -1574,11 +1592,11 @@ mod tests {
             State::AwaitingTranscript, State::Skipped, State::AwaitingTranscript,
         ];
         let ids: Vec<String> = states.iter().enumerate().map(|(i, state)| library::create(&lib, &Meeting { state: *state, ..folder_for(&event(i as u32 + 1, start(), end()), end()) }).unwrap()).collect();
-        // 10's series was excluded during the run; a folder deleted meanwhile is gone; one the import didn't make isn't asked about.
+        // 10's series was excluded during the run; a folder deleted meanwhile is counted; one the import didn't make isn't asked about.
         library::create(&lib, &Meeting { state: State::Done, ..folder_for(&event(11, start(), end()), end()) }).unwrap();
         let made = [ids.clone(), vec!["2026-11-05 1100 Deleted meanwhile".into()]].concat();
         let excluded = ["https://teams.example/j/10".to_string()];
-        assert_eq!(import_report(&lib, &made, &excluded), "Imported 8: 2 summarised, 1 not reachable, 1 no transcript, 3 failed, 1 awaiting transcript.");
+        assert_eq!(import_report(&lib, &made, &excluded), "Imported 9: 2 summarised, 1 not reachable, 1 no transcript, 3 failed, 1 awaiting transcript, 1 deleted.");
         assert_eq!(import_report(&lib, &ids[..4], &[]), "Imported 4: 2 summarised, 1 not reachable, 1 no transcript, 0 failed.");
     }
 
