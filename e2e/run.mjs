@@ -26,19 +26,18 @@ for (const f of [app, fake]) {
 const cargoBin = path.join(os.homedir(), ".cargo", "bin");
 const PATH = `${cargoBin}${path.delimiter}${process.env.PATH}`;
 
-// The service leaves each spec's tauri-driver (and its msedgedriver) running on Windows. A leftover holding
-// the driver port makes the next spec's driver fail silently and attach to a stale app, so each spec's
-// new driver processes are stopped by PID when it ends, and a taken port fails the run.
-const DRIVERS = ["tauri-driver.exe", "msedgedriver.exe"];
-const driverPids = () =>
-  new Set(
-    DRIVERS.flatMap((image) =>
-      execFileSync("tasklist", ["/FO", "CSV", "/NH", "/FI", `IMAGENAME eq ${image}`], { encoding: "utf8" })
-        .split("\n")
-        .map((l) => l.split(",")[1]?.replaceAll('"', ""))
-        .filter((pid) => /^\d+$/.test(pid ?? "")),
-    ),
-  );
+// The service leaves each spec's tauri-driver (and its msedgedriver) running on Windows. A leftover holding the driver
+// port makes the next spec's driver fail silently and attach to a stale app, so a taken port fails the run, and each
+// spec's own driver is stopped by PID when it ends: the tauri-driver listening on this run's port (free before the spec
+// started), with its msedgedriver child (/T). Drivers of other runs, on other ports, are left alone.
+const ownDriver = () =>
+  execFileSync("netstat", ["-ano", "-p", "TCP"], { encoding: "utf8" })
+    .split("\n")
+    .map((l) => l.trim().split(/\s+/))
+    // A listening socket's foreign address is 0.0.0.0:0 or [::]:0 (the state column's word is localised).
+    .filter(([, local, foreign]) => local?.endsWith(`:${DRIVER_PORT}`) && /^(0\.0\.0\.0|\[::\]):0$/.test(foreign ?? ""))
+    .map((c) => c[4])
+    .filter((pid) => execFileSync("tasklist", ["/FO", "CSV", "/NH", "/FI", `PID eq ${pid}`, "/FI", "IMAGENAME eq tauri-driver.exe"], { encoding: "utf8" }).includes(`"${pid}"`));
 const portFree = (port) =>
   new Promise((resolve) => {
     const s = net.createServer().once("error", () => resolve(false));
@@ -121,7 +120,6 @@ for (const spec of specs) {
     console.error(`could attach to a stale driver. Stop the owner (netstat -ano | findstr :${DRIVER_PORT}), then rerun.`);
     process.exit(1);
   }
-  const before = driverPids();
   console.log(`\n=== e2e: ${spec} (root ${root})`);
   const r = spawnSync("npx", ["wdio", "run", path.join(here, "wdio.conf.mjs"), "--spec", path.join(here, "specs", spec)], {
     cwd: repo,
@@ -130,9 +128,7 @@ for (const spec of specs) {
     shell: true,
   });
   if (r.status !== 0) failed++;
-  for (const pid of driverPids()) {
-    if (!before.has(pid)) spawnSync("taskkill", ["/PID", pid, "/T", "/F"], { stdio: "ignore" });
-  }
+  for (const pid of ownDriver()) spawnSync("taskkill", ["/PID", pid, "/T", "/F"], { stdio: "ignore" });
 }
 console.log(`\ne2e: ${specs.length - failed}/${specs.length} spec files passed`);
 process.exit(failed ? 1 : 0);
