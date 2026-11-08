@@ -115,9 +115,16 @@ How the app updates (tauri-plugin-updater):
   the banner's other news is). Otherwise the app saves notes, the banner reads "Meeting capture will restart in a few
   seconds." for 2 s, and the app writes the verified MSI to `%TEMP%`, starts a hidden
   `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe` and quits (as the tray's Quit does, notes saved). That
-  PowerShell waits for the app's process to exit (up to 30 s), runs `msiexec /i <msi> /passive /norestart`, deletes the
-  MSI once msiexec ends, and starts the app again. The MSI is per-user, so there is no UAC prompt. Settings, the
-  library and the start-at-logon choice are kept (the MSI upgrade rules under Install).
+  PowerShell waits for the app's process to exit (up to 30 s), runs `msiexec /i <msi> /passive /norestart`, writes the
+  version and msiexec's exit code to `update-result.txt` in the app's data folder, deletes the MSI, and starts the app
+  again. The MSI is per-user, so there is no UAC prompt. Settings, the library and the start-at-logon choice are kept
+  (the MSI upgrade rules under Install).
+- A failed install is said on the next start: the app reads `update-result.txt` and deletes it. Exit code 0 or 3010
+  (installed, a reboot pending) says nothing. Anything else puts "The update to version X didn't install: <reason>" on
+  the banner, announced in the polite live region: "it was cancelled" (1602), "another installation was in progress"
+  (1618), else "the installer failed (code N)". Once the start-up check finds that version again, the banner's button
+  reads **Try again** (Restart and update). The start after that, or a start with no file (a normal one, or after a
+  crash), says nothing more.
 - Why not the plugin's own install: it runs msiexec the same way (ShellExecute "open", no RunAs, unelevated) but relaunches
   the app only through a custom action in the MSI reading `AUTOLAUNCHAPP`, and the MSI stays declarative (no custom
   actions). So the app runs msiexec itself and relaunches from outside the MSI.
