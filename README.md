@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes, search (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14, 15). v1 is single-user.
+Status: import, summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes (before, during and after a meeting), search, first run (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14, 15). v1 is single-user.
 
 ## Build and run
 
@@ -43,8 +43,9 @@ Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins; an empt
 `dev_dir` in `src-tauri/src/lib.rs`. In dev mode:
 
 - All state is under the dir: settings and `runs` in `<dir>\data`, the WebView2 profile in `<dir>\webview`, and the
-  library defaults to `<dir>\library` (so there is no first-run folder prompt; only that default library is made at
-  start, so a library chosen elsewhere that has gone stays gone and shows the missing-library banner). `MEETING_CAPTURE_DATA_DIR` and
+  library defaults to `<dir>\library` (a fresh dir still shows first run once, with that default offered; only that
+  default library is made at start, so a library chosen elsewhere that has gone stays gone and shows the
+  missing-library banner). `MEETING_CAPTURE_DATA_DIR` and
   `MEETING_CAPTURE_HOME` still win where set. The home is the real one, so the real claude finds the
   installed copy's skill. A dev instance installs the skill only with `MEETING_CAPTURE_HOME` set, so it never points
   the installed copy's skill at the dev library.
@@ -55,6 +56,23 @@ Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins; an empt
 - Toasts still show, under the installed copy's AUMID, so they carry its name and icon (and appear only if the MSI is
   installed). A click goes to the process that raised the toast, so a dev instance's toast opens the meeting in the
   dev instance, not in the installed copy, though the two look alike. Otherwise clicks have the limits below.
+
+## First run
+
+Until a library folder is saved (a new install, or a fresh dev dir), the window opens on a first-run page instead of
+the list: two lines on what the app does, then
+
+- **Claude Code**: `claude --version`, through the same once-per-session lookup the fetches use, reads "Claude Code
+  found: 2.1.318 (Claude Code)", or "Claude Code not found. Install it or add it to PATH, then restart the app." (in
+  red). It doesn't block Finish.
+- **Library folder**, with Choose library folder (the native picker). A dev instance offers its own `<dir>\library`;
+  the installed copy has none until one is picked, and Finish waits for it.
+- **Start when I log in**, a plain checkbox, ticked (D31) and in sight, so it can be unticked before Finish. Finish
+  sets the Run value to match at once: written if ticked, removed if not (the MSI writes it at install). A dev instance
+  shows it off and disabled with the Settings note, and never touches the Run key.
+
+**Finish** saves the folder and the choice to `settings.json` and lands on the list; Settings changes either later.
+The calendar refresh at start still runs while the page shows.
 
 ## Install
 
@@ -125,7 +143,8 @@ build, the fake claude, then the WebdriverIO E2E suite (`npm run e2e`, or `node 
 It installs `llvm-tools-preview` and `cargo-llvm-cov` if missing; `@wdio/tauri-service` installs
 `tauri-driver` and a matching `msedgedriver` on first run. Each spec's app is a dev instance
 (`MEETING_CAPTURE_DEV`), so a running Meeting capture doesn't collide with it, except in the `single-instance` and
-`real-folders` specs, which test the installed copy's path: close Meeting capture before those.
+`real-folders` specs, which test the installed copy's path: close Meeting capture before those. The `first-run` specs
+start with no `settings.json`, and `first-run-no-claude` points `MEETING_CAPTURE_CLAUDE` at a path with nothing there.
 
 Test-only env vars (D36, D37):
 
@@ -289,9 +308,14 @@ up to 1 s for it), when the window's close button hides it to the tray, and when
 save, redraw or switch retries it until it lands. The tab reads `notes.md` afresh each time it is drawn, so an edit made
 in another editor shows the next time My notes opens (not while its box is already on screen). Changing the library
 drops any text not yet saved. Keys typed there stay there: S, E and Del act only on the list's cursor row. Nothing
-else writes `notes.md`: summary runs, re-runs and Replace transcript… leave it byte-identical. The tab shows on any
-meeting with a folder and no state card (so not on Scheduled, In call, Awaiting transcript or Skipped). To seed: put a
-`notes.md` in the meeting folder.
+else writes `notes.md`: summary runs, re-runs, captures, attaches and Replace transcript… leave it byte-identical. Every
+meeting has the tab, so notes can be written before and during the call: on Scheduled, In call, Awaiting transcript
+and Skipped the state card is the Summary tab's body, beside My notes. A calendar-only meeting (no folder yet) gets its
+folder on the first save, `meeting.json` from the cached event plus `notes.md`, made as the scheduler would make it so
+its state and fetch schedule don't change (upcoming: Scheduled, first attempt at its end; ended: due now); its row then
+goes by the folder, and the capture later lands in that folder beside the notes. While the library is missing the save
+is refused, nothing is made, and the text is kept and saved once the folder is back. To seed: put a `notes.md` in the
+meeting folder.
 
 Search (D28, D45): typing in the list's search box filters the list in place to the meetings whose title, organiser
 or attendees, or whose `summary.md`, `transcript.md` or `notes.md`, hold the query (a plain scan on each keystroke

@@ -43,7 +43,8 @@ describe("first run", () => {
     await expect($("#first-logon-dev")).toHaveText("Always off in a dev instance, which never touches the Run key.");
   });
 
-  it("Choose library folder takes the folder picked, and Finish saves it and lands on the list, leaving the Run key alone", async () => {
+  it("Choose library folder takes the folder picked, Finish saves it and lands on the list, the Run key is left alone, and a restart has no first run", async () => {
+    await expect($("#first-choose")).toBeDisplayed();
     const chosen = root("chosen-library");
     fs.mkdirSync(chosen, { recursive: true });
     await pickerAnswers(chosen);
@@ -57,9 +58,7 @@ describe("first run", () => {
     expect(runKey()).toBe(before);
     await $("#settings-button").click();
     await expect($("#library-path")).toHaveText(chosen);
-  });
 
-  it("after a restart there is no first run", async () => {
     await browser.reloadSession(); // quits and relaunches the app with the same folders
     await expect($("#list-view")).toBeDisplayed();
     await expect($("#first-run")).not.toBeDisplayed();
