@@ -63,20 +63,51 @@ pub fn is_msi(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
 }
 
-/// Restart and update's hidden `cmd /c` line: a 2 s pause (ping, the one wait cmd has without a console) so the app has
-/// quit before msiexec checks for files in use (live on the VM it was still exiting 0.6 s after msiexec started), then
-/// msiexec on the MSI, waited for, then the app again (the new version, or the
-/// old one if the install failed or was cancelled). The MSI is per-user, so msiexec runs unelevated with no UAC prompt;
-/// /passive shows only its progress bar. The relaunch lives here, not in the MSI, which stays declarative (no custom
-/// action, Jack q3/q4); tauri-plugin-updater's own install needs one (it passes AUTOLAUNCHAPP for the MSI to act on).
-/// ponytail: a `%` in a path would be expanded by cmd; temp and install paths have none in practice.
-pub fn install_line(msiexec: &Path, msi: &Path, exe: &Path) -> String {
-    format!(r#"/d /c ping -n 3 127.0.0.1 >nul & start "" /wait "{}" /i "{}" /passive /norestart & start "" "{}""#, msiexec.display(), msi.display(), exe.display())
+/// How long "will restart" shows before the window closes for an update.
+pub const NOTICE: Duration = Duration::from_secs(2);
+
+/// What the list says once Restart and update goes ahead, before the window closes.
+pub fn restarting(name: &str) -> String {
+    format!("{name} will restart in a few seconds.")
 }
 
-/// Restart and update waits while a capture or a summary is running: quitting would cut it off.
-pub fn busy(list: &[Listed]) -> Option<&'static str> {
-    if list.iter().any(|l| l.fetching) {
+/// The tray's update item: Check for updates, or the update found (the window may be closed to the tray).
+pub fn tray_label(ready: Option<&str>) -> String {
+    ready.map_or("Check for updates".into(), |v| format!("Restart and update to version {v}"))
+}
+
+/// `p` as a PowerShell single-quoted string: nothing in it is expanded (`$`, `%`, a backtick), and each character
+/// PowerShell reads as a single quote (the typographic ones too) is doubled.
+fn ps_quoted(p: &Path) -> String {
+    let mut s = String::from("'");
+    for c in p.display().to_string().chars() {
+        if matches!(c, '\'' | '\u{2018}'..='\u{201B}') {
+            s.push(c);
+        }
+        s.push(c);
+    }
+    s.push('\'');
+    s
+}
+
+/// Restart and update's hidden helper, powershell.exe's arguments: it waits for the app (`pid`) to exit, so msiexec
+/// never meets its files in use, runs msiexec on the MSI and waits for it, deletes the MSI, then starts the app again
+/// (the new version, or the old one if the install failed or was cancelled). The MSI is per-user, so msiexec runs
+/// unelevated with no UAC prompt; /passive shows only its progress bar. The relaunch lives here, not in the MSI, which
+/// stays declarative (no custom action, Jack q3/q4); tauri-plugin-updater's own install needs one (it passes
+/// AUTOLAUNCHAPP for the MSI to act on). The script holds no double quote, so the command line can't split it.
+pub fn install_args(pid: u32, msiexec: &Path, msi: &Path, exe: &Path) -> String {
+    let (msiexec, msi, exe) = (ps_quoted(msiexec), ps_quoted(msi), ps_quoted(exe));
+    format!(
+        "-NoProfile -NonInteractive -Command \"Wait-Process -Id {pid} -Timeout 30 -ErrorAction SilentlyContinue; & {msiexec} /i {msi} /passive /norestart | Out-Null; Remove-Item -LiteralPath {msi} -ErrorAction SilentlyContinue; & {exe}\""
+    )
+}
+
+/// Restart and update waits while a capture, a summary or an import from Teams is running: quitting would cut it off.
+pub fn busy(list: &[Listed], importing: bool) -> Option<&'static str> {
+    if importing {
+        Some("Not now: an import from Teams is running. Restart and update once it has finished.")
+    } else if list.iter().any(|l| l.fetching) {
         Some("Not now: a transcript is being fetched. Restart and update once it has finished.")
     } else if list.iter().any(|l| l.meeting.state == State::Summarising) {
         Some("Not now: a summary is being written. Restart and update once it has finished.")
@@ -131,18 +162,33 @@ mod tests {
     }
 
     #[test]
-    fn restart_and_update_waits_for_msiexec_then_starts_the_app() {
-        let line = install_line(
+    fn restart_and_update_waits_for_the_app_to_exit_then_msiexec_then_starts_the_app() {
+        let args = install_args(
+            4242,
             Path::new(r"C:\Windows\System32\msiexec.exe"),
             Path::new(r"C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi"),
             Path::new(r"C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe"),
         );
         assert_eq!(
-            line,
-            r#"/d /c ping -n 3 127.0.0.1 >nul & start "" /wait "C:\Windows\System32\msiexec.exe" /i "C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi" /passive /norestart & start "" "C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe""#
+            args,
+            r#"-NoProfile -NonInteractive -Command "Wait-Process -Id 4242 -Timeout 30 -ErrorAction SilentlyContinue; & 'C:\Windows\System32\msiexec.exe' /i 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' /passive /norestart | Out-Null; Remove-Item -LiteralPath 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' -ErrorAction SilentlyContinue; & 'C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe'""#
         );
         assert!(is_msi(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0]));
         assert!(!is_msi(b"MZ an exe"), "an NSIS installer or anything else isn't run");
+    }
+
+    #[test]
+    fn a_path_with_a_quote_a_percent_or_a_dollar_stays_one_literal_string() {
+        let args = install_args(1, Path::new("m.exe"), Path::new("C:\\O'Neil \u{2019}x\u{2019} 100% $HOME\\u.msi"), Path::new("a.exe"));
+        assert!(args.contains(r"/i 'C:\O''Neil ’’x’’ 100% $HOME\u.msi' /passive"), "{args}");
+        assert_eq!(args.matches('"').count(), 2, "only the -Command string's own quotes");
+    }
+
+    #[test]
+    fn the_notice_and_the_tray_item_name_the_update() {
+        assert_eq!(restarting("Meeting capture"), "Meeting capture will restart in a few seconds.");
+        assert_eq!(tray_label(None), "Check for updates");
+        assert_eq!(tray_label(Some("0.2.0")), "Restart and update to version 0.2.0");
     }
 
     fn listed(state: State, fetching: bool) -> Listed {
@@ -151,10 +197,12 @@ mod tests {
     }
 
     #[test]
-    fn restart_and_update_waits_for_a_capture_or_a_summary() {
-        assert_eq!(busy(&[]), None);
-        assert_eq!(busy(&[listed(State::Done, false), listed(State::SummaryFailed, false)]), None);
-        assert_eq!(busy(&[listed(State::AwaitingTranscript, true)]), Some("Not now: a transcript is being fetched. Restart and update once it has finished."));
-        assert_eq!(busy(&[listed(State::Done, false), listed(State::Summarising, false)]), Some("Not now: a summary is being written. Restart and update once it has finished."));
+    fn restart_and_update_waits_for_a_capture_a_summary_or_an_import() {
+        assert_eq!(busy(&[], false), None);
+        assert_eq!(busy(&[listed(State::Done, false), listed(State::SummaryFailed, false)], false), None);
+        assert_eq!(busy(&[listed(State::AwaitingTranscript, true)], false), Some("Not now: a transcript is being fetched. Restart and update once it has finished."));
+        assert_eq!(busy(&[listed(State::Done, false), listed(State::Summarising, false)], false), Some("Not now: a summary is being written. Restart and update once it has finished."));
+        // An import from Teams between its meetings has none fetching or summarising, and still waits.
+        assert_eq!(busy(&[listed(State::Done, false)], true), Some("Not now: an import from Teams is running. Restart and update once it has finished."));
     }
 }

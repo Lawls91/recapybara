@@ -32,18 +32,32 @@ const manifest = (version, signature) => ({
   platforms: { "windows-x86_64": { signature, url: `${base}/package.bin` } },
 });
 
-let answer = { status: 404 };
+let answer = { status: 404 }; // plus delayMs: latest.json answers that late, so a check holds its lock meanwhile
 const hits = [];
 const server = http.createServer((req, res) => {
   hits.push(req.url);
   if (req.url === "/package.bin") return res.end(fs.readFileSync(pkg));
-  if (req.url !== "/latest.json" || answer.status !== 200) return res.writeHead(404).end("Not Found");
-  res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(answer.body));
+  const a = answer;
+  setTimeout(() => {
+    if (req.url !== "/latest.json" || a.status !== 200) return res.writeHead(404).end("Not Found");
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(a.body));
+  }, req.url === "/latest.json" ? (a.delayMs ?? 0) : 0);
 });
 const serve = (body) => (answer = { status: 200, body });
 
 const NEWER = "9.9.9";
 let goodSig;
+
+/** A Check for updates started from the page and not waited for; resolves once its request has reached the server
+ * (the check holds the update lock from before it asks). */
+const checkInBackground = async () => {
+  const before = hits.length;
+  await browser.execute(() => {
+    window.__TAURI_INTERNALS__.invoke("check_updates").catch(() => {});
+  });
+  await browser.waitUntil(() => hits.slice(before).includes("/latest.json"), { timeout: 10000 });
+};
+const announced = () => browser.execute(() => document.getElementById("sr-status").textContent);
 
 const check = async (expected) => {
   if (!(await $("#settings-view").isDisplayed())) await $("#settings-button").click();
@@ -82,6 +96,7 @@ describe("self-update", () => {
     await expect($("#update-banner")).toBeDisplayed({ wait: 30000 });
     await expect($("#update-text")).toHaveText(`Version ${NEWER} is available.`);
     await expect($("#update-install")).toHaveText("Restart and update");
+    expect(await announced()).toBe(`Version ${NEWER} is available.`); // the polite live region
     expect(hits).toContain("/package.bin"); // downloaded and verified before the banner shows
     // Non-blocking: the list still works under it, and the app is still the one running.
     await $("#settings-button").click();
@@ -96,13 +111,46 @@ describe("self-update", () => {
     const id = await invoke("import_transcript", { path: freshFixture(), id: null });
     await expect($(`.row[data-id="${id}"] .lbl`)).toHaveText("Summarising");
     await $("#update-install").click();
+    const refused = `Version ${NEWER} is available. Not now: a summary is being written. Restart and update once it has finished.`;
+    await expect($("#update-text")).toHaveText(refused);
+    expect(await announced()).toBe(refused);
+    await expect($(`.row[data-id="${id}"] .lbl`)).toHaveText("Summary ready", { wait: 20000 });
+    // Not refused now: the list says the app will restart, then it reaches the installer, which this synthetic package
+    // isn't (a real MSI would start msiexec and the window would close).
+    await $("#update-install").click();
+    const notice = `${conf.productName} will restart in a few seconds.`;
+    await expect($("#update-text")).toHaveText(notice);
+    expect(await announced()).toBe(notice);
+    await expect($("#update-install")).toBeDisabled();
+    await expect($("#update-text")).toHaveText(`Version ${NEWER} is available. Couldn't update: the download isn't an installer`, { wait: 10000 });
+    await expect($("#update-install")).toBeEnabled();
+  });
+
+  it("Restart and update pressed during a check waits for it, so a summary started meanwhile still refuses it", async () => {
+    answer = { ...answer, delayMs: 4000 }; // the same newer version, answered late
+    await checkInBackground();
+    scenario({ structuredOutput: { overview: "Synthetic summary." }, delayMs: 10000 });
+    await $("#update-install").click(); // waits for the check
+    const id = await invoke("import_transcript", { path: freshFixture(), id: null });
+    await expect($(`.row[data-id="${id}"] .lbl`)).toHaveText("Summarising");
+    await expect($("#update-text")).toHaveText(
+      `Version ${NEWER} is available. Not now: a summary is being written. Restart and update once it has finished.`,
+      { wait: 10000 },
+    );
+    await expect($(`.row[data-id="${id}"] .lbl`)).toHaveText("Summary ready", { wait: 20000 });
+    answer = { ...answer, delayMs: 0 };
+  });
+
+  it("the tray's Restart and update to version X runs the banner's Restart and update", async () => {
+    // The tray item emits this once an update is ready (its label is update::tray_label's, unit-tested).
+    scenario({ structuredOutput: { overview: "Synthetic summary." }, delayMs: 6000 });
+    const id = await invoke("import_transcript", { path: freshFixture(), id: null });
+    await expect($(`.row[data-id="${id}"] .lbl`)).toHaveText("Summarising");
+    await browser.execute(() => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "install-update", payload: null }));
     await expect($("#update-text")).toHaveText(
       `Version ${NEWER} is available. Not now: a summary is being written. Restart and update once it has finished.`,
     );
     await expect($(`.row[data-id="${id}"] .lbl`)).toHaveText("Summary ready", { wait: 20000 });
-    // Not refused now: it reaches the installer, which this synthetic package isn't (a real MSI would start msiexec).
-    await $("#update-install").click();
-    await expect($("#update-text")).toHaveText(`Version ${NEWER} is available. Couldn't update: the download isn't an installer`);
   });
 
   it("Check for updates with the same version says up to date and drops the banner", async () => {
@@ -122,6 +170,14 @@ describe("self-update", () => {
     await check(`Version ${NEWER} is available`);
     await $("#settings-back").click();
     await expect($("#update-banner")).toBeDisplayed();
+    await expect($("#update-text")).toHaveText(`Version ${NEWER} is available.`);
+  });
+
+  it("a page loaded during a check that then fails still shows the update found earlier", async () => {
+    answer = { status: 404, delayMs: 4000 };
+    await checkInBackground();
+    await browser.refresh(); // its update_ready answers nothing while the check holds the lock
+    await expect($("#update-banner")).toBeDisplayed({ wait: 10000 });
     await expect($("#update-text")).toHaveText(`Version ${NEWER} is available.`);
   });
 

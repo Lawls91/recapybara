@@ -33,6 +33,8 @@ struct AppState {
     skill_home: Option<PathBuf>,
     settings: Mutex<Settings>,
     logon_item: Mutex<Option<CheckMenuItem<Wry>>>,
+    /// The tray's Check for updates, renamed while an update is ready (update::tray_label).
+    update_item: Mutex<Option<MenuItem<Wry>>>,
     /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
     pending_open: Mutex<Option<String>>,
     calendar: calendar::Calendar,
@@ -591,26 +593,35 @@ fn updater(app: &AppHandle) -> tauri_plugin_updater::Result<tauri_plugin_updater
 
 /// One check: the manifest, then a newer version's package, downloaded and verified now, so a bad signature is refused
 /// here and Restart and update installs at once. Returns the version ready to install, if any; the page hears it as
-/// update-ready. A dev instance never checks.
+/// update-ready, and the tray's update item names it. A dev instance never checks.
 async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
     let state = app.state::<AppState>();
     if state.dev {
         return Err(update::DEV_OFF.into());
     }
     let mut ready = state.update.lock().await;
-    let found = async { updater(app)?.check().await }.await.map_err(|e| update::check_failed(None, &e))?;
-    match found {
-        None => *ready = None,
-        Some(u) if ready.as_ref().is_some_and(|(v, _)| *v == u.version) => {}
-        Some(u) => {
-            let bytes = u.download(|_, _| {}, || {}).await.map_err(|e| update::check_failed(Some(&u.version), &e))?;
-            *ready = Some((u.version, bytes));
+    let checked = async {
+        let found = async { updater(app)?.check().await }.await.map_err(|e| update::check_failed(None, &e))?;
+        match found {
+            None => *ready = None,
+            Some(u) if ready.as_ref().is_some_and(|(v, _)| *v == u.version) => {}
+            Some(u) => {
+                let bytes = u.download(|_, _| {}, || {}).await.map_err(|e| update::check_failed(Some(&u.version), &e))?;
+                *ready = Some((u.version, bytes));
+            }
         }
+        *state.last_check.lock().unwrap() = Some(SystemTime::now());
+        Ok::<(), String>(())
     }
-    *state.last_check.lock().unwrap() = Some(SystemTime::now());
+    .await;
+    // Told even when the check failed: a page loaded during it (update_ready answers None meanwhile) still learns of
+    // an update found earlier.
     let version = ready.as_ref().map(|(v, _)| v.clone());
     let _ = app.emit("update-ready", &version);
-    Ok(version)
+    if let Some(item) = state.update_item.lock().unwrap().as_ref() {
+        let _ = item.set_text(update::tray_label(version.as_deref()));
+    }
+    checked.map(|_| version)
 }
 
 /// Settings' and the tray's Check for updates.
@@ -629,42 +640,71 @@ fn update_ready(state: State<AppState>) -> Option<String> {
     state.update.try_lock().ok()?.as_ref().map(|(v, _)| v.clone())
 }
 
-/// Restart and update, never on its own: refused while a capture or summary runs (update::busy). The verified MSI goes
-/// to a temp file, msiexec runs it (per-user: no UAC prompt) from a hidden cmd that starts the app again once it ends
-/// (update::install_line), and the app quits so msiexec can replace its exe. The page has saved its notes first.
+/// Restart and update, never on its own: refused while a capture, summary or import runs (update::busy). The list says
+/// the app will restart (update-restarting) for update::NOTICE; then the verified MSI goes to a temp file, msiexec runs
+/// it (per-user: no UAC prompt) from a hidden PowerShell that waits for this process to exit and starts the app again
+/// once msiexec ends (update::install_args), and the app quits the way the tray's Quit does, notes saved first.
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     if state.dev {
         return Err(update::DEV_OFF.into());
     }
-    let lib = state.settings.lock().unwrap().library_path.clone();
-    if let Some(why) = update::busy(&lib.map(|l| library::list(Path::new(&l))).unwrap_or_default()) {
+    // The lock before the busy check: a check holding it (its download can take 2 min) may end after a capture or a
+    // summary has started.
+    let mut ready = state.update.lock().await;
+    let busy = || {
+        let lib = state.settings.lock().unwrap().library_path.clone();
+        update::busy(&lib.map(|l| library::list(Path::new(&l))).unwrap_or_default(), state.teams.running())
+    };
+    if let Some(why) = busy() {
         return Err(why.into());
     }
-    let ready = state.update.lock().await;
-    let (version, bytes) = ready.as_ref().ok_or("No update is ready. Check for updates first.")?;
+    if ready.is_none() {
+        return Err("No update is ready. Check for updates first.".into());
+    }
+    let _ = app.emit("update-restarting", update::restarting(&display_name(&app)));
+    let _ = tauri::async_runtime::spawn_blocking(|| std::thread::sleep(update::NOTICE)).await;
+    if let Some(why) = busy() {
+        return Err(why.into()); // one started while the notice showed
+    }
+    let (version, bytes) = ready.as_ref().unwrap();
     if !update::is_msi(bytes) {
         return Err("Couldn't update: the download isn't an installer".into());
     }
     let msi = std::env::temp_dir().join(format!("{}-{version}.msi", app.package_info().name));
     std::fs::write(&msi, bytes).map_err(|e| format!("Couldn't update: {e}"))?;
-    let msiexec = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into())).join(r"System32\msiexec.exe");
+    let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into())).join("System32");
     let exe = std::env::current_exe().map_err(|e| format!("Couldn't update: {e}"))?;
-    let line = update::install_line(&msiexec, &msi, &exe);
+    let args = update::install_args(std::process::id(), &system.join("msiexec.exe"), &msi, &exe);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        std::process::Command::new("cmd").raw_arg(line).creation_flags(CREATE_NO_WINDOW).spawn().map_err(|e| format!("Couldn't update: {e}"))?;
+        let powershell = system.join(r"WindowsPowerShell\v1.0\powershell.exe");
+        if let Err(e) = std::process::Command::new(powershell).raw_arg(args).creation_flags(CREATE_NO_WINDOW).spawn() {
+            let _ = std::fs::remove_file(&msi);
+            return Err(format!("Couldn't update: {e}"));
+        }
     }
     #[cfg(not(windows))]
-    let _ = line;
-    app.exit(0);
+    let _ = args;
+    *ready = None; // on disk now; the app is quitting
+    quit_after_save(&app);
     Ok(())
 }
 
-fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>> {
+/// Quit as the tray's Quit does: the page saves any unsaved notes, then calls quit; it gets 1 s.
+fn quit_after_save(app: &AppHandle) {
+    let _ = app.emit("quitting", ());
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        app.exit(0);
+    });
+}
+
+fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>, MenuItem<Wry>)> {
     let name = display_name(app);
     let dev = app.state::<AppState>().dev;
     let open = MenuItem::with_id(app, "open", format!("Open {name}"), true, None::<&str>)?;
@@ -685,10 +725,15 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
                 show_main(app);
                 let _ = app.emit("open-settings", ());
             }
+            // Restart and update to version X once one is ready (the page runs it, as its banner's button), else a check.
             "updates" => {
                 show_main(app);
-                let _ = app.emit("open-settings", ());
-                let _ = app.emit("check-updates", ());
+                if update_ready(app.state()).is_some() {
+                    let _ = app.emit("install-update", ());
+                } else {
+                    let _ = app.emit("open-settings", ());
+                    let _ = app.emit("check-updates", ());
+                }
             }
             "refresh" => {
                 let app = app.clone();
@@ -703,15 +748,7 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
                 s.start_at_logon = !s.start_at_logon;
                 let _ = apply_settings(app, s);
             }
-            // The page saves any unsaved notes, then calls quit; it gets 1 s.
-            "quit" => {
-                let _ = app.emit("quitting", ());
-                let app = app.clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    app.exit(0);
-                });
-            }
+            "quit" => quit_after_save(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, e| {
@@ -720,7 +757,7 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<CheckMenuItem<Wry>>
             }
         })
         .build(app)?;
-    Ok(logon_item)
+    Ok((logon_item, updates))
 }
 
 pub fn run() {
@@ -771,7 +808,7 @@ pub fn run() {
             let logon = s.start_at_logon;
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None) });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None) });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -780,8 +817,9 @@ pub fn run() {
             if !first && logon {
                 let _ = app.autolaunch().enable();
             }
-            let item = build_tray(app.handle(), logon)?;
+            let (item, updates) = build_tray(app.handle(), logon)?;
             *app.state::<AppState>().logon_item.lock().unwrap() = Some(item);
+            *app.state::<AppState>().update_item.lock().unwrap() = Some(updates);
             // The calendar at start, then every 30 minutes (D9); the fetches it makes due, and every retry (D12).
             let handle = app.handle().clone();
             std::thread::spawn(move || loop {

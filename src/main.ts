@@ -1184,23 +1184,38 @@ listen("settings-changed", async () => {
   await loadMeetings();
 });
 listen("open-settings", () => show("settings"));
-// A dev instance (--dev): marked, and it never starts at logon.
+// A dev instance (--dev): marked, it never starts at logon, and it never checks for updates.
 invoke<boolean>("is_dev").then((dev) => {
   $("dev-badge").hidden = !dev;
   $("start-at-logon-dev").hidden = !dev;
   $<HTMLInputElement>("start-at-logon").disabled = dev;
+  if (!dev) return;
+  $("update-status").textContent = "Updates are off in a dev instance";
+  $<HTMLButtonElement>("check-updates").disabled = true;
 });
 
 // ---------- updates (slice 19): checked at start and daily by the backend; installed only on Restart and update ----------
 
+/** The banner's text, announced in the polite live region when it changes, or `always` (a refusal said again). */
+function updateBanner(text: string, always = false) {
+  $("update-banner").hidden = !text;
+  const changed = $("update-text").textContent !== text;
+  $("update-text").textContent = text;
+  if (text && (changed || always)) $("sr-status").textContent = text;
+}
 /** The banner: the version found, plus why Restart and update was refused, if it was. */
 let updateVersion: string | null = null;
 function paintUpdate(version: string | null, refused = "") {
   updateVersion = version;
-  $("update-banner").hidden = !version;
-  $("update-text").textContent = version ? `Version ${version} is available.${refused ? ` ${refused}` : ""}` : "";
+  $<HTMLButtonElement>("update-install").disabled = false;
+  updateBanner(version ? `Version ${version} is available.${refused ? ` ${refused}` : ""}` : "", !!refused);
 }
 listen<string | null>("update-ready", (e) => paintUpdate(e.payload));
+// Restart and update went ahead: "will restart in a few seconds" until the window closes.
+listen<string>("update-restarting", (e) => {
+  $<HTMLButtonElement>("update-install").disabled = true;
+  updateBanner(e.payload);
+});
 invoke<string | null>("update_ready").then((v) => paintUpdate(v));
 async function checkUpdates() {
   const status = $("update-status");
@@ -1215,15 +1230,12 @@ async function checkUpdates() {
 }
 $("check-updates").onclick = checkUpdates;
 listen("check-updates", checkUpdates); // the tray's Check for updates, after it opened Settings
-$("update-install").onclick = async () => {
-  flushNotes(); // the app exits once the installer starts
+async function installUpdate() {
+  await flushNotes(); // saved before the backend goes ahead (it quits as the tray's Quit does, which saves again)
   await invoke("install_update").catch((e) => paintUpdate(updateVersion, String(e)));
-};
-invoke<boolean>("is_dev").then((dev) => {
-  if (!dev) return;
-  $("update-status").textContent = "Updates are off in a dev instance";
-  $<HTMLButtonElement>("check-updates").disabled = true;
-});
+}
+$("update-install").onclick = installUpdate;
+listen("install-update", installUpdate); // the tray's Restart and update to version X
 
 // ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------
 
