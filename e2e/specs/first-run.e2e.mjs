@@ -1,7 +1,7 @@
 import { $, browser, expect } from "@wdio/globals";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { body, calendar, claudeRecords, event, fetchesOf, pickerAnswers, root, scenario, transcriptRead, vtt } from "../helpers.mjs";
+import { body, calendar, event, fetchesOf, pickerAnswers, refreshCalendar, root, scenario, transcriptRead, vtt } from "../helpers.mjs";
 
 // First run (D25, D31), on a dev instance with no settings yet (e2e/run.mjs writes none for this spec), so the Run key
 // is never touched. The fake claude answers --version.
@@ -14,8 +14,6 @@ const runKey = () => {
 /** Library folders holding a meeting for event `e` (by its event id). */
 const holding = (lib, e) =>
   fs.existsSync(lib) ? fs.readdirSync(lib).filter((d) => fs.existsSync(`${lib}/${d}/meeting.json`) && JSON.parse(fs.readFileSync(`${lib}/${d}/meeting.json`, "utf8")).eventId === e.id) : [];
-/** Claude runs (not `claude --version`). */
-const runs = () => claudeRecords().filter((r) => r.argv.includes("-p"));
 
 describe("first run", () => {
   let before;
@@ -46,9 +44,11 @@ describe("first run", () => {
     const s = calendar([e], ["https://teams.example/j/caught-up"], { structuredOutput: { overview: "Synthetic summary." } });
     s.hooks.push(transcriptRead(e, body(e, vtt(e.subject))));
     scenario(s);
-    await browser.pause(1500);
-    // Nothing runs while first run is up: no calendar refresh, no fetch, no folder in the default library.
-    expect(runs()).toEqual([]);
+    // The calendar still refreshes during first run (the tray's Refresh calendar now), so the meeting is cached; but
+    // through a full 30 s tick nothing is fetched or made in the default library.
+    await refreshCalendar();
+    await browser.pause(32000);
+    expect(fetchesOf(e)).toEqual([]);
     expect(holding(root("dev", "library"), e)).toEqual([]);
     const chosen = root("chosen-library");
     fs.mkdirSync(chosen, { recursive: true });

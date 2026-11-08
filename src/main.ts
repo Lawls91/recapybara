@@ -65,6 +65,13 @@ const unsaved = new Map<string, string>();
 const sending = new Map<string, string>();
 /** Meetings whose last save failed. */
 const notSaved = new Set<string>();
+/** notes.md as this page last had it on disk, by meeting: what text carried to another library is checked against. */
+const onDisk = new Map<string, string>();
+/** Meetings whose unsaved text came over from the library before (Choose folder after it went missing): saved with
+ * `base`, so it never replaces other notes in a same-named folder there. */
+const carried = new Set<string>();
+/** Carried text refused there: kept, Not saved, and not sent again until the user types in it (then it replaces them). */
+const held = new Set<string>();
 let notesTimer: number | undefined;
 /** Saves run one after another, so an older text never lands after a newer one. */
 let notesSaving: Promise<unknown> = Promise.resolve();
@@ -92,18 +99,22 @@ function flushNotes() {
     return notesSaving;
   }
   for (const [id, text] of unsaved) {
-    if (sending.get(id) === text) continue;
+    if (sending.get(id) === text || held.has(id)) continue;
     sending.set(id, text);
+    const base = carried.has(id) ? (onDisk.get(id) ?? "") : null;
     notesSaving = notesSaving
-      .then(() => invoke<string>("save_notes", { id, text }))
+      .then(() => invoke<string>("save_notes", { id, text, base }))
       .then(
         (folder) => {
           notSaved.delete(id);
+          carried.delete(id);
+          onDisk.set(folder, text);
           if (unsaved.get(id) === text) unsaved.delete(id);
           if (folder !== id) moved(id, folder);
         },
         (e) => {
           notSaved.add(id); // still in `unsaved`: the next flush tries again
+          if (base !== null && !String(e).includes(LIBRARY_GONE)) held.add(id);
           failed(e);
         },
       )
@@ -121,6 +132,7 @@ function moved(from: string, to: string) {
   const left = unsaved.get(from);
   unsaved.delete(from);
   if (left !== undefined) unsaved.set(to, left);
+  for (const set of [carried, held]) if (set.delete(from)) set.add(to);
   if (selected === from) selected = to;
   if (cursor === from) cursor = to;
   const box = document.querySelector<HTMLTextAreaElement>("#notes");
@@ -130,6 +142,8 @@ function moved(from: string, to: string) {
 
 function notesTyped(e: Event) {
   const box = e.target as HTMLTextAreaElement;
+  // Typed into after its carried text was refused: the user's choice, so it replaces the notes there.
+  if (held.delete(box.dataset.id!)) carried.delete(box.dataset.id!);
   unsaved.set(box.dataset.id!, box.value);
   paintNotesStatus();
   clearTimeout(notesTimer);
@@ -141,7 +155,10 @@ function notesTyped(e: Event) {
  * Not saved. The box is drawn again for the new library. */
 let notesLibrary: string | null | undefined;
 function libraryIs(path: string | null) {
-  if (notesLibrary !== undefined && path !== notesLibrary) document.getElementById("notes")?.remove();
+  if (notesLibrary !== undefined && path !== notesLibrary) {
+    document.getElementById("notes")?.remove();
+    for (const id of unsaved.keys()) carried.add(id);
+  }
   notesLibrary = path;
 }
 
@@ -1077,6 +1094,7 @@ async function renderDetail() {
   } else if (tab === "notes") {
     det.innerHTML = `${top}<div class="body nb" id="tab-body"><textarea id="notes" class="notes" data-id="${esc(m.id)}" aria-label="My notes" placeholder="Your notes for this meeting. They save as you type." spellcheck="true"></textarea></div>`;
     const box = $<HTMLTextAreaElement>("notes");
+    if (!unsaved.has(m.id)) onDisk.set(m.id, loaded!);
     box.value = unsaved.get(m.id) ?? loaded!; // typed into while notes.md was read
     box.oninput = notesTyped;
   } else {

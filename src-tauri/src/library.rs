@@ -492,6 +492,22 @@ pub fn write_notes(dir: &Path, text: &str) -> io::Result<()> {
     write_atomic(&dir.join(NOTES_MD), text.as_bytes())
 }
 
+/// Saves notes carried over from another library (the old one went missing and another was chosen): written unless this
+/// folder's notes.md exists and holds something other than `base` (notes.md as the page last had it in the old library)
+/// or `text`, which means it is another meeting's, or this one's edited elsewhere; those are never replaced.
+pub fn write_carried_notes(dir: &Path, text: &str, base: &str) -> Result<(), String> {
+    if dir.join(NOTES_MD).exists() {
+        let here = read_notes(dir).map_err(|e| format!("Notes not saved: {e}"))?;
+        if here != base && here != text {
+            return Err(NOT_REPLACED.into());
+        }
+    }
+    write_notes(dir, text).map_err(|e| format!("Notes not saved: {e}"))
+}
+
+/// Why carried notes weren't written (the page keeps them, Not saved).
+pub const NOT_REPLACED: &str = "Notes not saved: this meeting's notes.md in the chosen library holds other notes, so it wasn't replaced. Your text is kept in My notes: copy what you need, or type in it to replace them.";
+
 /// One search hit (D28): the meeting, the tab its file shows in, the matching line as the snippet shows it, and for
 /// a transcript line its turn's time.
 #[derive(Serialize, Debug, PartialEq)]
@@ -648,6 +664,23 @@ mod tests {
         let mut v: Vec<String> = fs::read_dir(lib).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into()).collect();
         v.sort();
         v
+    }
+
+    #[test]
+    fn carried_notes_never_replace_other_notes_in_a_same_named_folder() {
+        let dir = temp("carried");
+        // No notes.md there: written.
+        write_carried_notes(&dir, "Typed while the drive was gone", "").unwrap();
+        assert_eq!(read_notes(&dir).unwrap(), "Typed while the drive was gone");
+        // notes.md as the page had it (the same library at another letter): replaced by the newer text.
+        write_carried_notes(&dir, "Typed while the drive was gone, and more", "Typed while the drive was gone").unwrap();
+        assert_eq!(read_notes(&dir).unwrap(), "Typed while the drive was gone, and more");
+        // Already holding the text (a retry): fine.
+        write_carried_notes(&dir, "Typed while the drive was gone, and more", "something else").unwrap();
+        // Another meeting's notes under the same name: left byte-identical, refused.
+        write_notes(&dir, "Another library's own notes\n").unwrap();
+        assert_eq!(write_carried_notes(&dir, "Carried text", "Typed while the drive was gone, and more").unwrap_err(), NOT_REPLACED);
+        assert_eq!(read_notes(&dir).unwrap(), "Another library's own notes\n");
     }
 
     #[test]

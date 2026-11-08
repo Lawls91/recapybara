@@ -72,9 +72,9 @@ the list: two lines on what the app does, then
   shows it off and disabled with the Settings note, and never touches the Run key.
 
 **Finish** saves the folder and the choice to `settings.json` and lands on the list; Settings changes either later.
-Nothing runs Claude while the page shows: the calendar refresh, the 30-second tick and every fetch wait for Finish
-(only the Claude Code check runs), so nothing is fetched into a library not yet chosen. Finish starts them at once,
-into the folder chosen.
+While the page shows, the calendar still refreshes (it only fills the in-memory cache), but the 30-second tick waits
+for Finish: no meeting folder is made and nothing is fetched or summarised into a library not yet chosen. Finish starts
+it at once, into the folder chosen.
 
 ## Install
 
@@ -311,7 +311,9 @@ up to 1 s for it), when the window's close button hides it to the tray, and when
 save, redraw or switch retries it until it lands. The tab reads `notes.md` afresh each time it is drawn, so an edit made
 in another editor shows the next time My notes opens (not while its box is already on screen). Text not yet saved
 when the library changes is kept and saved to that meeting in the new library (its folder there, or one made for a
-calendar-only meeting); a meeting with no folder there stays "Not saved". Keys typed there stay there: S, E and Del act only on the list's cursor row. Nothing
+calendar-only meeting); a meeting with no folder there stays "Not saved". It never replaces a notes.md there that holds
+other notes (a same-named folder of another meeting, or this one edited elsewhere): that save is refused with a
+notice, the tab reads "Not saved" and the text stays in the box; typing in it then replaces them. Keys typed there stay there: S, E and Del act only on the list's cursor row. Nothing
 else writes `notes.md`: summary runs, re-runs, captures, attaches and Replace transcript… leave it byte-identical. Every
 meeting has the tab, so notes can be written before and during the call: on Scheduled, In call, Awaiting transcript
 and Skipped the state card is the Summary tab's body, beside My notes. A calendar-only meeting (no folder yet) gets its

@@ -211,13 +211,18 @@ fn get_notes(app: AppHandle, id: String) -> Result<String, String> {
 }
 
 /// Saves My notes as the user types (D27). A calendar-only meeting gets its folder first, its state and schedule
-/// unchanged (fetch::folder_of). Returns the folder id, which the page takes over from the event's. No event: the page
-/// already shows what it saved.
+/// unchanged (fetch::folder_of). `base`: text carried over from another library, with notes.md as the page last had it
+/// there, so it never replaces other notes in a same-named folder here (library::write_carried_notes). Returns the
+/// folder id, which the page takes over from the event's. No event: the page already shows what it saved.
 #[tauri::command]
-fn save_notes(app: AppHandle, id: String, text: String) -> Result<String, String> {
+fn save_notes(app: AppHandle, id: String, text: String, base: Option<String>) -> Result<String, String> {
     let lib = library_path(&app)?;
     let id = fetch::folder_of(&lib, &id, &app.state::<AppState>().calendar.events(), chrono::Utc::now(), |m| m)?;
-    library::write_notes(&library::meeting_dir(&lib, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))?;
+    let dir = library::meeting_dir(&lib, &id)?;
+    match base {
+        Some(base) => library::write_carried_notes(&dir, &text, &base)?,
+        None => library::write_notes(&dir, &text).map_err(|e| format!("Notes not saved: {e}"))?,
+    }
     Ok(id)
 }
 
@@ -332,9 +337,6 @@ fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
 /// One calendar refresh (D9) through the user's claude. `scheduled`: only if 30 minutes have passed since the last.
 /// Never two at once; the page follows along through calendar-changed.
 fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
-    if first_running(app) {
-        return;
-    }
     // A chosen library that can't be read: nothing can be captured into it, so no claude run for it (D45). With none
     // chosen yet (first run) the calendar still loads.
     let chosen = app.state::<AppState>().settings.lock().unwrap().library_path.clone();
@@ -514,8 +516,9 @@ fn is_first_run(state: State<AppState>) -> bool {
     *state.first_run.lock().unwrap()
 }
 
-/// First run is up (no library chosen yet, D25): the calendar refresh, the scheduler's tick and every fetch wait for its
-/// Finish, so nothing runs Claude or writes into a library the user hasn't picked.
+/// First run is up (no library chosen yet, D25): the scheduler's tick (its folders and fetches, so their summaries) waits
+/// for its Finish, so nothing is fetched or written into a library the user hasn't picked. The calendar refresh still
+/// runs: it only fills the in-memory cache.
 fn first_running(app: &AppHandle) -> bool {
     *app.state::<AppState>().first_run.lock().unwrap()
 }

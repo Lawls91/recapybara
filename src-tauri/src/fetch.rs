@@ -287,10 +287,14 @@ pub fn folder_of(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>, sha
     library::create(lib, &shape(Meeting { state, next_attempt, ..folder_for(e, now) })).map_err(|e| e.to_string())
 }
 
+/// A skipped meeting (D17): never fetched, so no attempt due.
+fn skipped(m: Meeting) -> Meeting {
+    Meeting { state: State::Skipped, skipped: true, next_attempt: None, ..m }
+}
+
 /// Skip (D17, D25) on a library folder or on a cached event, whose folder is made skipped (`folder_of`, one write). A
 /// skipped meeting is never fetched or summarised; only one not yet captured can be skipped. Returns the folder id.
 pub fn skip(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Result<String, String> {
-    let skipped = |m: Meeting| Meeting { state: State::Skipped, skipped: true, next_attempt: None, ..m };
     let id = &folder_of(lib, id, events, now, skipped)?;
     let dir = library::meeting_dir(lib, id)?;
     let m = library::load(&dir).map_err(|_| format!("Not a meeting: {id}"))?;
@@ -1145,6 +1149,18 @@ mod tests {
         assert_eq!(folder_of(&lib, &e.uri, std::slice::from_ref(&e), end(), same).unwrap(), theirs);
         assert_eq!(library::list(&lib).len(), 1);
 
+        // Skip's shape is applied before the one write: the folder is Skipped from the moment it exists.
+        let (lib2, e3) = (temp("notes-claim-shape"), event(3, start(), end()));
+        let made = RefCell::new(None);
+        let id = folder_of(&lib2, &e3.uri, std::slice::from_ref(&e3), end(), |m| {
+            let m = skipped(m);
+            *made.borrow_mut() = Some(m.clone());
+            m
+        })
+        .unwrap();
+        let on_disk = library::load(&lib2.join(&id)).unwrap();
+        assert_eq!((on_disk.state, on_disk.skipped, on_disk.next_attempt), (State::Skipped, true, None));
+        assert_eq!(Some(on_disk), *made.borrow(), "written exactly as shaped");
         // Skip on an event makes its folder skipped in one write: never a due, unskipped folder in between.
         let other = event(2, start(), end());
         let id = skip(&lib, &other.uri, std::slice::from_ref(&other), end()).unwrap();
