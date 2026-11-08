@@ -412,7 +412,7 @@ function drawList() {
     list.innerHTML = libraryMissing
       ? ""
       : hits
-      ? `<div class="empty" id="no-matches"><div class="emt">No matches for “${esc(query)}”</div><p class="ems">Try fewer words, such as Orbit, or a person’s name.</p></div>`
+      ? `<div class="empty" id="no-matches"><div class="emt">No matches for “${esc(query)}”</div><p class="ems">Try fewer words, or a person’s name.</p></div>`
       : `<div class="empty"><div class="emt">No meetings yet</div><p class="ems">Import a Teams transcript, and meetings from your calendar will show here as they happen.</p></div>`;
     return;
   }

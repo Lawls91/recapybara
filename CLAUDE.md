@@ -1,15 +1,6 @@
 # Meeting capture
 
-The plan lives outside this repo, in Jack's Obsidian vault. Read it before working on a ticket:
-
-- Design (decisions D1-D50, testing, out of scope):
-  `C:\Users\alex\OneDrive - Contoso\Notebooks\my-notebook\Projects\Meeting capture\Meeting capture 2 Design.md`
-- Outline (17 tickets in dependency order, each with acceptance criteria):
-  `...\Projects\Meeting capture\Meeting capture 3 Outline.md`
-- Research (the evidence the decisions rest on):
-  `...\Projects\Meeting capture\Meeting capture 1 Research.md`
-- UI mockups (visual reference only; decisions D38-D50 are the requirement):
-  `...\Projects\Meeting capture\assets\mockups\`
+The plan lives outside this repo, in the owner's Obsidian vault; its paths are in CLAUDE.local.md (not committed). Read it before working on a ticket.
 
 Rules that hold for every ticket:
 

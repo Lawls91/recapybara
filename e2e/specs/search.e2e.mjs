@@ -103,7 +103,7 @@ describe("search", () => {
     await typeQuery("zzz");
     await expect($("#no-matches")).toBeDisplayed();
     await expect($("#no-matches .emt")).toHaveText("No matches for “zzz”");
-    await expect($("#no-matches .ems")).toHaveText("Try fewer words, such as Orbit, or a person’s name.");
+    await expect($("#no-matches .ems")).toHaveText("Try fewer words, or a person’s name.");
     expect(await ids()).toEqual([]);
   });
 

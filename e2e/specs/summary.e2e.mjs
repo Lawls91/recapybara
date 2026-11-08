@@ -7,7 +7,7 @@ import { claudeRecords, fixture, freshFixture, invoke, root, scenario } from "..
 //   00:00:14.500-00:00:18.300 Speaker A "point 2 on the hotfix branch needs a written plan before release"
 //   00:19:58.500-00:20:02.300 Speaker C "point 298 on the policy editor needs a demo before release"
 //   00:31:10.500-00:31:14.300 Speaker B "point 466 on the policy editor needs a demo before release"
-//   last cue ends 00:36:54.300, so nothing is at 00:45:00
+//   last cue ends 00:35:06.300, so nothing is at 00:45:00
 const LONG = "Retry design.vtt";
 const item = (text, at, quote, extra = {}) => ({
   text,

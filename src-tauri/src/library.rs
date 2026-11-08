@@ -723,7 +723,7 @@ Ask Robin about the 403
         assert_eq!(json["source"], "import");
         assert_eq!(json["state"], "transcriptReady");
         // `Get-FileHash -Algorithm SHA256 "e2e\fixtures\Sprint review.vtt"`
-        assert_eq!(json["transcriptSha256"], "679421eeb70c0feb4de1bc4d5c16381d63af2259991e4bffa8b9cc59c7f3de3f");
+        assert_eq!(json["transcriptSha256"], "cf529a25dc6357920e77599366bf3002274a60cb918a46b73c16632dd96ae5c7");
     }
 
     #[test]

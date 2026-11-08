@@ -2202,4 +2202,16 @@ WEBVTT
 
 551
 00:36:50.500 --> 00:36:54.300
-<v Speaker A>point 551 on the test matrix needs a smoke test before release and that closes the review ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok </v>
+<v Speaker A>point 551 on the test matrix needs a smoke test before release</v>
+
+552
+00:36:54.500 --> 00:36:58.300
+<v Speaker A>point 552 on the audit log needs a second review before release</v>
+
+553
+00:36:58.500 --> 00:37:02.300
+<v Speaker A>point 553 on the retry rule needs a quick spike before release</v>
+
+554
+00:37:02.500 --> 00:35:06.300
+<v Speaker B>point 554 on the filter chain needs a written plan before release and that closes the review ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok</v>
