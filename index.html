@@ -92,6 +92,35 @@
       </div>
     </div>
 
+    <div id="first-run" class="frame settings" hidden>
+      <div class="det">
+        <div class="set">
+          <h1>Welcome</h1>
+          <p class="desc">This app lists your Teams meetings, fetches each transcript when the call ends and has Claude write a summary whose every point cites the transcript.</p>
+          <p class="desc">It works through your own Claude Code and claude.ai account, and keeps each meeting as plain files in a library folder you choose.</p>
+          <section>
+            <h3>Claude Code</h3>
+            <p id="first-claude" class="desc" role="status" aria-live="polite">Checking Claude Code…</p>
+          </section>
+          <section>
+            <h3>Library folder</h3>
+            <p class="desc">Meetings are saved here as files. Choose a folder outside any notes vault.</p>
+            <div class="fieldrow">
+              <span id="first-library" class="field"></span>
+              <button id="first-choose" class="btn">Choose library folder</button>
+            </div>
+          </section>
+          <section>
+            <label class="check"><input type="checkbox" id="first-logon" /> Start when I log in</label>
+            <p class="desc">Opens in the tray when you sign in to Windows, so meetings are captured without opening it. Change it any time in Settings.</p>
+            <p class="desc" id="first-logon-dev" hidden>Always off in a dev instance, which never touches the Run key.</p>
+          </section>
+          <p id="first-error" class="desc err" role="alert" hidden></p>
+          <button id="first-finish" class="btn pri">Finish</button>
+        </div>
+      </div>
+    </div>
+
     <p id="notice" class="notice" role="status" aria-live="polite"></p>
     <p id="sr-status" class="sr" role="status" aria-live="polite"></p>
     <div id="row-menu" class="menu" role="menu" hidden></div>

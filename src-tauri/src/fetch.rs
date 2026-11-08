@@ -236,17 +236,28 @@ pub(crate) fn folder_for(e: &Event, now: DateTime<Utc>) -> Meeting {
     }
 }
 
-/// Skip (D17, D25) on a library folder or on a cached event (`id` is its uri), which gets its folder now. A skipped
+/// The folder id for `id`: a library folder's own, or for a cached event (`id` is its uri) its folder, made now as the
+/// scheduler would make it, so its state and fetch schedule don't change (D12, D25): an upcoming one Scheduled and due
+/// at its end, an ended one due now. Skip and My notes on a calendar-only meeting go through here.
+pub fn folder_of(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Result<String, String> {
+    let Some(e) = events.iter().find(|e| e.uri == id) else {
+        library::meeting_dir(lib, id)?;
+        return Ok(id.into());
+    };
+    // A folder for the event may exist already (its end passed since the list was drawn, or notes made it).
+    if let Some(l) = library::list(lib).into_iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) {
+        return Ok(l.id);
+    }
+    let m = folder_for(e, now);
+    let m = if e.end > now { Meeting { state: State::Scheduled, next_attempt: m.end, ..m } } else { m };
+    library::create(lib, &m).map_err(|e| e.to_string())
+}
+
+/// Skip (D17, D25) on a library folder or on a cached event, which gets its folder now (`folder_of`). A skipped
 /// meeting is never fetched or summarised; only one not yet captured can be skipped. Returns the folder id.
 pub fn skip(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Result<String, String> {
     let skipped = |m: Meeting| Meeting { state: State::Skipped, skipped: true, next_attempt: None, ..m };
-    if let Some(e) = events.iter().find(|e| e.uri == id) {
-        // A folder for the event may exist already (its end passed since the list was drawn).
-        if let Some(l) = library::list(lib).into_iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str())) {
-            return skip(lib, &l.id, &[], now);
-        }
-        return library::create(lib, &skipped(folder_for(e, now))).map_err(|e| e.to_string());
-    }
+    let id = &folder_of(lib, id, events, now)?;
     let dir = library::meeting_dir(lib, id)?;
     let m = library::load(&dir).map_err(|_| format!("Not a meeting: {id}"))?;
     if dir.join(library::VTT).exists() {
@@ -1017,6 +1028,48 @@ mod tests {
         fs::write(lib.join(&other).join(library::VTT), VTT_A).unwrap();
         assert!(skip(&lib, &other, &[], end()).is_err());
         assert!(skip(&lib, "no such meeting", &[], end()).is_err());
+    }
+
+    #[test]
+    fn notes_on_a_calendar_only_meeting_make_its_folder_with_its_state_and_schedule_and_a_later_capture_or_attach_keeps_them() {
+        let lib = temp("notes-folder");
+        let e = event(1, start(), end());
+        let before = start() - Duration::minutes(10);
+        let id = folder_of(&lib, &e.uri, std::slice::from_ref(&e), before).unwrap();
+        let m = library::load(&lib.join(&id)).unwrap();
+        assert_eq!((m.state, m.next_attempt.map(DateTime::<Utc>::from)), (State::Scheduled, Some(end())), "upcoming: Scheduled, first attempt at its end");
+        assert_eq!((m.event_id.as_deref(), m.subject.as_str()), (Some("SYNTH-1"), "Synthetic 1"));
+        assert_eq!(m.transcript_url, e.meeting_transcript_url);
+        library::write_notes(&lib.join(&id), "Agenda: ask about Orbit
+").unwrap();
+        assert_eq!(folder_of(&lib, &e.uri, std::slice::from_ref(&e), before).unwrap(), id, "the next save finds the same folder");
+        assert_eq!(folder_of(&lib, &id, &[], before).unwrap(), id, "a folder is its own");
+        assert!(folder_of(&lib, "calendar:///events/UNKNOWN", &[], before).is_err(), "neither a folder nor a cached event");
+
+        // The schedule is the one it had: nothing before the end, the first attempt at it, which captures into this folder.
+        let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
+        let mut run = runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])));
+        for m in [-10, -1, 0] {
+            *minute.borrow_mut() = m;
+            tick(&lib, std::slice::from_ref(&e), Vec::new, end() + Duration::minutes(m), &mut run, none, |_, _| {});
+        }
+        assert_eq!(log.borrow().iter().map(|x| x.0).collect::<Vec<_>>(), [0]);
+        assert_eq!(library::list(&lib).len(), 1, "no second folder for the event");
+        assert_eq!(library::load(&lib.join(&id)).unwrap().state, State::TranscriptReady);
+        assert_eq!(fs::read_to_string(lib.join(&id).join(library::NOTES_MD)).unwrap(), "Agenda: ask about Orbit
+");
+
+        // Ended (the tick hasn't made its folder yet): due now, as the tick would make it. Attaching keeps the notes.
+        let ended = event(2, start(), end());
+        let now = end() + Duration::minutes(5);
+        let id = folder_of(&lib, &ended.uri, std::slice::from_ref(&ended), now).unwrap();
+        let m = library::load(&lib.join(&id)).unwrap();
+        assert_eq!((m.state, m.next_attempt.map(DateTime::<Utc>::from)), (State::AwaitingTranscript, Some(now)));
+        library::write_notes(&lib.join(&id), "During the call").unwrap();
+        let src = lib.join("synthetic.vtt");
+        fs::write(&src, VTT_A).unwrap();
+        library::attach(&lib, &id, &src).unwrap();
+        assert_eq!(fs::read_to_string(lib.join(&id).join(library::NOTES_MD)).unwrap(), "During the call");
     }
 
     #[test]

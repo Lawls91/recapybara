@@ -65,8 +65,9 @@ for (const spec of specs) {
     fs.mkdirSync(d, { recursive: true });
   }
   fs.writeFileSync(path.join(home, ".claude", "projects", "sibling-project", "keep.txt"), "keep");
-  // An existing install: library chosen, so no first-run dialog; logon off, so the Run key is never touched.
-  fs.writeFileSync(path.join(data, "settings.json"), JSON.stringify({ libraryPath: library, startAtLogon: false }));
+  // An existing install: library chosen, so no first run; logon off, so the Run key is never touched. The first-run
+  // specs start with no settings, as a new install does.
+  if (!name.startsWith("first-run")) fs.writeFileSync(path.join(data, "settings.json"), JSON.stringify({ libraryPath: library, startAtLogon: false }));
   const scenario = path.join(root, "scenario.json");
   // Default: a valid minimal summary, so an import (which starts its summary, D15) ends "Summary ready".
   fs.writeFileSync(scenario, JSON.stringify({ structuredOutput: { overview: "Synthetic summary." } }));
@@ -86,6 +87,8 @@ for (const spec of specs) {
     // The app must strip it from every claude it runs (D6); the fake's record shows whether it did.
     ANTHROPIC_API_KEY: "sk-e2e-parent-key-must-not-leak",
   };
+  // Claude Code not installed: nothing at the path it is run from.
+  if (name === "first-run-no-claude") env.MEETING_CAPTURE_CLAUDE = path.join(root, "not-installed", "claude.exe");
   // These two test the installed copy's own path, so they run without dev mode.
   if (name === "real-folders" || name === "single-instance") delete env.MEETING_CAPTURE_DEV;
   if (name === "real-folders") {

@@ -38,6 +38,8 @@ struct AppState {
     teams: fetch::TeamsImport,
     /// A dev instance: never touches the Run key.
     dev: bool,
+    /// No library chosen yet: the page shows first run until its Finish.
+    first_run: Mutex<bool>,
 }
 
 /// Env override (set and non-empty), else the real folder (D37).
@@ -208,10 +210,15 @@ fn get_notes(app: AppHandle, id: String) -> Result<String, String> {
     library::read_notes(&library::meeting_dir(&library_path(&app)?, &id)?).map_err(|e| e.to_string())
 }
 
-/// Saves My notes as the user types (D27). No event: the page already shows what it saved.
+/// Saves My notes as the user types (D27). A calendar-only meeting gets its folder first, its state and schedule
+/// unchanged (fetch::folder_of). Returns the folder id, which the page takes over from the event's. No event: the page
+/// already shows what it saved.
 #[tauri::command]
-fn save_notes(app: AppHandle, id: String, text: String) -> Result<(), String> {
-    library::write_notes(&library::meeting_dir(&library_path(&app)?, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))
+fn save_notes(app: AppHandle, id: String, text: String) -> Result<String, String> {
+    let lib = library_path(&app)?;
+    let id = fetch::folder_of(&lib, &id, &app.state::<AppState>().calendar.events(), chrono::Utc::now())?;
+    library::write_notes(&library::meeting_dir(&lib, &id)?, &text).map_err(|e| format!("Notes not saved: {e}"))?;
+    Ok(id)
 }
 
 /// Search (D28) for the list's search box. The scan runs on a blocking thread, so a big library never holds the window.
@@ -496,21 +503,36 @@ fn calendar_status(state: State<AppState>) -> calendar::Status {
     state.calendar.status()
 }
 
-fn first_run(app: &AppHandle) {
-    let handle = app.clone();
-    app.dialog()
-        .file()
-        .set_title("Choose your meeting library folder")
-        .pick_folder(move |picked| {
-            if let Some(p) = picked {
-                let mut s = handle.state::<AppState>().settings.lock().unwrap().clone();
-                s.library_path = Some(p.to_string());
-                s.start_at_logon = true;
-                let _ = handle.autolaunch().enable();
-                let _ = apply_settings(&handle, s);
-            }
-            show_main(&handle);
-        });
+#[tauri::command]
+fn is_first_run(state: State<AppState>) -> bool {
+    *state.first_run.lock().unwrap()
+}
+
+/// First run's Claude Code check: `claude --version` through the session's lookup (run once per app session), else
+/// "Claude Code not found" with its fix.
+#[tauri::command]
+async fn claude_check() -> Result<String, String> {
+    let version = tauri::async_runtime::spawn_blocking(|| claude::session_version(&claude::program())).await.map_err(|e| e.to_string())?;
+    version.ok_or_else(|| claude::failure(&std::io::ErrorKind::NotFound.into(), "restart the app"))
+}
+
+/// First run's Finish: the library chosen, and Start at logon as the user left the box, ticked or not (D31). The Run
+/// key is set to match now (the installer may have written it already); a dev instance never touches it.
+#[tauri::command]
+fn finish_first_run(app: AppHandle, library: String, start_at_logon: bool) -> Result<(), String> {
+    library::check(Path::new(&library))?;
+    let state = app.state::<AppState>();
+    let current = state.settings.lock().unwrap().clone();
+    let s = Settings { library_path: Some(library), start_at_logon: start_at_logon && !state.dev, ..current };
+    if !state.dev {
+        let al = app.autolaunch();
+        // Best effort, like the start-up re-point: a Run value that isn't there can't be removed again.
+        let _ = if s.start_at_logon { al.enable() } else { al.disable() };
+    }
+    state.settings.lock().unwrap().start_at_logon = s.start_at_logon; // the Run key matches: apply_settings has no toggle to make
+    apply_settings(&app, s)?;
+    *state.first_run.lock().unwrap() = false;
+    Ok(())
 }
 
 /// productName (D50), marked on a dev instance: the window title and tray tooltip.
@@ -607,6 +629,8 @@ pub fn run() {
             let data_dir = dir_from_env("MEETING_CAPTURE_DATA_DIR", real_data);
             let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
             let mut s = settings::load(&data_dir);
+            // First run until a library is saved, a dev instance's included (its default is offered, not chosen).
+            let first = s.library_path.is_none();
             if let Some(dir) = &dev {
                 s = settings::for_dev(s, dir);
                 if settings::makes_dev_library(&s, dir) {
@@ -617,14 +641,13 @@ pub fn run() {
             claude::sweep_project(&home, &data_dir.join("runs"));
             let skill_home = skill_home(dev.is_some(), std::env::var_os("MEETING_CAPTURE_HOME").is_some_and(|v| !v.is_empty()), &home);
             install_skill(skill_home.as_deref(), s.library_path.as_deref());
-            let first = s.library_path.is_none();
             if let Some(lib) = &s.library_path {
                 library::recover(std::path::Path::new(lib));
             }
             let logon = s.start_at_logon;
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some() });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first) });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -642,9 +665,7 @@ pub fn run() {
                 fetch_due(&handle);
                 std::thread::sleep(calendar::TICK);
             });
-            if first {
-                first_run(app.handle());
-            } else if !std::env::args().any(|a| a == "--autostart") {
+            if first || !std::env::args().any(|a| a == "--autostart") {
                 show_main(app.handle());
             }
             Ok(())
@@ -683,7 +704,10 @@ pub fn run() {
             delete_meeting,
             teams_search,
             teams_import,
-            is_dev
+            is_dev,
+            is_first_run,
+            claude_check,
+            finish_first_run
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

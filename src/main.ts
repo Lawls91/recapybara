@@ -84,15 +84,18 @@ function paintNotesStatus() {
  * switch, a redraw, Settings, Quit, and the window losing focus, hiding or closing. */
 function flushNotes() {
   clearTimeout(notesTimer);
+  // Refused while the library is missing (D45): kept, and sent once it is back (each refusal redraws, which flushes).
+  if (libraryMissing) return notesSaving;
   for (const [id, text] of unsaved) {
     if (sending.get(id) === text) continue;
     sending.set(id, text);
     notesSaving = notesSaving
-      .then(() => invoke("save_notes", { id, text }))
+      .then(() => invoke<string>("save_notes", { id, text }))
       .then(
-        () => {
+        (folder) => {
           notSaved.delete(id);
           if (unsaved.get(id) === text) unsaved.delete(id);
+          if (folder !== id) moved(id, folder);
         },
         (e) => {
           notSaved.add(id); // still in `unsaved`: the next flush tries again
@@ -105,6 +108,19 @@ function flushNotes() {
       });
   }
   return notesSaving;
+}
+
+/** A calendar-only meeting's first save made its folder: what was keyed by the event's id now goes by the folder's,
+ * and the list redraws with the folder's row. Its box stays on screen, caret and all. */
+function moved(from: string, to: string) {
+  const left = unsaved.get(from);
+  unsaved.delete(from);
+  if (left !== undefined) unsaved.set(to, left);
+  if (selected === from) selected = to;
+  if (cursor === from) cursor = to;
+  const box = document.querySelector<HTMLTextAreaElement>("#notes");
+  if (box?.dataset.id === from) box.dataset.id = to;
+  loadMeetings();
 }
 
 function notesTyped(e: Event) {
@@ -289,6 +305,7 @@ async function save(change: Partial<Settings>) {
 
 /** Opening Settings focuses its Back link; leaving it gives focus back to the Settings button (D42). */
 function show(view: "list" | "settings") {
+  if (!$("first-run").hidden) return; // first run ends on the list, from its Finish
   flushNotes();
   const was = $("settings-view").hidden ? "list" : "settings";
   $("list-view").hidden = view !== "list";
@@ -884,7 +901,23 @@ async function tryAgain(m: Meeting) {
   }
 }
 
+/** Scheduled, In call, Awaiting transcript and Skipped (D49): title, time and the state's sentence, plus its action. */
+function stateCard(m: Meeting, sentence: string) {
+  // Awaiting transcript: when it checks next and the attempts left, and its transcript can be imported now.
+  const action =
+    m.state === "awaitingTranscript"
+      ? `<p id="next-check">${esc(awaitingLine(m, new Date()))}</p><button id="import-now" class="btn">Import transcript</button>`
+      : m.state !== "skipped"
+        ? ""
+        : m.excluded
+          ? `<button id="include-series" class="btn">Include series</button>`
+          : `<button id="unskip" class="btn">Unskip</button>`;
+  return `<div id="state-card" class="card state"><h5>${mark(m)}</h5><p id="state-sentence">${sentence}</p>${action}</div>`;
+}
+
 function summaryBody(m: Meeting) {
+  const card = STATE_CARDS[m.state];
+  if (card) return stateCard(m, card);
   if (needsTranscript(m.state)) return fetchCard(m) + attachStrip();
   if (m.state === "summarising")
     return `<div class="card"><h5><i class="spin"></i>Summarising</h5><p>Claude is writing the summary. It shows here when it’s checked.</p></div>`;
@@ -1009,7 +1042,8 @@ async function renderDetail() {
   const s = wantSummary ? await invoke<Summary | null>("get_summary", { id: m.id }) : null;
   // My notes: this meeting's box on screen keeps its text; otherwise its unsaved text, else notes.md as it is now.
   const onScreen = () => det.querySelector<HTMLTextAreaElement>("#notes")?.dataset.id === m.id;
-  const loaded = tab !== "notes" || onScreen() ? null : (unsaved.get(m.id) ?? (await invoke<string>("get_notes", { id: m.id })));
+  // A calendar-only meeting (no folder yet) has none until its first keystroke makes the folder.
+  const loaded = tab !== "notes" || onScreen() ? null : (unsaved.get(m.id) ?? (m.source === "calendar" ? "" : await invoke<string>("get_notes", { id: m.id })));
   if (n !== renders) return; // a newer render started while this one waited
   const had = focusIn([det]); // a tab comes back; Unskip, Include series: the redraw drops the button
   shown = { transcript: t, summary: s };
@@ -1023,48 +1057,32 @@ async function renderDetail() {
       <button id="detail-menu" class="kebab" title="More" aria-label="More actions"><i class="ic">&#xE712;</i></button></div>
     <div class="dmeta" id="detail-meta">${meta}</div>${people ? `<div class="att">${people}</div>` : ""}`;
 
-  const card = STATE_CARDS[m.state];
-  if (card) {
-    // Awaiting transcript: when it checks next and the attempts left, and its transcript can be imported now.
-    const action =
-      m.state === "awaitingTranscript"
-        ? `<p id="next-check">${esc(awaitingLine(m, new Date()))}</p><button id="import-now" class="btn">Import transcript</button>`
-        : m.state !== "skipped"
-          ? ""
-          : m.excluded
-            ? `<button id="include-series" class="btn">Include series</button>`
-            : `<button id="unskip" class="btn">Unskip</button>`;
-    det.innerHTML = `${head}<div id="state-card" class="card state">
-      <h5>${mark(m)}</h5><p id="state-sentence">${card}</p>
-      ${action}</div>`;
+  const sumStatus =
+    m.state === "summarising" ? `<i class="spin"></i>` : m.state === "summaryFailed" ? `<span class="tq err">Failed</span>` : m.hasSummary ? "" : `<span class="tq">Not run</span>`;
+  const tabs = [
+    ["summary", "Summary", sumStatus],
+    ["transcript", "Transcript", `<span class="tq">${t ? `${t.minutes} min` : "None"}</span>`],
+    ["notes", "My notes", `<span class="tq${notSaved.has(m.id) ? " err" : ""}" id="notes-status">${notesState(m.id)}</span>`],
+  ]
+    .map(([id, label, st]) => `<button class="tab${tab === id ? " on" : ""}" id="tab-${id}" data-tab="${id}" role="tab" aria-selected="${tab === id}">${label}${st}</button>`)
+    .join("");
+  const top = `${head}<div class="tabs" role="tablist">${tabs}</div>`;
+  // The notes box drawn for this meeting stays as it is, so a redraw keeps the caret, scroll and undo.
+  if (tab === "notes" && loaded === null) {
+    [...det.children].forEach((c) => c.id !== "tab-body" && c.remove());
+    $("tab-body").insertAdjacentHTML("beforebegin", top);
+  } else if (tab === "notes") {
+    det.innerHTML = `${top}<div class="body nb" id="tab-body"><textarea id="notes" class="notes" data-id="${esc(m.id)}" aria-label="My notes" placeholder="Your notes for this meeting. They save as you type." spellcheck="true"></textarea></div>`;
+    const box = $<HTMLTextAreaElement>("notes");
+    box.value = unsaved.get(m.id) ?? loaded!; // typed into while notes.md was read
+    box.oninput = notesTyped;
   } else {
-    const sumStatus =
-      m.state === "summarising" ? `<i class="spin"></i>` : m.state === "summaryFailed" ? `<span class="tq err">Failed</span>` : m.hasSummary ? "" : `<span class="tq">Not run</span>`;
-    const tabs = [
-      ["summary", "Summary", sumStatus],
-      ["transcript", "Transcript", `<span class="tq">${t ? `${t.minutes} min` : "None"}</span>`],
-      ["notes", "My notes", `<span class="tq${notSaved.has(m.id) ? " err" : ""}" id="notes-status">${notesState(m.id)}</span>`],
-    ]
-      .map(([id, label, st]) => `<button class="tab${tab === id ? " on" : ""}" id="tab-${id}" data-tab="${id}" role="tab" aria-selected="${tab === id}">${label}${st}</button>`)
-      .join("");
-    const top = `${head}<div class="tabs" role="tablist">${tabs}</div>`;
-    // The notes box drawn for this meeting stays as it is, so a redraw keeps the caret, scroll and undo.
-    if (tab === "notes" && loaded === null) {
-      [...det.children].forEach((c) => c.id !== "tab-body" && c.remove());
-      $("tab-body").insertAdjacentHTML("beforebegin", top);
-    } else if (tab === "notes") {
-      det.innerHTML = `${top}<div class="body nb" id="tab-body"><textarea id="notes" class="notes" data-id="${esc(m.id)}" aria-label="My notes" placeholder="Your notes for this meeting. They save as you type." spellcheck="true"></textarea></div>`;
-      const box = $<HTMLTextAreaElement>("notes");
-      box.value = unsaved.get(m.id) ?? loaded!; // typed into while notes.md was read
-      box.oninput = notesTyped;
-    } else {
-      // A clicked transcript hit: the turn at its time, the match marked (D45).
-      const q = tab === "transcript" && hitTurn && t ? hitTurn.q : "";
-      if (q) scrollToTurn = turnOfHit(t!.turns, hitTurn!.at, hitTurn!.line);
-      hitTurn = null;
-      const body = tab === "summary" ? summaryBody(m) : transcriptBody(t, q);
-      det.innerHTML = `${top}<div class="body" id="tab-body">${body}</div>`;
-    }
+    // A clicked transcript hit: the turn at its time, the match marked (D45).
+    const q = tab === "transcript" && hitTurn && t ? hitTurn.q : "";
+    if (q) scrollToTurn = turnOfHit(t!.turns, hitTurn!.at, hitTurn!.line);
+    hitTurn = null;
+    const body = tab === "summary" ? summaryBody(m) : transcriptBody(t, q);
+    det.innerHTML = `${top}<div class="body" id="tab-body">${body}</div>`;
   }
   det.querySelectorAll<HTMLElement>(".tab").forEach(
     (b) =>
@@ -1148,8 +1166,54 @@ listen("open-settings", () => show("settings"));
 // A dev instance (--dev): marked, and it never starts at logon.
 invoke<boolean>("is_dev").then((dev) => {
   $("dev-badge").hidden = !dev;
-  $("start-at-logon-dev").hidden = !dev;
-  $<HTMLInputElement>("start-at-logon").disabled = dev;
+  for (const id of ["start-at-logon", "first-logon"]) {
+    $(`${id}-dev`).hidden = !dev;
+    $<HTMLInputElement>(id).disabled = dev;
+  }
 });
-loadSettings().then(loadMeetings);
+
+// ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------
+
+/** The library first run will save: a dev instance's own default until one is chosen; none for the installed copy. */
+let firstLibrary: string | null = null;
+function paintFirstLibrary() {
+  $("first-library").textContent = firstLibrary ?? "No folder chosen yet";
+  $<HTMLButtonElement>("first-finish").disabled = !firstLibrary;
+}
+async function firstRun() {
+  $("list-view").hidden = true;
+  $("first-run").hidden = false;
+  firstLibrary = current.libraryPath;
+  paintFirstLibrary();
+  // Ticked as settings stand: on for the installed copy (D31), so the choice is in sight before Finish saves it.
+  $<HTMLInputElement>("first-logon").checked = current.startAtLogon;
+  $("first-choose").focus();
+  const paint = (text: string, error: boolean) => {
+    $("first-claude").textContent = text;
+    $("first-claude").classList.toggle("err", error);
+  };
+  await invoke<string>("claude_check").then((v) => paint(`Claude Code found: ${v}`, false), (e) => paint(String(e), true));
+}
+$("first-choose").onclick = async () => {
+  firstLibrary = (await invoke<string | null>("pick_library_folder")) ?? firstLibrary;
+  paintFirstLibrary();
+};
+$("first-finish").onclick = async () => {
+  $("first-error").hidden = true;
+  try {
+    await invoke("finish_first_run", { library: firstLibrary, startAtLogon: $<HTMLInputElement>("first-logon").checked });
+  } catch (e) {
+    $("first-error").textContent = String(e);
+    $("first-error").hidden = false;
+    return;
+  }
+  $("first-run").hidden = true;
+  $("list-view").hidden = false;
+  $("search").focus();
+};
+
+loadSettings().then(async () => {
+  if (await invoke<boolean>("is_first_run")) firstRun();
+  await loadMeetings();
+});
 loadCalendarStatus();
