@@ -206,7 +206,10 @@ describe("self-update", () => {
     const failed = `The update to version ${NEWER} didn't install: the installer failed (code 1603).`;
     await expect($("#update-banner")).toBeDisplayed();
     await expect($("#update-text")).toHaveText(failed);
-    expect(await announced()).toBe(failed);
+    // A live region filled as the window opens goes unread (NVDA spoke it on 1 start in 4): it is written once the
+    // page has settled, so the screen reader sees it change.
+    expect(await announced()).toBe("");
+    await browser.waitUntil(async () => (await announced()) === failed, { timeout: 10000, timeoutMsg: "never announced" });
     await expect($("#update-install")).not.toBeDisplayed(); // nothing to install until the check finds it again
     // The start-up check finds the same version: the message stays, and Try again is Restart and update.
     await expect($("#update-install")).toBeDisplayed({ wait: 30000 });

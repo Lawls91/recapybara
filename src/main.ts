@@ -1220,12 +1220,21 @@ invoke<boolean>("is_dev").then((dev) => {
 
 // ---------- updates (slice 19): checked at start and daily by the backend; installed only on Restart and update ----------
 
+/** A live region written while the window is still opening goes unread (NVDA spoke a start's "didn't install" banner
+ * on 1 start in 4), so the banner's announcements wait until this long after the page began loading. */
+const SETTLE_MS = 2000;
 /** The banner's text, announced in the polite live region when it changes, or `always` (a refusal said again). */
 function updateBanner(text: string, always = false) {
   $("update-banner").hidden = !text;
   const changed = $("update-text").textContent !== text;
   $("update-text").textContent = text;
-  if (text && (changed || always)) $("sr-status").textContent = text;
+  if (!text || !(changed || always)) return;
+  const say = () => {
+    if ($("update-text").textContent === text) $("sr-status").textContent = text; // not if the banner moved on
+  };
+  const wait = SETTLE_MS - performance.now();
+  if (wait > 0) window.setTimeout(say, wait);
+  else say();
 }
 /** The banner: the version found, or that the last Restart and update of it didn't install (then its button is Try
  * again), plus why Restart and update was refused, if it was. The button shows only while an update is ready. */

@@ -123,7 +123,8 @@ How the app updates (tauri-plugin-updater):
   (the MSI upgrade rules under Install).
 - A failed install is said on the next start: the app reads `update-result.txt` and deletes it. Exit code 0 or 3010
   (installed, a reboot pending) says nothing. Anything else puts "The update to version X didn't install: <reason>" on
-  the banner, announced in the polite live region: "it was cancelled" (1602), "another installation was in progress"
+  the banner, announced in the polite live region once the window has settled (2 s after the page loads; a screen
+  reader misses a live region written as the window opens): "it was cancelled" (1602), "another installation was in progress"
   (1618), else "the installer failed (code N)". Once the start-up check finds that version again, the banner's button
   reads **Try again** (Restart and update). The start after that, or a start with no file (a normal one, or after a
   crash), says nothing more.
