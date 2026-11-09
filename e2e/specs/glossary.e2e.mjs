@@ -43,7 +43,7 @@ describe("the glossary page", () => {
   it("Add to glossary appends the pair and leaves To review", async () => {
     await $("#review-add-0").click();
     await expect($("#review-count")).toHaveText("2");
-    await expect($("#glossary-badge")).toHaveText("2");
+    await expect($("#glossary-button")).toHaveAttribute("aria-label", "Glossary, 2 corrections to review"); // the badge itself is out of view here
     expect(glossary()).toBe("Orbit\ncash -> cache\nfelter -> filter\n");
     await expect($("#entry-list")).toHaveText(expect.stringContaining("felter → filter"));
   });
@@ -54,7 +54,7 @@ describe("the glossary page", () => {
     await expect($("#notice")).toHaveText("Rejected. Summaries will never change Prya to Priya.");
     await expect($("#never-section")).toBeDisplayed();
     await expect($("#never-list")).toHaveText(expect.stringContaining("Prya → Priya"));
-    await expect($("#glossary-badge")).toHaveText("1");
+    await expect($("#glossary-button")).toHaveAttribute("aria-label", "Glossary, 1 correction to review");
     expect(glossary()).toBe("Orbit\ncash -> cache\nfelter -> filter\nnever: Prya -> Priya\n");
 
     scenario({ structuredOutput: JSON.parse(summary([])) });
