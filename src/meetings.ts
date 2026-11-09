@@ -97,8 +97,8 @@ export interface DayGroup {
   section?: "Upcoming" | "Earlier";
 }
 
-/** The list's layout: an Upcoming section of the meetings not yet ended, in time order (one in progress first, the next
- * one after it), then Earlier: the ended ones, newest first; each grouped by local day under "Today", "Yesterday",
+/** The list's layout: an Upcoming section of the meetings not yet ended or still in progress (a call running over its
+ * scheduled end), in time order (one in progress first, the next one after it), then Earlier: the ended ones, newest first; each grouped by local day under "Today", "Yesterday",
  * "Tomorrow" or the date. Meetings with no date go last. */
 export function dayGroups(meetings: Meeting[], now: Date): DayGroup[] {
   const named = new Map<string, string>();
@@ -106,7 +106,7 @@ export function dayGroups(meetings: Meeting[], now: Date): DayGroup[] {
     named.set(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + off)), name);
   }
   const t = (iso: string | null) => (iso ? new Date(iso).getTime() : -Infinity);
-  const ahead = (m: Meeting) => !!m.start && t(m.end ?? m.start) > now.getTime();
+  const ahead = (m: Meeting) => m.state === "inCall" || (!!m.start && t(m.end ?? m.start) > now.getTime());
   const upcoming = meetings.filter(ahead).sort((a, b) => t(a.start) - t(b.start));
   const ended = meetings.filter((m) => !ahead(m)).sort((a, b) => t(b.start) - t(a.start));
   const byDay = (list: Meeting[]) => {
@@ -127,6 +127,12 @@ export function dayGroups(meetings: Meeting[], now: Date): DayGroup[] {
     if (past.length) past[0].section = "Earlier";
   }
   return [...up, ...past];
+}
+
+/** The detail header's people line: the organiser, marked, then the attendees without the organiser again. */
+export function peopleLine(m: Meeting): string[] {
+  const org = m.organiser?.trim().toLowerCase();
+  return [m.organiser ? `${m.organiser} (organiser)` : "", ...m.attendees.filter((a) => a.trim().toLowerCase() !== org)].filter(Boolean);
 }
 
 /** The Awaiting transcript card's schedule line: when it checks next, in local time with its day unless today, and

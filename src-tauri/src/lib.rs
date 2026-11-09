@@ -412,7 +412,8 @@ fn fetch_due(app: &AppHandle) {
         }
     };
     let tick = std::panic::AssertUnwindSafe(|| {
-        fetch::tick(&lib, &events, excluded, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::session_version(&program), landed)
+        let now = chrono::Utc::now();
+        fetch::tick(&lib, &events, excluded, now, |r| claude::run(&program, &runs, &home, r), || claude::session_version(&program), |m| state.chats.in_call(m, now), landed)
     });
     if std::panic::catch_unwind(tick).is_err() {
         eprintln!("fetch: the tick panicked");

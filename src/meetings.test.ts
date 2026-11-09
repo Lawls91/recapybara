@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, menuFor, type Meeting } from "./meetings";
+import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, menuFor, peopleLine, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -111,6 +111,30 @@ test("across midnight: a call that started yesterday and runs on is in progress,
   const noEnd = { ...next, id: "no end", end: null };
   expect(dayGroups([noEnd], new Date(2026, 10, 7, 8, 59))[0].section).toBe("Upcoming");
   expect(dayGroups([noEnd], new Date(2026, 10, 7, 9, 0))[0].section).toBeUndefined();
+});
+
+test("a call running over its scheduled end stays under Upcoming, first, until it ends", () => {
+  const now = new Date(2026, 10, 9, 15, 20); // 15:20, the 14:00-15:00 call still live
+  const over = { ...meeting("inCall"), id: "running over", start: new Date(2026, 10, 9, 14, 0).toISOString(), end: new Date(2026, 10, 9, 15, 0).toISOString() };
+  const next = { ...meeting("scheduled"), id: "next", start: new Date(2026, 10, 9, 16, 0).toISOString(), end: new Date(2026, 10, 9, 16, 30).toISOString() };
+  const done = { ...meeting("done"), id: "ended", start: new Date(2026, 10, 9, 13, 0).toISOString(), end: new Date(2026, 10, 9, 13, 30).toISOString() };
+  const view = (gs: ReturnType<typeof dayGroups>) => gs.map((g) => [g.section ?? "", g.label, g.items.map((m) => m.id)]);
+  expect(view(dayGroups([next, over, done], now))).toEqual([
+    ["Upcoming", "Today", ["running over", "next"]],
+    ["Earlier", "Today", ["ended"]],
+  ]);
+  // Once the call has ended (Awaiting transcript): Earlier.
+  expect(view(dayGroups([next, { ...over, state: "awaitingTranscript" }, done], now))).toEqual([
+    ["Upcoming", "Today", ["next"]],
+    ["Earlier", "Today", ["running over", "ended"]],
+  ]);
+});
+
+test("the detail header names the organiser once, marked, then the other attendees", () => {
+  const m = { ...meeting("done"), organiser: "Avery Synth", attendees: ["Avery Synth", "Blake Example", "avery synth "] };
+  expect(peopleLine(m)).toEqual(["Avery Synth (organiser)", "Blake Example"]);
+  expect(m.attendees).toHaveLength(3); // display only
+  expect(peopleLine({ ...m, organiser: null })).toEqual(["Avery Synth", "Blake Example", "avery synth "]);
 });
 
 test("the Awaiting transcript card says when it checks next, with its day unless today, and the attempts left", () => {

@@ -4,8 +4,8 @@
 
 The left pane lists your meetings; click one to open it on the right.
 
-- **Upcoming**: meetings that haven't ended yet, in time order, the one in progress first. Grouped by day (Today,
-  Tomorrow, then the date).
+- **Upcoming**: meetings that haven't ended yet, in time order, the one in progress first (also when its call runs
+  over the scheduled end). Grouped by day (Today, Tomorrow, then the date).
 - **Earlier**: meetings that have ended, newest first, grouped by day. With nothing upcoming there is no Upcoming
   label or Earlier divider.
 - Day headers stay pinned while you scroll through their day.
@@ -88,13 +88,15 @@ minutes before the scheduled start until the call ends (or 30 minutes after the 
 It uses only those system events.
 
 - **In progress**: once the call has started, the meeting shows In progress instead of Scheduled, and keeps showing
-  it while the call runs over its scheduled end (up to 2 hours past it).
+  it, under Upcoming, while the call runs over its scheduled end (up to 2 hours past it). No fetch runs while the
+  call is in progress: there is nothing to fetch yet.
 - **Transcription off**: if, 5 minutes or more after the call started, transcription still hasn't started, you get
   one notification: "Transcription isn't on. Turn it on in Teams to capture this meeting." with a **Skip this
   meeting** button. The In progress card says the same. Turn transcription on in Teams and nothing more is said.
 - **Early fetch**: when the call ends, the first fetch runs at once instead of waiting for the scheduled end, and the
-  retries count from the real end. A call that runs over its scheduled end is fetched on the usual schedule
-  meanwhile, plus one extra attempt once its end is seen.
+  retries count from the real end. A call that runs over its scheduled end is fetched once its end is seen, then
+  on the scheduled checks still to come. If the chat checks stop (two failed reads) or the call is still on 2 hours
+  after the scheduled end, the meeting goes back to its usual schedule.
 
 **Privacy.** The ordinary chat messages are passed over unread: their text is never parsed, stored, logged or
 summarised. The app keeps only three times (call started, transcription started, call ended) in the meeting's

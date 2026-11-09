@@ -22,8 +22,10 @@ const early = event(1, "Early finish review", min(-20), min(10));
 const live = event(2, "Untranscribed planning", min(-10), min(50));
 // An excluded series in its watch window: never checked.
 const excluded = event(3, "Excluded standup", min(-5), min(25));
-const all = [early, live, excluded];
-const tags = ["EARLYA", "LIVEB", "EXCLC"];
+// Scheduled to end 2 minutes ago, its call still going: In progress under Upcoming, its fetch held.
+const over = event(4, "Overrunning retro", min(-40), min(-2));
+const all = [early, live, excluded, over];
+const tags = ["EARLYA", "LIVEB", "EXCLC", "OVERD"];
 
 const system = (id, at, type, extra = {}) => ({
   id,
@@ -67,6 +69,10 @@ describe("meeting chat events", () => {
       ]),
       chatRead("LIVEB", [message("m1", min(-3)), system("s4", min(-8), "callStartedEventMessageDetail", { callId: "call-b" })]),
       chatRead("EXCLC", [system("s5", min(-4), "callStartedEventMessageDetail", { callId: "call-c" })]),
+      chatRead("OVERD", [
+        system("s7", min(-38), "callTranscriptEventMessageDetail", { callId: "call-d" }),
+        system("s6", min(-39), "callStartedEventMessageDetail", { callId: "call-d" }),
+      ]),
       transcriptRead(early, body(early, vtt("early finish"))),
     );
     scenario(s);
@@ -82,6 +88,23 @@ describe("meeting chat events", () => {
     const m = await meetingOf(early);
     const json = JSON.parse(fs.readFileSync(root("library", m.id, "meeting.json"), "utf8"));
     expect(Date.parse(json.chat.endedAt)).toBeLessThan(Date.parse(`${early.end.dateTime}Z`));
+  });
+
+  it("a call running over its scheduled end stays In progress under Upcoming, and no fetch runs while it is live", async () => {
+    // Its folder is made by the first fetch tick, which would have fetched it at once (due at its end) but for the hold.
+    await browser.waitUntil(async () => (await meetingOf(over))?.state === "inCall" && fs.existsSync(root("library", (await meetingOf(over)).id)), {
+      timeout: 60000,
+      timeoutMsg: "never In progress with a folder",
+    });
+    await browser.waitUntil(async () => (await meetingOf(early))?.state === "done", { timeout: 75000 }); // that tick is over
+    await expect((await row(over)).$(".lbl")).toHaveText("In progress");
+    const upcoming = await browser.execute((id) => {
+      const [r, up, earlier] = [`.row[data-id="${id}"]`, "#sect-upcoming", "#sect-earlier"].map((s) => document.querySelector(s));
+      const before = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return !!up && before(up, r) && (!earlier || before(r, earlier));
+    }, (await meetingOf(over)).id);
+    expect(upcoming).toBe(true);
+    expect(claudeRecords().some((r) => r.argv.some((a) => a.includes(transcriptUrl(over))))).toBe(false);
   });
 
   it("a started call with no transcription shows In progress, says so on its card, and raises one Skip-able notification", async () => {

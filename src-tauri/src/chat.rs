@@ -6,7 +6,7 @@
 use crate::{
     calendar::{Event, NO_TOOL_SEARCH, READ},
     claude::{ClaudeRun, Output},
-    library::{self, Listed, State},
+    library::{self, Listed, Meeting, State},
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -248,6 +248,22 @@ impl Chats {
     pub fn chat(&self, event_id: &str) -> Option<Chat> {
         self.lock().get(event_id).map(|w| w.chat)
     }
+
+    /// Whether the chat has `m` In progress at `now` (`show`): its fetch is held meanwhile (fetch::tick), so no paid
+    /// attempt runs while the call is live. Past `OVERRUN`, or once its reads stopped, it is back on its schedule.
+    pub fn in_call(&self, m: &Meeting, now: DateTime<Utc>) -> bool {
+        live(&self.lock(), m, now)
+    }
+}
+
+/// `m`'s chat (from memory, else `meeting.json`) has the call started and not ended, still read and within `OVERRUN`
+/// of the scheduled end, while `m` is Scheduled or Awaiting transcript.
+fn live(w: &HashMap<String, Watch>, m: &Meeting, now: DateTime<Utc>) -> bool {
+    let watch = m.event_id.as_deref().and_then(|id| w.get(id));
+    matches!(m.state, State::Scheduled | State::AwaitingTranscript)
+        && !watch.is_some_and(Watch::stopped)
+        && m.end.is_some_and(|e| now <= DateTime::<Utc>::from(e) + OVERRUN)
+        && watch.map(|x| x.chat).or(m.chat).is_some_and(|c| c.in_progress())
 }
 
 /// The list as the chat has it: a Scheduled meeting whose call has started and not ended is In progress, and so is
@@ -259,10 +275,7 @@ pub fn show(list: &mut [Listed], chats: &Chats, now: DateTime<Utc>) {
     for l in list {
         let watch = l.meeting.event_id.as_deref().and_then(|id| w.get(id));
         let chat = watch.map(|x| x.chat).or(l.meeting.chat);
-        let live = matches!(l.meeting.state, State::Scheduled | State::AwaitingTranscript)
-            && !watch.is_some_and(Watch::stopped)
-            && l.meeting.end.is_none_or(|e| now <= DateTime::<Utc>::from(e) + OVERRUN);
-        if chat.is_some_and(|c| live && c.in_progress()) {
+        if live(&w, &l.meeting, now) {
             l.meeting.state = State::InCall;
             l.transcription_off = watch.is_some_and(Watch::off);
         }
@@ -705,18 +718,22 @@ mod tests {
         assert_eq!(nudges("nudge-failed", None, 7), []);
     }
 
-    /// Minute by minute from -10 to 200, the chat ticks then the fetch ticks, as the scheduler runs them; the call ends
-    /// at minute `ended`, the transcript list stays empty. Returns the minutes each fetch ran.
-    fn fetches_when_the_call_ends_at(name: &str, ended: i64) -> Vec<i64> {
+    /// Minute by minute from -10 to 200, the chat ticks then the fetch ticks (held while the chat has the call live), as
+    /// the scheduler runs them; the call starts at 10:00 and ends at minute `ended` (if ever), chat reads fail from
+    /// minute `fail_from`, the transcript list stays empty. Returns the minutes each fetch ran, and the meeting at the end.
+    fn fetches(name: &str, ended: Option<i64>, fail_from: i64) -> (Vec<i64>, library::Meeting) {
         let (lib, chats) = (temp(name), Chats::default());
         let (minute, fetches) = (Mutex::new(0), Mutex::new(vec![]));
         let e = event(1);
         let run = |r: &ClaudeRun| -> io::Result<Output> {
             let m = *minute.lock().unwrap();
             let (uri, body) = if r.kind == "chat" {
+                if m >= fail_from {
+                    return Err(io::Error::other("synthetic"));
+                }
                 let mut msgs = vec![system(&at(0), "callStarted", "c")];
-                if m >= ended {
-                    msgs.push(system(&at(ended), "callEnded", "c"));
+                if let Some(e) = ended.filter(|e| m >= *e) {
+                    msgs.push(system(&at(e), "callEnded", "c"));
                 }
                 (uri("19:meeting_SYNTH1@thread.v2"), json!({ "value": msgs }))
             } else {
@@ -729,19 +746,60 @@ mod tests {
             *minute.lock().unwrap() = m;
             let now = start() + Duration::minutes(m);
             tick(&chats, &lib, std::slice::from_ref(&e), &[], now, run);
-            crate::fetch::tick(&lib, std::slice::from_ref(&e), Vec::new, now, run, || None, |_, _| {});
+            crate::fetch::tick(&lib, std::slice::from_ref(&e), Vec::new, now, run, || None, |m| chats.in_call(m, now), |_, _| {});
         }
-        let m = library::list(&lib).remove(0).meeting;
+        (fetches.into_inner().unwrap(), library::list(&lib).remove(0).meeting)
+    }
+
+    fn fetches_when_the_call_ends_at(name: &str, ended: i64) -> Vec<i64> {
+        let (got, m) = fetches(name, Some(ended), i64::MAX);
         assert_eq!((m.state, m.chat.and_then(|c| c.ended_at)), (State::NoTranscript, Some(start() + Duration::minutes(ended))), "{name}");
-        fetches.into_inner().unwrap()
+        got
     }
 
     #[test]
     fn an_ended_event_fetches_at_once_and_the_retries_count_from_the_actual_end() {
         // A 10:00-10:30 call that ends at 10:19, seen by the 10:19 check: fetched then, then +2, +10, +30, +120 from 10:19.
         assert_eq!(fetches_when_the_call_ends_at("early", 19), [19, 21, 29, 49, 139]);
-        // One that runs over to 10:43: fetched on the schedule from 10:30, plus one extra attempt when its end is seen.
-        assert_eq!(fetches_when_the_call_ends_at("late", 43), [30, 32, 40, 43, 60, 150]);
+        // One that runs over to 10:43: held while live (no attempt at 10:30, 10:32 or 10:40), fetched when its end is
+        // seen, then the scheduled slots still to come (+30, +120 from 10:30).
+        assert_eq!(fetches_when_the_call_ends_at("late", 43), [43, 60, 150]);
+    }
+
+    #[test]
+    fn a_call_running_over_whose_chat_reads_stop_goes_back_to_its_schedule() {
+        // Reads fail at 10:31 and 10:34: stopped, so the attempt due since 10:30 runs at 10:34, then the slots left.
+        let (got, m) = fetches("over-stopped", None, 31);
+        assert_eq!((got, m.state), (vec![34, 40, 60, 150], State::NoTranscript));
+    }
+
+    #[test]
+    fn a_call_never_seen_to_end_is_held_only_until_2_hours_past_the_scheduled_end() {
+        // 10:30 + 2 h is minute 150: held through it, then the attempt due runs, the last slot, so No transcript.
+        let (got, m) = fetches("over-never-ends", None, i64::MAX);
+        assert_eq!((got, m.state), (vec![151], State::NoTranscript));
+    }
+
+    #[test]
+    fn after_a_restart_a_stored_started_not_ended_chat_holds_the_fetch_only_until_2_hours_past_the_end() {
+        // A restart forgets the chat watches: only meeting.json's chat is left.
+        let lib = temp("restart-hold");
+        let e = event(1);
+        let chat = Chat { started_at: Some(start()), ..Chat::default() };
+        library::create(&lib, &library::Meeting { chat: Some(chat), ..crate::fetch::folder_for(&e, end()) }).unwrap();
+        let (chats, ran) = (Chats::default(), Mutex::new(0));
+        let run = |_: &ClaudeRun| -> io::Result<Output> {
+            *ran.lock().unwrap() += 1;
+            Err(io::Error::other("synthetic"))
+        };
+        for m in [0, 40, 120] {
+            let now = end() + Duration::minutes(m);
+            crate::fetch::tick(&lib, std::slice::from_ref(&e), Vec::new, now, run, || None, |m| chats.in_call(m, now), |_, _| {});
+        }
+        assert_eq!(*ran.lock().unwrap(), 0, "held up to 2 hours past the end");
+        let now = end() + Duration::minutes(121);
+        crate::fetch::tick(&lib, std::slice::from_ref(&e), Vec::new, now, run, || None, |m| chats.in_call(m, now), |_, _| {});
+        assert_eq!(*ran.lock().unwrap(), 1, "then the attempt due runs");
     }
 
     #[test]
@@ -768,7 +826,7 @@ mod tests {
         // A folder's chat after a restart, from meeting.json.
         let lib = temp("show");
         let stored = Chat { started_at: Some(start()), transcript_started_at: Some(start()), ..Chat::default() };
-        library::create(&lib, &library::Meeting { event_id: Some("SYNTH-9".into()), state: State::Scheduled, chat: Some(stored), ..library::Meeting::default() }).unwrap();
+        library::create(&lib, &library::Meeting { event_id: Some("SYNTH-9".into()), end: Some(end().fixed_offset()), state: State::Scheduled, chat: Some(stored), ..library::Meeting::default() }).unwrap();
         let mut list = library::list(&lib);
         show(&mut list, &Chats::default(), start());
         assert_eq!(list[0].meeting.state, State::InCall);

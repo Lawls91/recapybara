@@ -11,6 +11,7 @@ import {
   failureReason,
   menuFor,
   needsTranscript,
+  peopleLine,
   STATE_CARDS,
   STATES,
   summaryAction,
@@ -1101,7 +1102,7 @@ async function renderDetail() {
     ? `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).replace(",", "")}, ${span(m)}`
     : "";
   const meta = [when, t ? `${t.minutes} min transcript` : "", mark(m)].filter(Boolean).join(`<span class="sep">·</span>`);
-  const people = [m.organiser ? `${m.organiser} (organiser)` : "", ...m.attendees].filter(Boolean).map(esc).join(", ");
+  const people = peopleLine(m).map(esc).join(", ");
   const head = `<div class="ttlrow"><h2 id="detail-title" class="ttl">${esc(m.subject || m.id)}</h2>
       <button id="detail-menu" class="kebab" title="More" aria-label="More actions"><i aria-hidden="true" class="ic">&#xE712;</i></button></div>
     <div class="dmeta" id="detail-meta">${meta}</div>${people ? `<div class="att">${people}</div>` : ""}`;
