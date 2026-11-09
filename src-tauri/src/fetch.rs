@@ -234,11 +234,11 @@ pub fn attempts_left(m: &Meeting) -> u32 {
     1 + RETRIES.iter().filter(|r| end + Duration::minutes(**r) > next).count() as u32
 }
 
-/// Where the retry schedule counts from (D12): the call's ended event (chat::Chat) when it came before the scheduled
-/// end, else the scheduled end. A call running over keeps the scheduled schedule.
+/// Where the retry schedule counts from (D12): the call's ended event (chat::Chat), early or late, else the scheduled
+/// end.
 fn schedule_end(m: &Meeting) -> Option<DateTime<Utc>> {
     let end: DateTime<Utc> = m.end?.into();
-    Some(m.chat.and_then(|c| c.ended_at).map_or(end, |e| e.min(end)))
+    Some(m.chat.and_then(|c| c.ended_at).unwrap_or(end))
 }
 
 /// An ended event with no folder yet gets a first (or catch-up) attempt only within `CATCH_UP` of its end (D12).

@@ -762,8 +762,8 @@ mod tests {
         // A 10:00-10:30 call that ends at 10:19, seen by the 10:19 check: fetched then, then +2, +10, +30, +120 from 10:19.
         assert_eq!(fetches_when_the_call_ends_at("early", 19), [19, 21, 29, 49, 139]);
         // One that runs over to 10:43: held while live (no attempt at 10:30, 10:32 or 10:40), fetched when its end is
-        // seen, then the scheduled slots still to come (+30, +120 from 10:30).
-        assert_eq!(fetches_when_the_call_ends_at("late", 43), [43, 60, 150]);
+        // seen, then +2, +10, +30, +120 from 10:43.
+        assert_eq!(fetches_when_the_call_ends_at("late", 43), [43, 45, 53, 73, 163]);
     }
 
     #[test]

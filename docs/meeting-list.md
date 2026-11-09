@@ -94,8 +94,8 @@ It uses only those system events.
   one notification: "Transcription isn't on. Turn it on in Teams to capture this meeting." with a **Skip this
   meeting** button. The In progress card says the same. Turn transcription on in Teams and nothing more is said.
 - **Early fetch**: when the call ends, the first fetch runs at once instead of waiting for the scheduled end, and the
-  retries count from the real end. A call that runs over its scheduled end is fetched once its end is seen, then
-  on the scheduled checks still to come. If the chat checks stop (two failed reads) or the call is still on 2 hours
+  retries count from the real end. A call that runs over its scheduled end is fetched once its end is seen, the
+  retries again counting from the real end. If the chat checks stop (two failed reads) or the call is still on 2 hours
   after the scheduled end, the meeting goes back to its usual schedule.
 
 **Privacy.** The ordinary chat messages are passed over unread: their text is never parsed, stored, logged or
