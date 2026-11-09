@@ -352,8 +352,9 @@ pub fn import_window(from: &str, to: &str, today: NaiveDate) -> Result<(DateTime
     Ok((midnight(from, &Local).ok_or("No local midnight on From.")?, midnight(to + Duration::days(1), &Local).ok_or("No local midnight after To.")?))
 }
 
-/// Import from Teams' search runs at most this many days at once.
-pub const SEARCHES: usize = 4;
+/// Import from Teams' search runs at most this many days at once: a week and a weekend in one wave. Each run is a
+/// whole Claude Code process (~12 s of it start-up), so the wall time is the slowest day, not the sum.
+pub const SEARCHES: usize = 8;
 
 /// The local days from `from` to `to`, each as its own window.
 fn days<Tz: TimeZone>(from: DateTime<Utc>, to: DateTime<Utc>, tz: &Tz) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
@@ -802,7 +803,7 @@ mod tests {
     }
 
     #[test]
-    fn the_import_search_runs_one_search_per_local_day_at_most_4_at_once_and_merges_their_teams_events_once_each() {
+    fn the_import_search_runs_one_search_per_local_day_at_most_8_at_once_and_merges_their_teams_events_once_each() {
         let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
         let today = d("2026-11-20");
         let day = |s: &str| import_window(s, s, today).unwrap();
@@ -837,7 +838,7 @@ mod tests {
         }).collect();
         assert_eq!(windows, want, "one run per local day");
 
-        // Fourteen days: never more than SEARCHES (4) runs at once, and that many do run together.
+        // Fourteen days: never more than SEARCHES (8) runs at once, and that many do run together.
         let (going, most) = (std::sync::atomic::AtomicUsize::new(0), std::sync::atomic::AtomicUsize::new(0));
         let slow = |_: &ClaudeRun| {
             use std::sync::atomic::Ordering::SeqCst;
@@ -848,7 +849,7 @@ mod tests {
         };
         let (from, to) = import_window("2026-11-01", "2026-11-14", today).unwrap();
         super::search(from, to, slow).unwrap();
-        assert_eq!((SEARCHES, most.load(std::sync::atomic::Ordering::SeqCst)), (4, 4));
+        assert_eq!((SEARCHES, most.load(std::sync::atomic::Ordering::SeqCst)), (8, 8));
 
         // The late call's read fails on the 5th, retry included, and passes on the 6th: found, not unreadable.
         let fails_on_5th = |r: &ClaudeRun| {

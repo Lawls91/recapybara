@@ -163,7 +163,7 @@ its progress in the status line ("Summarising Retry design…", then "Retry desi
 region, until the next calendar refresh.
 
 1. Pick From and To (the last 7 days by default). To can't be later than today, and the range is at most 31 days.
-2. **Search** runs one calendar search per day of those dates, 4 days at once, and says how many Teams meetings with
+2. **Search** runs one calendar search per day of those dates, 8 days at once, and says how many Teams meetings with
    a transcript it found (those whose calendar entry has a transcript link and that have ended), and how many it left
    out because they are already in the library (captured or skipped, matched by the calendar event), deleted, or in an
    excluded series. An event whose read failed is read once more in a run of its own; one still unreadable is counted,
