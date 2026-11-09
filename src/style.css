@@ -488,6 +488,8 @@ button {
   flex-wrap: wrap;
 }
 .att {
+  /* overflow: hidden makes its flex min-height 0: without this a tall summary squeezes the line to a sliver */
+  flex-shrink: 0;
   font-size: 12.5px;
   color: var(--mc-txt2);
   margin-top: 2px;

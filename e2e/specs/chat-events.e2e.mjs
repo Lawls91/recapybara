@@ -59,7 +59,7 @@ const files = (dir) =>
 
 describe("meeting chat events", () => {
   before(async () => {
-    const s = calendar(all, tags.map(joinUrl), { structuredOutput: { overview: "Synthetic summary." } });
+    const s = calendar(all, tags.map(joinUrl), { structuredOutput: { overview: "Synthetic summary. ".repeat(600) } });
     s.hooks.push(
       chatRead("EARLYA", [
         message("m3", min(-2)),
@@ -88,6 +88,11 @@ describe("meeting chat events", () => {
     const m = await meetingOf(early);
     const json = JSON.parse(fs.readFileSync(root("library", m.id, "meeting.json"), "utf8"));
     expect(Date.parse(json.chat.endedAt)).toBeLessThan(Date.parse(`${early.end.dateTime}Z`));
+    // The header's attendee line shows whole over a summary taller than the pane, the organiser named once.
+    await (await row(early)).click();
+    await expect($(".att")).toHaveText("Robin Sample (organiser), Speaker A");
+    const att = await browser.execute(() => ({ h: document.querySelector(".att").clientHeight, need: document.querySelector(".att").scrollHeight }));
+    expect(att.h).toBeGreaterThanOrEqual(att.need);
   });
 
   it("a call running over its scheduled end stays In progress under Upcoming, and no fetch runs while it is live", async () => {
