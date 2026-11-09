@@ -1,5 +1,5 @@
 <#
-run-dev.ps1: launches a dev instance of Meeting capture beside the installed copy (README, "Dev instances").
+run-dev.ps1: launches a dev instance of Meeting capture beside the installed copy (docs/development.md, "Dev instances").
 
   pwsh -File scripts\run-dev.ps1 [-StateDir <dir>] [-Build] [-Claude <exe>] [-Scenario <file>]
 

@@ -16,7 +16,7 @@ CLAUDE.local.md
 *.vtt
 !**/fixtures/**/*.vtt
 
-# Nor the other library files (README "Library layout"), except the synthetic fixtures and goldens.
+# Nor the other library files (docs/development.md, "Library format"), except the synthetic fixtures and goldens.
 meeting.json
 transcript.md
 summary.md
