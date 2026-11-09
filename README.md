@@ -424,7 +424,8 @@ pause, case ignored, the whole query as one phrase). Under each meeting, its tit
 Title, Organiser or Attendees (the matching names), then up to 3 file snippet lines: the tab, a transcript line's turn
 time, and the line with the match in the lavender mark (solid, with its own ink, so it meets AA in both themes).
 A title or people hit opens the meeting. Clicking a snippet opens the meeting on that tab; a transcript hit scrolls to its turn and marks the
-match. No hits reads `No matches for "<q>"`. Esc in the box clears it. Search works inside the series filter. The
+match. No hits reads `No matches for "<q>"`. Esc in the box clears it, as does the X inside the box (Clear search, shown
+while there is a query; not a Tab stop, Esc is its key), and focus stays in the box. Search works inside the series filter. The
 app's own boilerplate is never a hit: `summary.md`'s title, date line and headings, and `transcript.md`'s Corrections
 applied list. The list stays one Tab stop (the selected row, or the first row when a search hides it); the arrows move
 through rows and snippets alike, Enter on a snippet opens it, and S, E and Del do nothing on a snippet. A meeting

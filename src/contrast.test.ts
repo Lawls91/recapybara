@@ -37,7 +37,7 @@ const UI = 3;
 const PAIRS: [string, string[], number][] = [
   ...["mc-txt", "mc-txt2", "mc-txt3", "st-failtxt"].map((t): [string, string[], number] => [t, ALL, TEXT]),
   ["mc-txt", ["mc-menu", "mc-peek", "mc-lav", "st-failsoft", "mc-field"], TEXT],
-  ["mc-txt2", ["mc-menu", "st-failsoft"], TEXT],
+  ["mc-txt2", ["mc-menu", "st-failsoft", "mc-field"], TEXT], // ...and the search box's Clear search X
   ["mc-txt3", ["mc-menu", "mc-field"], TEXT],
   ["st-failtxt", ["mc-menu", "st-failsoft"], TEXT],
   ["mc-read", ["mc-card"], TEXT],

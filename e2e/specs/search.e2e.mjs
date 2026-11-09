@@ -130,6 +130,24 @@ describe("search", () => {
     await browser.waitUntil(async () => (await ids()).length === 5, { timeout: 5000, timeoutMsg: "Esc never restored the list" });
   });
 
+  it("the X in the search box, Clear search, shows only with a query, clears it, gives the whole list back and keeps focus in the box", async () => {
+    await expect($("#search-clear")).not.toBeDisplayed();
+    await typeQuery("Orbit");
+    await browser.waitUntil(async () => (await ids()).length === 3, { timeout: 5000 });
+    await expect($("#search-clear")).toBeDisplayed();
+    await expect($("#search-clear")).toHaveAttribute("title", "Clear search");
+    expect(await browser.execute(() => document.getElementById("search-clear").getAttribute("aria-label"))).toBeNull(); // one name, its title
+    // Not a Tab stop: Esc is the keyboard's clear, so Tab still goes from the box to the list.
+    await expect($("#search-clear")).toHaveAttribute("tabindex", "-1");
+    await $("#search-clear").click();
+    await expect($("#search")).toHaveValue("");
+    await expect($("#search")).toBeFocused();
+    await browser.waitUntil(async () => (await ids()).length === 5, { timeout: 5000, timeoutMsg: "Clear search never restored the list" });
+    expect(await ids()).toEqual([EXPORT, STANDUP, SPRINT, REF_A, REF_B]);
+    expect(await snips(EXPORT)).toEqual([]);
+    await expect($("#search-clear")).not.toBeDisplayed();
+  });
+
   it("with the selected row filtered out, Tab from the search box reaches a result row, and arrows reach its snippets (D42)", async () => {
     await $(`.row[data-id="${SPRINT}"]`).click(); // selected, and holds no Orbit
     await typeQuery("Orbit");

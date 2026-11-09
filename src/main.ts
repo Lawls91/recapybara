@@ -377,6 +377,7 @@ async function runSearch() {
 let searchTimer: number | undefined;
 const search = $<HTMLInputElement>("search");
 search.addEventListener("input", () => {
+  $("search-clear").hidden = !search.value;
   clearTimeout(searchTimer);
   searchTimer = window.setTimeout(async () => {
     query = search.value.trim();
@@ -384,12 +385,16 @@ search.addEventListener("input", () => {
     renderList();
   }, 150);
 });
-// Esc clears the query and gives the whole list back.
-search.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || !search.value) return;
+// Esc, or the X in the box (Clear search, not a Tab stop: Esc is its key), clears the query and gives the whole list back.
+function clearSearch() {
   search.value = "";
   search.dispatchEvent(new Event("input"));
+  search.focus();
+}
+search.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && search.value) clearSearch();
 });
+$("search-clear").onclick = clearSearch;
 
 function renderList() {
   keepFocus([$("meeting-list"), $("series-filter")], drawList);
