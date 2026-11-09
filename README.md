@@ -36,6 +36,7 @@ be brought in with **Import > From Teams**.
 - [Getting started](docs/getting-started.md): install, first run, the tray
 - [The meeting list](docs/meeting-list.md): what each state means and what happens next
 - [Summaries and transcripts](docs/summaries-and-transcripts.md): citations, corrections and the glossary
+- [Glossary](docs/glossary.md): review corrections across meetings, edit the glossary
 - [My notes](docs/my-notes.md)
 - [Search](docs/search.md)
 - [Meeting actions](docs/meeting-actions.md): Skip, Delete, Exclude series, Copy, Replace transcript, Re-run summary

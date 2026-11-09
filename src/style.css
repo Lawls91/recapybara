@@ -726,18 +726,27 @@ button {
   text-underline-offset: 3px;
 }
 .corr {
-  margin-top: 20px;
-  padding-top: 12px;
-  border-top: 1px solid var(--mc-stroke);
+  margin: 0 0 14px;
+  max-width: 720px;
 }
-.corr .clh {
+/* the corrections strip atop the transcript; Show expands its rows */
+.cstrip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--mc-stroke);
+  border-radius: 8px;
   font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
 }
-.corr .clh .n {
-  font-weight: 400;
-  color: var(--mc-txt3);
+.cstrip .ic {
+  color: var(--mc-acc);
+}
+.cstrip .sp {
+  flex: 1;
+}
+#corr-rows {
+  padding: 6px 12px 0;
 }
 .corr .crow {
   display: flex;
@@ -1331,4 +1340,97 @@ button.chip:hover {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ---- the glossary: its button's count, and its page's lists ---- */
+#glossary-button {
+  position: relative;
+}
+.bdg {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--mc-acc);
+  color: var(--mc-accink);
+  font: 600 10px/16px var(--mc-ui);
+  text-align: center;
+}
+.set.gl {
+  max-width: 680px;
+}
+.ghd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.ghd .n {
+  color: var(--mc-txt3);
+}
+.ghd .sp {
+  flex: 1;
+}
+.ghd .lnk + .lnk {
+  margin-left: 8px;
+}
+.lnk.q {
+  color: var(--mc-txt2);
+}
+.qr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 12px 7px 14px;
+  border-bottom: 1px solid var(--mc-stroke);
+}
+.qr:last-child {
+  border-bottom: 0;
+}
+.qm {
+  flex: 1;
+  min-width: 0;
+}
+.qw,
+.qs {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qs {
+  font-size: 12px;
+  color: var(--mc-txt2);
+}
+.qs .lnk {
+  font-size: 12px;
+  font-weight: 400;
+  display: inline;
+}
+.qa {
+  display: flex;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+.qa .lnk {
+  font-size: 13px;
+}
+.qr input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--mc-stroke2);
+  border-radius: 6px;
+  background: var(--mc-field);
+  color: var(--mc-txt);
+  font: inherit;
+}
+.gempty {
+  padding: 14px;
+  color: var(--mc-txt2);
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { actionsText, chipLabel, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
+import { actionsText, chipLabel, corrLine, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 
 const cite = (check: Citation["check"], at = "00:00:10"): Citation => ({
   at,
@@ -52,4 +52,11 @@ test("Copy actions copies one line per action, owner first, Unassigned when it h
   expect(actionsText(s)).toBe("- Speaker A: Write up the retry limit.\n- Unassigned: Ship it on Friday.");
   expect(actionsText({ ...s, actions: [] })).toBe("");
   expect(actionsText(null)).toBe("");
+});
+
+test("the corrections strip counts what is left to review", () => {
+  const c = (inGlossary: boolean, rejected = false) => ({ inGlossary, rejected });
+  expect(corrLine([c(false), c(true), c(false, true)])).toBe("3 corrections in this transcript · 1 to review");
+  expect(corrLine([c(true)])).toBe("1 correction in this transcript · all in glossary");
+  expect(corrLine([c(true), c(false, true)])).toBe("2 corrections in this transcript · none to review");
 });

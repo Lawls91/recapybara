@@ -42,8 +42,12 @@ describe("corrections and glossary", () => {
     await expect(turns[0].$(".sp .cx")).toHaveAttribute("title", "Was: Katia");
     await expect(turns[1].$$(".cx")).toBeElementsArrayOfSize(0); // Speaker B's raw "filter" is not a correction
 
-    // The list sits after the last turn, one row per applied correction with its reason.
-    expect(await browser.execute(() => document.querySelector("#transcript .turn:last-of-type").compareDocumentPosition(document.getElementById("corrections")) & 4)).toBe(4);
+    // One strip above the first turn; Show expands one row per applied correction with its reason.
+    expect(await browser.execute(() => document.getElementById("corrections").compareDocumentPosition(document.querySelector("#transcript .turn")) & 4)).toBe(4);
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 2 to review");
+    await expect($("#corr-0")).not.toBeDisplayed();
+    await $("#corr-show").click();
+    await expect($("#corr-show")).toHaveAttribute("aria-expanded", "true");
     await expect($("#corr-0")).toHaveText(expect.stringContaining("felter → filter"));
     await expect($("#corr-0")).toHaveText(expect.stringContaining("domain term"));
     await expect($("#corr-1")).toHaveText(expect.stringContaining("Katia → Katya"));
@@ -56,7 +60,8 @@ describe("corrections and glossary", () => {
   it("Add to glossary appends one line to glossary.md, and the next re-run's stdin carries it", async () => {
     await $("#tab-transcript").click();
     await $("#glossary-0").click();
-    await expect($("#glossary-0")).toHaveText("In glossary");
+    await expect($("#glossary-0")).toHaveText("In glossary"); // the strip stays expanded across the redraw
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 1 to review");
     expect(fs.readFileSync(root("library", "glossary.md"), "utf8")).toBe("felter -> filter\n");
 
     const runs = claudeRecords().length;

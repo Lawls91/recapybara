@@ -103,14 +103,14 @@ describe("import from Teams", () => {
     await expect($("#import-button")).toHaveAttribute("aria-expanded", "false");
     expect(await focused()).toBe("import-button");
 
-    // Tab past the last item closes the menu and moves on to Settings, the next control after the button.
+    // Tab past the last item closes the menu and moves on to Glossary, the next control after the button.
     await browser.keys(Key.Enter);
     await browser.keys(Key.ArrowDown);
     expect(await focused()).toBe("import-teams");
     await browser.keys(Key.Tab);
     await expect($("#import-menu")).not.toBeDisplayed();
     await expect($("#import-button")).toHaveAttribute("aria-expanded", "false");
-    expect(await focused()).toBe("settings-button");
+    expect(await focused()).toBe("glossary-button");
     await $("#import-button").click();
     await browser.keys([Key.Shift, Key.Tab]);
     await expect($("#import-menu")).not.toBeDisplayed();

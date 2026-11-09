@@ -24,7 +24,7 @@ One folder per meeting, named `YYYY-MM-DD HHmm <Subject>` from the scheduled sta
 - `transcript.part1.vtt`, `transcript.part2.vtt` and so on: only when Teams saved the call as several transcripts. Each is one raw part, and `transcript.vtt` already merges them, so you can ignore these.
 - `summary.json`: the raw data `summary.md` is built from. Use `summary.md` instead.
 
-Once the user has made corrections, the library root also holds `glossary.md`: names and terms the user corrects, one `from -> to` per line.
+Once the user has made corrections, the library root also holds `glossary.md`: names and terms the user corrects, one `from -> to` per line. A line starting `never:` (`never: from -> to`) is a correction the user rejected: never read `from` as `to`.
 
 ## Answering
 

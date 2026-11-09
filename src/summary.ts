@@ -68,3 +68,10 @@ export function markQuote(text: string, quote: string): string {
 
 /** Copy actions: one line per action item, its owner first as in summary.md (D21); "" when there are none. */
 export const actionsText = (s: Summary | null) => (s?.actions ?? []).map((a) => `- ${a.owner ?? "Unassigned"}: ${a.text}`).join("\n");
+
+/** The corrections strip atop a transcript: how many it has, and how many are neither in the glossary nor rejected. */
+export function corrLine(cs: { inGlossary: boolean; rejected: boolean }[]) {
+  const todo = cs.filter((c) => !c.inGlossary && !c.rejected).length;
+  const rest = todo ? `${todo} to review` : cs.every((c) => c.inGlossary) ? "all in glossary" : "none to review";
+  return `${cs.length} ${cs.length === 1 ? "correction" : "corrections"} in this transcript · ${rest}`;
+}

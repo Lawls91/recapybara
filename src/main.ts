@@ -19,7 +19,7 @@ import {
   type Meeting,
 } from "./meetings";
 import { byMeeting, FIELDS, markParts, metaHits, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
-import { actionsText, chipLabel, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
+import { actionsText, chipLabel, corrLine, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 import { defaultRange, foundText, importHint, rangeError, ymd } from "./teams";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -56,6 +56,8 @@ let libraryMissing: string | null = null;
  * is its row (the keyboard cursor). */
 let menuFrom: string | null = null;
 let peekFrom: string | null = null;
+/** The meeting whose corrections strip is expanded (Show), so a redraw keeps it open. */
+let corrShown: string | null = null;
 
 // ---------- My notes (D27) ----------
 
@@ -324,14 +326,16 @@ async function save(change: Partial<Settings>) {
   });
 }
 
-/** Opening Settings focuses its Back link; leaving it gives focus back to the Settings button (D42). */
-function show(view: "list" | "settings") {
+/** Opening Settings or the Glossary focuses its Back link; leaving it gives focus back to its button (D42). */
+function show(view: "list" | "settings" | "glossary") {
   if (!$("first-run").hidden) return; // first run ends on the list, from its Finish
   flushNotes();
-  const was = $("settings-view").hidden ? "list" : "settings";
+  const was = !$("settings-view").hidden ? "settings" : !$("glossary-view").hidden ? "glossary" : "list";
   $("list-view").hidden = view !== "list";
   $("settings-view").hidden = view !== "settings";
-  if (view !== was) $(view === "settings" ? "settings-back" : "settings-button").focus();
+  $("glossary-view").hidden = view !== "glossary";
+  if (view !== was) $(view === "list" ? `${was}-button` : `${view}-back`).focus();
+  if (view === "glossary") loadGlossary();
 }
 
 // ---------- list (D40, D41) ----------
@@ -362,6 +366,7 @@ async function loadMeetings() {
   renderList();
   await renderDetail();
   followImports();
+  loadGlossary(); // a summary that finished may bring corrections to review
 }
 
 // ---------- search (D28, D45) ----------
@@ -617,7 +622,7 @@ document.addEventListener("keydown", (e) => {
   } else if (!$("import-menu").hidden) {
     closeImportMenu();
     $("import-button").focus();
-  } else if (!$("settings-view").hidden) show("list");
+  } else if ($("list-view").hidden) show("list");
 });
 
 let deleting: Meeting | null = null;
@@ -704,12 +709,12 @@ $("import-button").onclick = () => {
   $("import-button").setAttribute("aria-expanded", "true");
   placeMenu($("import-menu"), r.right - 210, r.bottom + 4);
 };
-// Tab closes the menu and moves on from its button (WAI-ARIA menu button): Tab to Settings, Shift+Tab to the button.
+// Tab closes the menu and moves on from its button (WAI-ARIA menu button): Tab to Glossary, Shift+Tab to the button.
 $("import-menu").addEventListener("keydown", (e) => {
   if (e.key !== "Tab") return;
   e.preventDefault();
   closeImportMenu();
-  $(e.shiftKey ? "import-button" : "settings-button").focus();
+  $(e.shiftKey ? "import-button" : "glossary-button").focus();
 });
 $("import-file").onclick = async () => {
   closeImportMenu();
@@ -892,7 +897,7 @@ interface Transcript {
   /** `speaker` and `text` raw, as the citation check read them (D20); the parts corrected (D22). */
   turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
   minutes: number;
-  corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean }[];
+  corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean; rejected: boolean }[];
 }
 
 // A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45); a search hit's `q` marked.
@@ -1063,17 +1068,19 @@ function transcriptBody(t: Transcript | null, q: string) {
       return `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}">${turnHead(u.at, partsHtml(u.speakerParts, mq))}<span class="tx">${partsHtml(u.parts, mq)}</span></p>`;
     })
     .join("");
-  // The corrections applied, after the last turn, each with Add to glossary (D22, D23, D45).
+  // The corrections applied, one strip above the first turn; Show expands them, each with Add to glossary (D22, D23, D45).
+  const open = corrShown === selected;
   const fixes = t.corrections.length
-    ? `<div id="corrections" class="corr"><div class="clh">Corrections applied <span class="n">${t.corrections.length}</span></div>${t.corrections
+    ? `<div id="corrections" class="corr"><div class="cstrip"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="corr-line">${esc(corrLine(t.corrections))}</span><span class="sp"></span>` +
+      `<button class="lnk" id="corr-show" aria-expanded="${open}" aria-controls="corr-rows">${open ? "Hide" : "Show"}</button></div><div id="corr-rows"${open ? "" : " hidden"}>${t.corrections
         .map(
           (c, i) =>
             `<div class="crow" id="corr-${i}"><span class="w">${esc(c.from)} → <b>${esc(c.to)}</b></span><span class="r">${esc(c.reason)}, ${c.count} ${c.count === 1 ? "place" : "places"}</span>` +
             `<button class="lnk" id="glossary-${i}" data-corr="${i}"${c.inGlossary ? " disabled" : ""}>${c.inGlossary ? "In glossary" : "Add to glossary"}</button></div>`,
         )
-        .join("")}</div>`
+        .join("")}</div></div>`
     : "";
-  return `<div id="transcript" class="transcript">${turns}${fixes}</div>`;
+  return `<div id="transcript" class="transcript">${fixes}${turns}</div>`;
 }
 
 async function renderDetail() {
@@ -1162,8 +1169,17 @@ async function renderDetail() {
         b.disabled = true;
         await invoke("add_to_glossary", { from: c.from, to: c.to }).catch(failed);
         await renderDetail();
+        loadGlossary();
       }),
   );
+  const corrShow = document.getElementById("corr-show");
+  if (corrShow)
+    corrShow.onclick = () => {
+      corrShown = corrShown === m.id ? null : m.id;
+      corrShow.textContent = corrShown ? "Hide" : "Show";
+      corrShow.setAttribute("aria-expanded", String(!!corrShown));
+      $("corr-rows").hidden = !corrShown;
+    };
   if (tab === "transcript" && scrollToTurn !== null) {
     document.getElementById(`turn-${scrollToTurn}`)?.scrollIntoView({ block: "start" });
     scrollToTurn = null;
@@ -1175,9 +1191,160 @@ async function renderDetail() {
   regain(had);
 }
 
+// ---------- the glossary page and its button's count ----------
+
+interface Pair {
+  from: string;
+  to: string;
+}
+interface Glossary {
+  /** Corrections summaries made that are in neither list, grouped across meetings: [folder id, subject] each. */
+  review: (Pair & { reason: string; places: number; meetings: [string, string][] })[];
+  entries: Pair[];
+  never: Pair[];
+}
+let glossary: Glossary = { review: [], entries: [], never: [] };
+let glossaryLoads = 0;
+/** The entry being edited: its index, "new" for Add entry. A reload doesn't redraw the entries under it. */
+let editing: number | "new" | null = null;
+
+const pairHtml = (p: Pair, never = false) => `${esc(p.from)} → ${never ? `<s>${esc(p.to)}</s>` : `<b>${esc(p.to)}</b>`}`;
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Reads the glossary and the corrections to review, then redraws the badge and, when open, the page. */
+async function loadGlossary() {
+  const n = ++glossaryLoads;
+  const g = current.libraryPath ? await invoke<Glossary>("get_glossary").catch(() => null) : null;
+  if (n !== glossaryLoads || !g) return;
+  const was = glossary.review.length;
+  glossary = g;
+  const k = g.review.length;
+  $("glossary-badge").textContent = String(k);
+  $("glossary-badge").hidden = !k;
+  $("glossary-button").setAttribute("aria-label", k ? `Glossary, ${plural(k, "correction", "corrections")} to review` : "Glossary");
+  if ($("glossary-view").hidden) return;
+  if (k !== was) $("sr-status").textContent = `${k} to review`;
+  drawGlossary();
+}
+
+function drawGlossary() {
+  const { review, entries, never } = glossary;
+  $("review-count").textContent = String(review.length);
+  $("review-add-all").hidden = $("review-reject-all").hidden = !review.length;
+  $("review-list").innerHTML = `<div class="exl">${
+    review
+      .map(
+        (r, i) =>
+          `<div class="qr"><div class="qm"><div class="qw">${pairHtml(r)}</div><div class="qs">${esc(r.reason)} · ${plural(r.places, "place", "places")} in ${r.meetings
+            .map(([id, subject]) => `<button class="lnk" data-meeting="${esc(id)}" title="${esc(id)}">${esc(subject || id)}</button>`)
+            .join(", ")}</div></div>` +
+          `<div class="qa"><button class="lnk" id="review-add-${i}" data-add="${i}">Add to glossary</button><button class="lnk q" id="review-reject-${i}" data-reject="${i}">Reject</button></div></div>`,
+      )
+      .join("") || `<div class="gempty">Nothing to review. Corrections from new summaries show here until you add or reject them.</div>`
+  }</div>`;
+  $("entry-count").textContent = String(entries.length);
+  const input = (id: string, label: string, value: string) => `<input id="${id}" aria-label="${label}" placeholder="${label}" value="${esc(value)}" />`;
+  const editRow = (p: Pair, save: string) =>
+    `<div class="qr" id="entry-edit" data-at="${editing}">${input("entry-from", "Heard as", p.from)}→${input("entry-to", "Correct to", p.to)}` +
+    `<button class="btn sm pri" id="entry-save">${save}</button><button class="btn sm" id="entry-cancel">Cancel</button></div>`;
+  if (editing === null || document.getElementById("entry-edit")?.dataset.at !== String(editing))
+    $("entry-list").innerHTML = `<div class="exl">${editing === "new" ? editRow({ from: "", to: "" }, "Add") : ""}${
+      entries
+        .map((e, i) =>
+          i === editing
+            ? editRow(e, "Save")
+            : `<div class="qr"><div class="qm"><div class="qw">${pairHtml(e)}</div></div><div class="qa">` +
+              `<button class="lnk q" id="entry-edit-${i}" data-edit="${i}"><i aria-hidden="true" class="ic">&#xE70F;</i>Edit</button>` +
+              `<button class="lnk" id="entry-remove-${i}" data-remove="${i}"><i aria-hidden="true" class="ic">&#xE74D;</i>Remove</button></div></div>`,
+        )
+        .join("") || (editing === "new" ? "" : `<div class="gempty">No glossary entries yet. Add a correction to review, or one of your own with Add entry.</div>`)
+    }</div>`;
+  $("never-section").hidden = !never.length;
+  $("never-count").textContent = String(never.length);
+  $("never-list").innerHTML = `<div class="exl">${never
+    .map(
+      (p, i) =>
+        `<div class="qr"><div class="qm"><div class="qw">${pairHtml(p, true)}</div></div><div class="qa">` +
+        `<button class="lnk" id="never-remove-${i}" data-unreject="${i}"><i aria-hidden="true" class="ic">&#xE74D;</i>Remove</button></div></div>`,
+    )
+    .join("")}</div>`;
+  const on = (attr: string, f: (i: number, b: HTMLElement) => unknown) =>
+    $("glossary-view").querySelectorAll<HTMLElement>(`[data-${attr}]`).forEach((b) => (b.onclick = () => f(Number(b.dataset[attr]), b)));
+  on("meeting", (_, b) => {
+    show("list");
+    open(b.dataset.meeting!, "transcript");
+  });
+  on("add", (i) => glossaryEdit([`review-add-${i}`, `review-add-${i - 1}`, "review-list"], () => invoke("add_to_glossary", { from: review[i].from, to: review[i].to })));
+  on("reject", (i) =>
+    glossaryEdit([`review-reject-${i}`, `review-reject-${i - 1}`, "review-list"], async () => {
+      await invoke("edit_glossary", { never: true, old: null, new: review[i] });
+      notify(`Rejected. Summaries will never change ${review[i].from} to ${review[i].to}.`);
+    }),
+  );
+  on("edit", (i) => {
+    editing = i;
+    drawGlossary();
+    $("entry-to").focus();
+  });
+  on("remove", (i) => glossaryEdit([`entry-remove-${i}`, `entry-remove-${i - 1}`, "entry-list"], () => invoke("edit_glossary", { never: false, old: entries[i], new: null })));
+  on("unreject", (i) => glossaryEdit([`never-remove-${i}`, `never-remove-${i - 1}`, "entry-add"], () => invoke("edit_glossary", { never: true, old: never[i], new: null })));
+  const box = document.getElementById("entry-edit");
+  if (!box) return;
+  const at = editing;
+  const back = typeof at === "number" ? [`entry-edit-${at}`, "entry-list"] : ["entry-add"];
+  const cancel = () => glossaryEdit(back, async () => (editing = null));
+  const save = async () => {
+    const pair = { from: $<HTMLInputElement>("entry-from").value, to: $<HTMLInputElement>("entry-to").value };
+    try {
+      await invoke("edit_glossary", { never: false, old: typeof at === "number" ? entries[at] : null, new: pair });
+    } catch (e) {
+      notify(String(e)); // the row stays open with what was typed
+      return;
+    }
+    await cancel();
+  };
+  $("entry-cancel").onclick = cancel;
+  $("entry-save").onclick = save;
+  box.onkeydown = (e) => {
+    if (e.key === "Enter" && e.target instanceof HTMLInputElement) save();
+    else if (e.key === "Escape") {
+      e.stopPropagation(); // Esc closes the row, not the page
+      cancel();
+    }
+  };
+}
+
+/** Runs a glossary change, reloads and redraws, then focuses the first of `focus` drawn (the pressed button may be gone). */
+async function glossaryEdit(focus: string[], change: () => Promise<unknown>) {
+  await change().catch((e) => notify(String(e)));
+  await loadGlossary();
+  if ($("glossary-view").hidden) return;
+  drawGlossary(); // a load that changed no count still redraws
+  const el = focus.map((id) => document.getElementById(id)).find((x) => x && !x.closest("[hidden]"));
+  (el ?? $("glossary-back")).focus();
+}
+
+$("entry-add").onclick = () => {
+  editing = "new";
+  drawGlossary();
+  $("entry-from").focus();
+};
+$("review-add-all").onclick = () =>
+  glossaryEdit(["entry-list"], async () => {
+    for (const r of glossary.review) await invoke("add_to_glossary", { from: r.from, to: r.to });
+  });
+$("review-reject-all").onclick = () =>
+  glossaryEdit(["review-list"], async () => {
+    const n = glossary.review.length;
+    for (const r of glossary.review) await invoke("edit_glossary", { never: true, old: null, new: r });
+    notify(`Rejected ${n}. Summaries will never make these corrections.`);
+  });
+
 // ---------- wiring ----------
 
 $("settings-button").onclick = () => show("settings");
+$("glossary-button").onclick = () => show("glossary");
+$("glossary-back").onclick = () => show("list");
 $("settings-back").onclick = () => show("list");
 // Change folder in Settings, and Choose folder on the library-missing banner (D45).
 $("change-folder").onclick = async () => {

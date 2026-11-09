@@ -66,8 +66,9 @@ Transcription mishears names and terms. Each summary run also lists the correcti
 "cache", "Prya" to "Priya"), and the app applies them to the readable transcript, as whole words only:
 
 - A corrected word has a dotted underline; hover it to see what Teams wrote ("Was: cash").
-- **Corrections applied**, after the last turn, lists each correction with its reason and how many places it
-  changed.
+- A strip above the first turn says how many corrections the transcript has and how many are still to review ("2
+  corrections in this transcript · 1 to review", or "all in glossary"). **Show** lists each correction with its
+  reason and how many places it changed.
 
 Corrections never change the raw transcript (`transcript.vtt`), and citations are always checked against the raw
 words.
@@ -76,8 +77,8 @@ words.
 
 **Add to glossary** beside a correction adds it to `glossary.md` in the root of your library, as a line
 `cash -> cache`. Every later summary run gets the glossary, so the same mishearing is fixed in every meeting.
-`glossary.md` is a plain text file: edit it by hand to add, change or remove entries (one per line). Re-run a summary
-to apply new entries to a meeting already summarised.
+The [Glossary](glossary.md) page reviews every meeting's corrections at once, and edits the glossary. Re-run a
+summary to apply new entries to a meeting already summarised.
 
 ## The files
 
