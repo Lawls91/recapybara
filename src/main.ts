@@ -1221,7 +1221,9 @@ async function loadGlossary() {
   const k = g.review.length;
   $("glossary-badge").textContent = String(k);
   $("glossary-badge").hidden = !k;
-  $("glossary-button").setAttribute("aria-label", k ? `Glossary, ${plural(k, "correction", "corrections")} to review` : "Glossary");
+  // Named by its title alone at 0: an aria-label equal to the title is read twice by NVDA ("Glossary Glossary").
+  if (k) $("glossary-button").setAttribute("aria-label", `Glossary, ${plural(k, "correction", "corrections")} to review`);
+  else $("glossary-button").removeAttribute("aria-label");
   if ($("glossary-view").hidden) return;
   if (k !== was) $("sr-status").textContent = `${k} to review`;
   drawGlossary();
