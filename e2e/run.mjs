@@ -55,16 +55,32 @@ const freePort = () =>
   });
 const tauriCli = path.join(repo, "node_modules", "@tauri-apps", "cli", "tauri.js");
 
-const only = process.argv[2];
+// `--docs` (npm run docs:screenshots) runs e2e/docs instead, never part of npm run check: it seeds a synthetic library
+// under MC_DOCS_ROOT (default C:\Demo, a path that names nobody, since it shows in the shots) and writes docs/images.
+const docs = process.argv[2] === "--docs";
+const only = docs ? undefined : process.argv[2];
+const specDir = path.join(here, docs ? "docs" : "specs");
+const docsRoot = () => {
+  const r = process.env.MC_DOCS_ROOT || "C:\\Demo";
+  // Cleared each run, but only if it is ours (the marker) or empty: never someone's own folder.
+  if (fs.existsSync(r) && fs.readdirSync(r).length && !fs.existsSync(path.join(r, ".mc-docs"))) {
+    console.error(`${r} isn't empty and wasn't made by docs:screenshots. Set MC_DOCS_ROOT to a new folder.`);
+    process.exit(1);
+  }
+  fs.rmSync(r, { recursive: true, force: true });
+  fs.mkdirSync(r, { recursive: true });
+  fs.writeFileSync(path.join(r, ".mc-docs"), "");
+  return r;
+};
 const specs = fs
-  .readdirSync(path.join(here, "specs"))
+  .readdirSync(specDir)
   .filter((f) => f.endsWith(".e2e.mjs") && (!only || f.includes(only)));
 
 let failed = 0;
 for (const spec of specs) {
   const name = spec.replace(".e2e.mjs", "");
   // Folder names use only characters the fake claude's observed-slug fixture covers.
-  const root = path.join(os.tmpdir(), `mc-e2e-${name}-${Date.now()}`);
+  const root = docs ? docsRoot() : path.join(os.tmpdir(), `mc-e2e-${name}-${Date.now()}`);
   const data = path.join(root, "data");
   const home = path.join(root, "home");
   const library = path.join(root, "library");
@@ -74,10 +90,10 @@ for (const spec of specs) {
   fs.writeFileSync(path.join(home, ".claude", "projects", "sibling-project", "keep.txt"), "keep");
   // An existing install: library chosen, so no first run; logon off, so the Run key is never touched. The first-run
   // specs start with no settings, as a new install does.
-  if (!name.startsWith("first-run")) fs.writeFileSync(path.join(data, "settings.json"), JSON.stringify({ libraryPath: library, startAtLogon: false }));
+  if (!name.startsWith("first-run") && !docs) fs.writeFileSync(path.join(data, "settings.json"), JSON.stringify({ libraryPath: library, startAtLogon: false }));
   const scenario = path.join(root, "scenario.json");
   // Default: a valid minimal summary, so an import (which starts its summary, D15) ends "Summary ready".
-  fs.writeFileSync(scenario, JSON.stringify({ structuredOutput: { overview: "Synthetic summary." } }));
+  fs.writeFileSync(scenario, JSON.stringify({ structuredOutput: { overview: "Synthetic summary." }, ...(docs && { version: "2.1.0 (Claude Code)" }) }));
 
   const env = {
     ...process.env,
@@ -102,6 +118,8 @@ for (const spec of specs) {
   if (name === "first-run-no-claude") env.MEETING_CAPTURE_CLAUDE = path.join(root, "not-installed", "claude.exe");
   // The installed copy's default library, on a dev instance: a debug build's stand-in for the Documents known folder
   // (a OneDrive-redirected one, by its name), not yet there.
+  // The docs shots' first run offers <root>\Meeting capture.
+  if (docs) env.MEETING_CAPTURE_DOCUMENTS = root;
   if (name === "first-run-default") env.MEETING_CAPTURE_DOCUMENTS = path.join(root, "OneDrive - Example", "Documents");
   // These two test the installed copy's own path, so they run without dev mode.
   if (name === "real-folders" || name === "single-instance") delete env.MEETING_CAPTURE_DEV;
@@ -126,7 +144,7 @@ for (const spec of specs) {
     process.exit(1);
   }
   console.log(`\n=== e2e: ${spec} (root ${root})`);
-  const r = spawnSync("npx", ["wdio", "run", path.join(here, "wdio.conf.mjs"), "--spec", path.join(here, "specs", spec)], {
+  const r = spawnSync("npx", ["wdio", "run", path.join(here, "wdio.conf.mjs"), "--spec", path.join(specDir, spec)], {
     cwd: repo,
     env,
     stdio: "inherit",

@@ -10,6 +10,7 @@
     "test": "vitest run",
     "e2e": "node e2e/run.mjs",
     "check": "node scripts/check.mjs",
+    "docs:screenshots": "node e2e/run.mjs --docs",
     "msi": "pwsh -NoProfile -File scripts/build-msi.ps1"
   },
   "devDependencies": {
