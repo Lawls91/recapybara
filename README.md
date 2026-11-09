@@ -224,7 +224,7 @@ Test-only env vars (D36, D37):
 | `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |
 | `MEETING_CAPTURE_DOCUMENTS` | debug build only: replaces the Documents known folder for first run's offered library, and on a dev instance replaces the dev dir's own `<dir>\library` default too |
-| `MEETING_CAPTURE_TOAST_LOG` | debug build only: each toast raised is also appended there as `{title, body, buttons}`, since a dev build's toasts never show (the E2E suite sets it to `<root>	oasts.jsonl`) |
+| `MEETING_CAPTURE_TOAST_LOG` | debug build only: each toast raised is also appended there as `{title, body, buttons}`, since a dev build's toasts never show (the E2E suite sets it to `<root>\toasts.jsonl`) |
 | `MC_E2E_PORT` | the E2E tauri-driver port (default 4444), when something else holds 4444 |
 | `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` (argv, env, stdin, `startedMs`/`endedMs`, the hooks `fired`) |
 
@@ -401,14 +401,14 @@ meeting's chat, and the app reads them to know when the call really starts and e
   in it: call started (`callStartedEventMessageDetail`), transcription started (`callTranscriptEventMessageDetail`) and
   call ended (`callEndedEventMessageDetail`); recording events are ignored. A recurring meeting shares one chat, so only
   events from 15 minutes before the scheduled start to 2 hours after the scheduled end count, matched by `callId` to the
-  latest started event.
+  latest started event. A call that ended before the scheduled start (the link opened early, then left) is ignored.
 - **Privacy**: ordinary messages (`messageType: "message"`) are passed by unread: their text is never parsed, stored,
   logged or summarised. All the app keeps of a chat is three times, in `meeting.json` as
   `"chat": { "startedAt", "transcriptStartedAt", "endedAt" }` (in memory only for a meeting with no folder). The raw page
   exists only as the capture hook's file, which is deleted when the run ends (D7). Who was on the call is not kept
   (the brief's `attended` was dropped: nothing used it).
 - **How often**: every 3 minutes per meeting, from 5 minutes before its scheduled start until its ended event, or 30
-  minutes after its scheduled end, whichever comes first; several meetings at once, at most 4 (the fetch limit). Never
+  minutes after its scheduled end, whichever comes first (2 hours after it while a started call runs over); several meetings at once, at most 4 (the fetch limit). Never
   for a skipped, excluded or already captured meeting, never during first run or while the library is missing, and in a
   dev instance only with `MEETING_CAPTURE_CLAUDE` set (the fake). A read that fails (403, not found, a timeout) is tried
   again at the next slot; after 2 failures that meeting isn't read again this occurrence and keeps its scheduled
@@ -416,9 +416,10 @@ meeting's chat, and the app reads them to know when the call really starts and e
   meeting costs about 12 checks (`kind: "chat"` in `runs.jsonl`); in return the transcript is fetched as soon as the
   call ends, and a call without transcription is caught while it can still be turned on.
 - **In progress**: a meeting whose call has started and not ended lists as In progress (row and card) in place of
-  Scheduled, whoever is on the call.
-- **Transcription off**: a started call with no transcription-started event 5 minutes after its start raises one
-  notification per meeting, titled with the meeting name (cut at 60 characters with an ellipsis): "Transcription isn't
+  Scheduled, whoever is on the call, and in place of Awaiting transcript while it runs over its scheduled end (up to
+  2 hours past it; it is still fetched on its schedule meanwhile). Not once its reads have stopped after 2 failures.
+- **Transcription off**: when a read taken 5 minutes or more after the call started still shows no
+  transcription-started event, one notification per meeting is raised (never after the reads stopped on failures), titled with the meeting name (cut at 60 characters with an ellipsis): "Transcription isn't
   on. Turn it on in Teams to capture this meeting.", with **Skip this meeting** (the list's Skip); a click on its body
   opens the meeting. A transcription event arriving later raises nothing more. The In progress card says "Transcription
   isn’t on. Turn it on in Teams to capture this meeting." A restart while it is still off notifies once more.

@@ -33,6 +33,8 @@ if ($Build -or -not (Test-Path -LiteralPath $built)) {
     } finally { Pop-Location }
 }
 
+# Which build runs, so a stale exe in another target dir is seen before a test of new code is read wrongly.
+[Console]::Error.WriteLine("run-dev: running $built (built $((Get-Item -LiteralPath $built).LastWriteTime.ToString('yyyy-MM-dd HH:mm')))")
 $exe = Join-Path $StateDir 'bin\meeting-capture.exe'
 $pidFile = Join-Path $StateDir 'dev.pid'
 $oldId = 0

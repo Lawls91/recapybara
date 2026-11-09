@@ -30,6 +30,14 @@ static FETCHING: Mutex<Vec<PathBuf>> = Mutex::new(vec![]);
 /// claim held a moment to move a meeting or make its folder isn't a fetch.
 static RUNNING: Mutex<Vec<PathBuf>> = Mutex::new(vec![]);
 
+/// Held across a Skip's and a chat note's read and write of `meeting.json`, so a chat note never writes back a folder
+/// as it was before a Skip landed.
+static NOTE: Mutex<()> = Mutex::new(());
+
+fn noting() -> std::sync::MutexGuard<'static, ()> {
+    NOTE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// A meeting taken for its fetch until dropped.
 pub struct Claim(PathBuf);
 
@@ -267,6 +275,7 @@ pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, no
         return ended.then(|| library::create(lib, &Meeting { chat: Some(chat), ..folder_for(e, now) }).map_err(|err| eprintln!("chat: no folder for {}: {err}", e.subject)).ok()).flatten();
     };
     let dir = lib.join(&l.id);
+    let _note = noting();
     let mut m = library::load(&dir).ok()?;
     m.chat = Some(chat);
     if ended && matches!(m.state, State::Scheduled | State::AwaitingTranscript) && !m.skipped && !dir.join(library::VTT).exists() {
@@ -328,6 +337,7 @@ fn skipped(m: Meeting) -> Meeting {
 pub fn skip(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Result<String, String> {
     let id = &folder_of(lib, id, events, now, skipped)?;
     let dir = library::meeting_dir(lib, id)?;
+    let _note = noting();
     let m = library::load(&dir).map_err(|_| format!("Not a meeting: {id}"))?;
     if dir.join(library::VTT).exists() {
         return Err("This meeting is already captured.".into());
