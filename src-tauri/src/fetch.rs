@@ -370,6 +370,7 @@ fn follow(m: &mut Meeting, events: &[Event]) -> bool {
 /// Unskip (D49): clears the skip, with the cached event's current times when it has moved. A meeting that ended within the catch-up window is due for a fetch now, an upcoming
 /// one at its end; one that ended earlier is "no transcript", its fix the manual import.
 pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meeting, String> {
+    let _note = noting(); // as skip: a chat note can't write back the pre-Unskip copy
     let mut m = library::load(dir).map_err(|e| e.to_string())?;
     if m.state != State::Skipped {
         return Ok(m);
