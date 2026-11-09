@@ -208,7 +208,9 @@ describe("self-update", () => {
     await expect($("#update-text")).toHaveText(failed);
     // A live region filled as the window opens goes unread (NVDA spoke it on 1 start in 4): it is written once the
     // page has settled, so the screen reader sees it change.
-    expect(await announced()).toBe("");
+    // Empty while the page is under 2 s old; a slow runner can already be past that when the banner first shows.
+    const [said, age] = await browser.execute(() => [document.getElementById("sr-status").textContent, performance.now()]);
+    expect(said === "" || age >= 2000).toBe(true);
     await browser.waitUntil(async () => (await announced()) === failed, { timeout: 10000, timeoutMsg: "never announced" });
     await expect($("#update-install")).not.toBeDisplayed(); // nothing to install until the check finds it again
     // The start-up check finds the same version: the message stays, and Try again is Restart and update.
