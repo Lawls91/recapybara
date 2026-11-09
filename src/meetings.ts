@@ -37,12 +37,14 @@ export interface Meeting {
   fetchError?: string | null;
   /** A fetch attempt for it is running now. */
   fetching?: boolean;
+  /** In progress, and the meeting chat shows no transcription 5 minutes after the call started. */
+  transcriptionOff?: boolean;
 }
 
 /** D41: dot family and label for each state. */
 export const STATES: Record<State, { family: string; label: string }> = {
   scheduled: { family: "up", label: "Scheduled" },
-  inCall: { family: "live", label: "In call" },
+  inCall: { family: "live", label: "In progress" },
   awaitingTranscript: { family: "wait", label: "Awaiting transcript" },
   noTranscript: { family: "fail", label: "No transcript" },
   notReachable: { family: "fail", label: "Not reachable" },

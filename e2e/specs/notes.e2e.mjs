@@ -191,7 +191,7 @@ describe("my notes", () => {
     expect(meetingJson(id).state).toBe("scheduled");
   });
 
-  it("Scheduled, In call, Awaiting transcript and Skipped have My notes beside their state card, typing leaves meeting.json as it was, and a later import keeps the notes", async () => {
+  it("Scheduled, In progress, Awaiting transcript and Skipped have My notes beside their state card, typing leaves meeting.json as it was, and a later import keeps the notes", async () => {
     const states = { scheduled: [1, 15], inCall: [0, 0], awaitingTranscript: [-1, 9], skipped: [-1, 8] };
     for (const [state, [days, hh]] of Object.entries(states)) {
       seed(`2026-11-03 0${hh % 10}00 Card ${state}`, { subject: `Card ${state}`, start: at(days, hh), end: at(days, hh + 1), state, skipped: state === "skipped" });

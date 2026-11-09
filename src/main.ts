@@ -949,7 +949,7 @@ async function tryAgain(m: Meeting) {
   }
 }
 
-/** Scheduled, In call, Awaiting transcript and Skipped (D49): title, time and the state's sentence, plus its action. */
+/** Scheduled, In progress, Awaiting transcript and Skipped (D49): title, time and the state's sentence, plus its action. */
 function stateCard(m: Meeting, sentence: string) {
   // Awaiting transcript: when it checks next and the attempts left, and its transcript can be imported now.
   const action =
@@ -960,7 +960,8 @@ function stateCard(m: Meeting, sentence: string) {
         : m.excluded
           ? `<button id="include-series" class="btn">Include series</button>`
           : `<button id="unskip" class="btn">Unskip</button>`;
-  return `<div id="state-card" class="card state"><h5>${mark(m)}</h5><p id="state-sentence">${sentence}</p>${action}</div>`;
+  const off = m.transcriptionOff ? `<p id="transcription-off">Transcription isn’t on. Turn it on in Teams to capture this meeting.</p>` : "";
+  return `<div id="state-card" class="card state"><h5>${mark(m)}</h5><p id="state-sentence">${sentence}</p>${off}${action}</div>`;
 }
 
 function summaryBody(m: Meeting) {

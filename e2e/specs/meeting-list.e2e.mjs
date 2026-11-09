@@ -5,7 +5,7 @@ import { invoke, root, seedAllStates } from "../helpers.mjs";
 // D41 light values: [label, dot rgb]. Scheduled is a hollow ring, so its colour is the border.
 const D41 = {
   scheduled: ["Scheduled", "rgb(107, 115, 131)"],
-  inCall: ["In call", "rgb(35, 104, 208)"],
+  inCall: ["In progress", "rgb(35, 104, 208)"],
   awaitingTranscript: ["Awaiting transcript", "rgb(154, 100, 0)"],
   noTranscript: ["No transcript", "rgb(192, 57, 43)"],
   notReachable: ["Not reachable", "rgb(192, 57, 43)"],
@@ -115,7 +115,7 @@ describe("meeting list", () => {
     await expect($("#tab-transcript .tq")).toHaveText("1 min");
   });
 
-  it("Scheduled, In call, Awaiting transcript and Skipped show their D49 state card, with Unskip only on Skipped", async () => {
+  it("Scheduled, In progress, Awaiting transcript and Skipped show their D49 state card, with Unskip only on Skipped", async () => {
     const cards = {
       scheduled: "Captures when the call ends",
       inCall: "Live now, capture starts when it ends",

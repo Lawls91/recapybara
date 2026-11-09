@@ -222,8 +222,15 @@ pub fn next_after(end: DateTime<Utc>, at: DateTime<Utc>) -> Option<DateTime<Utc>
 pub fn attempts_left(m: &Meeting) -> u32 {
     let Some(next) = m.next_attempt else { return 0 };
     // No end: `attempt` fails closed after the one due.
-    let Some(end) = m.end else { return 1 };
+    let Some(end) = schedule_end(m) else { return 1 };
     1 + RETRIES.iter().filter(|r| end + Duration::minutes(**r) > next).count() as u32
+}
+
+/// Where the retry schedule counts from (D12): the call's ended event (chat::Chat) when it came before the scheduled
+/// end, else the scheduled end. A call running over keeps the scheduled schedule.
+fn schedule_end(m: &Meeting) -> Option<DateTime<Utc>> {
+    let end: DateTime<Utc> = m.end?.into();
+    Some(m.chat.and_then(|c| c.ended_at).map_or(end, |e| e.min(end)))
 }
 
 /// An ended event with no folder yet gets a first (or catch-up) attempt only within `CATCH_UP` of its end (D12).
@@ -246,6 +253,30 @@ pub(crate) fn folder_for(e: &Event, now: DateTime<Utc>) -> Meeting {
         next_attempt: Some(now.with_timezone(&Local).fixed_offset()),
         ..Meeting::default()
     }
+}
+
+/// A chat check's news for event `e` (chat::tick): the chat goes in its folder's `meeting.json`. `ended`: the call has
+/// ended, so a meeting waiting on its schedule is due for an attempt now (the first, early, or one extra), and one with
+/// no folder yet gets it, due now, as at its end. Under the event's claim; while a fetch has the meeting, nothing is
+/// written. Returns the folder id, if any.
+// ponytail: an ended event seen while a fetch has the meeting adds no attempt; that fetch is the early one.
+pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, now: DateTime<Utc>) -> Option<String> {
+    let known = || library::list(lib).into_iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str()));
+    let _one = claim(lib, &e.id)?;
+    let Some(l) = known() else {
+        return ended.then(|| library::create(lib, &Meeting { chat: Some(chat), ..folder_for(e, now) }).map_err(|err| eprintln!("chat: no folder for {}: {err}", e.subject)).ok()).flatten();
+    };
+    let dir = lib.join(&l.id);
+    let mut m = library::load(&dir).ok()?;
+    m.chat = Some(chat);
+    if ended && matches!(m.state, State::Scheduled | State::AwaitingTranscript) && !m.skipped && !dir.join(library::VTT).exists() {
+        m.state = State::AwaitingTranscript;
+        m.next_attempt = Some(now.with_timezone(&Local).fixed_offset());
+    }
+    if let Err(err) = library::save(&dir, &m) {
+        eprintln!("chat: {} not updated: {err}", l.id);
+    }
+    Some(l.id)
 }
 
 /// A meeting not yet captured, by its end (D12): upcoming, Scheduled with its first attempt at the end; ended within
@@ -402,7 +433,8 @@ fn attempt(
     m.claude_version = ver.or(m.claude_version);
     m.next_attempt = None;
     m.fetch_error = None;
-    let retry = |m: &mut Meeting, last: State| match next_after(end, now) {
+    let from = schedule_end(&m).unwrap_or(end);
+    let retry = |m: &mut Meeting, last: State| match next_after(from, now) {
         Some(t) => m.next_attempt = Some(t.with_timezone(&Local).fixed_offset()),
         None => m.state = last,
     };

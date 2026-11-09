@@ -10,6 +10,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::UpdaterExt;
 
 pub mod calendar;
+pub mod chat;
 pub mod claude;
 pub mod fetch;
 pub mod library;
@@ -57,6 +58,8 @@ struct AppState {
     /// The meeting a clicked toast asked to open, until the page takes it (it may be minimised or asleep).
     pending_open: Mutex<Option<String>>,
     calendar: calendar::Calendar,
+    /// The meeting chats watched now (chat::tick).
+    chats: chat::Chats,
     /// Import from Teams: the latest Search's eligible events and dates, which Import takes.
     teams: fetch::TeamsImport,
     /// A dev instance: never touches the Run key.
@@ -175,6 +178,7 @@ fn list_meetings(app: AppHandle) -> Result<Vec<library::Listed>, String> {
     let state = app.state::<AppState>();
     let mut list = calendar::listed(&state.calendar.events(), library::list(&lib));
     library::exclude(&mut list, &state.settings.lock().unwrap().excluded());
+    chat::show(&mut list, &state.chats, chrono::Utc::now());
     Ok(list)
 }
 
@@ -412,6 +416,40 @@ fn fetch_due(app: &AppHandle) {
     });
     if std::panic::catch_unwind(tick).is_err() {
         eprintln!("fetch: the tick panicked");
+    }
+}
+
+/// The meeting chats due a check (chat::tick): not during first run, and in a dev instance only against a stand-in
+/// claude. A call found ended makes its meeting due, so the fetch right after this starts it early; a call found
+/// without transcription raises its notification, whose Skip this meeting skips it (D17) and whose body opens it.
+fn check_chats(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let overridden = std::env::var_os("MEETING_CAPTURE_CLAUDE").is_some_and(|v| !v.is_empty());
+    if first_running(app) || !chat::checks_on(state.dev, overridden) {
+        return;
+    }
+    let Ok(lib) = library_path(app) else { return };
+    let (runs, home, program) = (state.data_dir.join("runs"), state.home.clone(), claude::program());
+    let excluded = state.settings.lock().unwrap().excluded();
+    let job = std::panic::AssertUnwindSafe(|| chat::tick(&state.chats, &lib, &state.calendar.events(), &excluded, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r)));
+    let Ok(news) = std::panic::catch_unwind(job) else {
+        eprintln!("chat: the tick panicked");
+        return;
+    };
+    for n in news {
+        let _ = app.emit("meeting-changed", &n.id);
+        if n.nudge {
+            let (click_app, id, uri) = (app.clone(), n.id.clone(), n.event.uri.clone());
+            let title = summary::toast_title(&library::Meeting { subject: n.event.subject.clone(), ..Default::default() });
+            platform::toast_with(&title, chat::OFF, &[(chat::SKIP_BUTTON, chat::SKIP_ACTION)], move |action| match chat::clicked(action.as_deref()) {
+                chat::Click::Skip => {
+                    if let Err(e) = skip_meeting(click_app.clone(), uri.clone()) {
+                        eprintln!("chat: Skip this meeting failed: {e}");
+                    }
+                }
+                chat::Click::Open => open_from_toast(&click_app, id.clone()),
+            });
+        }
     }
 }
 
@@ -853,7 +891,7 @@ pub fn run() {
             let _ = std::fs::remove_file(&result);
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), proposed_library, update: Default::default(), last_check: Mutex::new(None), update_failed });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, chats: chat::Chats::default(), teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), proposed_library, update: Default::default(), last_check: Mutex::new(None), update_failed });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -870,6 +908,7 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || loop {
                 refresh_calendar_now(&handle, true);
+                check_chats(&handle);
                 fetch_due(&handle);
                 std::thread::sleep(calendar::TICK);
             });

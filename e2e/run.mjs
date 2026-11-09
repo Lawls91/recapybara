@@ -95,6 +95,8 @@ for (const spec of specs) {
     ANTHROPIC_API_KEY: "sk-e2e-parent-key-must-not-leak",
     // A debug build's update check (slice 19) goes here, never to GitHub: nothing listens, so it fails, logged.
     MEETING_CAPTURE_UPDATE_URL: "http://127.0.0.1:9/latest.json",
+    // A debug build appends each toast it raises here (title, body, buttons): dev builds show none (D47).
+    MEETING_CAPTURE_TOAST_LOG: path.join(root, "toasts.jsonl"),
   };
   // Claude Code not installed: nothing at the path it is run from.
   if (name === "first-run-no-claude") env.MEETING_CAPTURE_CLAUDE = path.join(root, "not-installed", "claude.exe");

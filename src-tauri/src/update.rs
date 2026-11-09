@@ -258,7 +258,7 @@ mod tests {
 
     fn listed(state: State, fetching: bool) -> Listed {
         let meeting: Meeting = serde_json::from_value(serde_json::json!({ "subject": "Synthetic", "state": state })).unwrap();
-        Listed { id: "x".into(), meeting, has_transcript: false, has_summary: false, excluded: false, attempts_left: 0, fetching }
+        Listed { id: "x".into(), meeting, has_transcript: false, has_summary: false, excluded: false, attempts_left: 0, fetching, transcription_off: false }
     }
 
     #[test]

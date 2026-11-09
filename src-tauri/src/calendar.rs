@@ -127,7 +127,7 @@ pub fn read_run(uris: &[String]) -> ClaudeRun {
 
 /// Every JSON value in a hook's `tool_response`, whether it is text blocks or one string. A text holding several
 /// concatenated objects (the search output) gives each; a text that doesn't parse whole gives nothing.
-fn values(resp: &Value) -> Vec<Value> {
+pub(crate) fn values(resp: &Value) -> Vec<Value> {
     summary::answers(resp)
         .into_iter()
         .flat_map(|a| match a {
@@ -493,6 +493,7 @@ pub fn listed(events: &[Event], mut library: Vec<Listed>) -> Vec<Listed> {
             excluded: false,
             attempts_left: 0,
             fetching: false,
+            transcription_off: false,
         })
         .collect();
     library.extend(new);
@@ -765,6 +766,7 @@ mod tests {
             excluded: false,
             attempts_left: 0,
             fetching: false,
+            transcription_off: false,
         };
         let l = listed(&events, vec![folder]);
         let got: Vec<(&str, State)> = l.iter().map(|x| (x.meeting.subject.as_str(), x.meeting.state)).collect();

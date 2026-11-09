@@ -66,6 +66,9 @@ pub struct Meeting {
     pub attempts: u32,
     /// When the next fetch attempt is due; none once the schedule has ended (D12, D25).
     pub next_attempt: Option<DateTime<FixedOffset>>,
+    /// The meeting chat's call times for this occurrence (chat::Chat), and nothing else of the chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat: Option<crate::chat::Chat>,
 }
 
 /// A meeting as the list sees it: its folder name is its id.
@@ -84,6 +87,8 @@ pub struct Listed {
     /// A fetch attempt holds it now (its claim). Try again and the scheduler redraw the list as they take it; an import's
     /// shows on the next redraw while it runs.
     pub fetching: bool,
+    /// In progress with transcription off, from the meeting chat (chat::show).
+    pub transcription_off: bool,
 }
 
 /// In an excluded series (D17): the join URL every occurrence shares is in `series`.
@@ -272,6 +277,7 @@ pub fn list(library: &Path) -> Vec<Listed> {
                 excluded: false,
                 attempts_left: crate::fetch::attempts_left(&meeting),
                 fetching: crate::fetch::fetching(library, meeting.event_id.as_deref().unwrap_or(&e.file_name().to_string_lossy())),
+                transcription_off: false,
                 meeting,
             })
         })

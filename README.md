@@ -5,7 +5,7 @@ transcription on, captures each transcript through your own headless Claude Code
 write a summary whose every item cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder.
 
-Status: import (a transcript file, or from Teams), summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes (before, during and after a meeting), search, first run, the library skill for Claude, delete a meeting, CI, self-update (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14, 15, 16, 17, 18, and slice 19). v1 is single-user.
+Status: import (a transcript file, or from Teams), summarise, corrections and glossary, Jira key check, calendar refresh, auto-fetch after a meeting, skip, exclude and filter by series, My notes (before, during and after a meeting), search, first run, the library skill for Claude, delete a meeting, CI, self-update, meeting chat events (Outline tickets 01, 03, 04, 05, 06, 07, 08, 10, 14, 15, 16, 17, 18, and slices 19 and chat-events, which replaces tickets 09 and 11). v1 is single-user.
 
 ## Build and run
 
@@ -224,6 +224,7 @@ Test-only env vars (D36, D37):
 | `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |
 | `MEETING_CAPTURE_DOCUMENTS` | debug build only: replaces the Documents known folder for first run's offered library, and on a dev instance replaces the dev dir's own `<dir>\library` default too |
+| `MEETING_CAPTURE_TOAST_LOG` | debug build only: each toast raised is also appended there as `{title, body, buttons}`, since a dev build's toasts never show (the E2E suite sets it to `<root>	oasts.jsonl`) |
 | `MC_E2E_PORT` | the E2E tauri-driver port (default 4444), when something else holds 4444 |
 | `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` (argv, env, stdin, `startedMs`/`endedMs`, the hooks `fired`) |
 
@@ -252,6 +253,17 @@ Fake claude scenarios (the file is read on every run, so it can be rewritten bet
       "tool_response": [{ "type": "text", "text": "{\"meeting\":{…},\"transcripts\":[{\"createdDateTime\":\"2026-11-07T14:00:00Z\",\"content\":\"WEBVTT\n\n…\"}]}" }] },
     { "event": "PostToolUseFailure", "tool_name": "mcp__claude_ai_Microsoft_365__read_resource",
       "tool_input": { "uri": "…" }, "error": "MCP error 3003: …" } ] }   // not reachable
+{ "result": {…}, "hooks": [ /* calendar search and reads, as above */,                 // a chat check
+    { "tool_name": "mcp__claude_ai_Microsoft_365__read_resource",
+      "tool_input": { "uri": "teams:///chats/19:meeting_SYNTH@thread.v2/messages" },  // the thread id from the joinUrl
+      "tool_response": [{ "type": "text", "text": "{\"value\":[
+        {\"messageType\":\"unknownFutureValue\",\"createdDateTime\":\"2026-11-09T10:20:00Z\",
+         \"eventDetail\":{\"@odata.type\":\"#microsoft.graph.callEndedEventMessageDetail\",\"callId\":\"c1\"}},
+        {\"messageType\":\"message\",\"createdDateTime\":\"2026-11-09T10:19:00Z\",\"body\":{\"content\":\"…\"}},
+        {\"messageType\":\"unknownFutureValue\",\"createdDateTime\":\"2026-11-09T10:01:00Z\",
+         \"eventDetail\":{\"@odata.type\":\"#microsoft.graph.callStartedEventMessageDetail\",\"callId\":\"c1\"}}]}" }] } ] }
+// (callTranscriptEventMessageDetail is transcription started; the event's joinUrl must be
+//  https://…/l/meetup-join/19%3ameeting_SYNTH%40thread.v2/… for the app to have a chat to read.)
 // Every run fires every hook its --settings matches, so one scenario can serve the refresh, each fetch and the summary,
 // except a read_resource whose uri the prompt lists after "already read:" (the refresh's cached events).
 { "stdout": "{not json" }                      // a malformed result: the summary fails
@@ -289,7 +301,7 @@ Reading a failure: open the failed run, then the red step.
 ## Run log
 
 Every Claude run appends one JSON line to `runs.jsonl` in the app's data folder (`%APPDATA%\com.lawls91.meetingcapture`,
-or `<dir>\data` for a dev instance): `at`, `kind` (`refresh`, `search`, `read retry`, `fetch` or `summary`), `model`,
+or `<dir>\data` for a dev instance): `at`, `kind` (`refresh`, `search`, `read retry`, `chat`, `fetch` or `summary`), `model`,
 `wall_ms`, and from the run's result `duration_ms`, `duration_api_ms`, `num_turns`, `usage` (token counts),
 `total_cost_usd` and `is_error` (null when the run gave no result). Never the prompt, the transcript or the reply.
 It is never trimmed.
@@ -380,6 +392,40 @@ first and each day newest first. With nothing upcoming there is no section label
 while their day scrolls. Search and the series filter keep this layout. The status line wraps a long refresh error
 and pushes the list down rather than covering it.
 
+Meeting chat events (slice chat-events, replacing the mic signal of D10): Teams posts system events into a scheduled
+meeting's chat, and the app reads them to know when the call really starts and ends, and whether transcription is on.
+
+- **What is read**: for each cached Teams event whose join URL names its chat (`.../l/meetup-join/19%3ameeting_<id>%40thread.v2/...`),
+  a haiku run allowed only `read_resource`, captured by the hook (never the model's retelling), reads
+  `teams:///chats/19:meeting_<id>@thread.v2/messages`: the latest 50 messages. The app looks only at the system events
+  in it: call started (`callStartedEventMessageDetail`), transcription started (`callTranscriptEventMessageDetail`) and
+  call ended (`callEndedEventMessageDetail`); recording events are ignored. A recurring meeting shares one chat, so only
+  events from 15 minutes before the scheduled start to 2 hours after the scheduled end count, matched by `callId` to the
+  latest started event.
+- **Privacy**: ordinary messages (`messageType: "message"`) are passed by unread: their text is never parsed, stored,
+  logged or summarised. All the app keeps of a chat is three times, in `meeting.json` as
+  `"chat": { "startedAt", "transcriptStartedAt", "endedAt" }` (in memory only for a meeting with no folder). The raw page
+  exists only as the capture hook's file, which is deleted when the run ends (D7). Who was on the call is not kept
+  (the brief's `attended` was dropped: nothing used it).
+- **How often**: every 3 minutes per meeting, from 5 minutes before its scheduled start until its ended event, or 30
+  minutes after its scheduled end, whichever comes first; several meetings at once, at most 4 (the fetch limit). Never
+  for a skipped, excluded or already captured meeting, never during first run or while the library is missing, and in a
+  dev instance only with `MEETING_CAPTURE_CLAUDE` set (the fake). A read that fails (403, not found, a timeout) is tried
+  again at the next slot; after 2 failures that meeting isn't read again this occurrence and keeps its scheduled
+  behaviour (logged, no banner). **Why**: each check is a haiku run (~13 s of start-up, D8 costs), so a 30-minute
+  meeting costs about 12 checks (`kind: "chat"` in `runs.jsonl`); in return the transcript is fetched as soon as the
+  call ends, and a call without transcription is caught while it can still be turned on.
+- **In progress**: a meeting whose call has started and not ended lists as In progress (row and card) in place of
+  Scheduled, whoever is on the call.
+- **Transcription off**: a started call with no transcription-started event 5 minutes after its start raises one
+  notification per meeting, titled with the meeting name (cut at 60 characters with an ellipsis): "Transcription isn't
+  on. Turn it on in Teams to capture this meeting.", with **Skip this meeting** (the list's Skip); a click on its body
+  opens the meeting. A transcription event arriving later raises nothing more. The In progress card says "Transcription
+  isn’t on. Turn it on in Teams to capture this meeting." A restart while it is still off notifies once more.
+- **Early fetch**: an ended event makes the first transcript fetch run at once (a folder is made then, "Awaiting
+  transcript", if there wasn't one), and the D12 retries count from the actual end (+2, +10, +30, +120). A call that
+  runs over its scheduled end is fetched on the schedule as before; its ended event, once seen, adds one extra attempt.
+
 The Awaiting transcript card says when it checks next, in local time with its day unless today, and how many attempts
 are left ("Next check at 11:30, 2 attempts left.", "Next check tomorrow at 00:20, ..."), and its Import transcript
 attaches a `.vtt` now. The count follows D12's schedule from `nextAttempt` and `end` (a meeting found late has skipped
@@ -412,7 +458,7 @@ calendar-only meeting); a meeting with no folder there stays "Not saved". It nev
 other notes (a same-named folder of another meeting, or this one edited elsewhere): that save is refused with a
 notice, the tab reads "Not saved" and the text stays in the box; typing in it then replaces them. Keys typed there stay there: S, E and Del act only on the list's cursor row. Nothing
 else writes `notes.md`: summary runs, re-runs, captures, attaches and Replace transcript… leave it byte-identical. Every
-meeting has the tab, so notes can be written before and during the call: on Scheduled, In call, Awaiting transcript
+meeting has the tab, so notes can be written before and during the call: on Scheduled, In progress, Awaiting transcript
 and Skipped the state card is the Summary tab's body, beside My notes. A calendar-only meeting (no folder yet) gets its
 folder on the first save, `meeting.json` from the cached event plus `notes.md`, made as the scheduler would make it so
 its state and fetch schedule don't change (D12: upcoming, Scheduled with its first attempt at its end; ended under
