@@ -26,7 +26,9 @@ test("a running summary's menu offers neither Re-run summary nor Replace transcr
 test("Skip is only on a meeting not yet captured, and an excluded series offers Include series instead (D17)", () => {
   const ids = (m: Meeting) => menuFor(m).map((i) => i.id);
   expect(ids({ ...meeting("scheduled"), hasTranscript: false })).toContain("skip");
-  expect(ids({ ...meeting("captureFailed"), hasTranscript: false })).toContain("skip");
+  expect(ids({ ...meeting("awaitingTranscript"), hasTranscript: false })).toContain("skip");
+  // Fetching is over for these: nothing left to skip.
+  for (const s of ["noTranscript", "notReachable", "captureFailed"] as const) expect(ids({ ...meeting(s), hasTranscript: false })).not.toContain("skip");
   expect(ids(meeting("done"))).not.toContain("skip");
   expect(ids({ ...meeting("skipped"), hasTranscript: false })).not.toContain("skip");
   const teams = { ...meeting("scheduled"), hasTranscript: false, joinUrl: "https://teams.example/j/1" };

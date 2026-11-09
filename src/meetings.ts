@@ -172,8 +172,8 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (m.hasSummary) items.push({ id: "copy-summary", label: "Copy summary", icon: "" }, { id: "copy-actions", label: "Copy actions", icon: "" });
   if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "" });
   const group: MenuItem[] = [];
-  // Skip stops a capture (D17), so only a meeting not yet captured has it.
-  if (m.state !== "skipped" && !m.hasTranscript && !busy) group.push({ id: "skip", label: "Skip", icon: "", key: "S" });
+  // Skip stops a capture (D17), so only a meeting a fetch can still reach has it: not once fetching is over.
+  if (m.state !== "skipped" && !m.hasTranscript && !busy && !needsTranscript(m.state)) group.push({ id: "skip", label: "Skip", icon: "", key: "S" });
   // D17 keys a series by join URL.
   if (m.joinUrl)
     group.push(m.excluded ? { id: "include", label: "Include series", icon: "" } : { id: "exclude", label: "Exclude series", icon: "", key: "E" });
