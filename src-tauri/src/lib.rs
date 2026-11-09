@@ -234,6 +234,7 @@ fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, Str
     let glossary = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
     for a in &mut t.corrections {
         a.in_glossary = library::in_glossary(&glossary, &a.correction);
+        a.rejected = library::listed(&glossary, true, &a.correction);
     }
     Ok(t)
 }
@@ -277,6 +278,33 @@ fn quit(app: AppHandle) {
 #[tauri::command]
 fn add_to_glossary(app: AppHandle, from: String, to: String) -> Result<(), String> {
     library::add_to_glossary(&library_path(&app)?, &library::Correction { from, to, reason: String::new() })
+}
+
+#[derive(serde::Serialize)]
+struct GlossaryPage {
+    review: Vec<library::Review>,
+    entries: Vec<library::Correction>,
+    never: Vec<library::Correction>,
+}
+
+/// The Glossary page and its button's badge: To review, the glossary and the never list. Every summary.json is read,
+/// so on a blocking thread.
+#[tauri::command]
+async fn get_glossary(app: AppHandle) -> Result<GlossaryPage, String> {
+    let lib = library_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
+        GlossaryPage { review: library::review(&lib), entries: library::entries(&text, false), never: library::entries(&text, true) }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The Glossary page's Add entry, Edit, Remove and Reject (library::edit_glossary). A sync command, so edits run one
+/// after another on the main thread.
+#[tauri::command]
+fn edit_glossary(app: AppHandle, never: bool, old: Option<library::Correction>, new: Option<library::Correction>) -> Result<(), String> {
+    library::edit_glossary(&library_path(&app)?, never, old.as_ref(), new.as_ref())
 }
 
 #[tauri::command]
@@ -950,6 +978,8 @@ pub fn run() {
             retry_fetch,
             get_transcript,
             add_to_glossary,
+            get_glossary,
+            edit_glossary,
             get_notes,
             save_notes,
             search,

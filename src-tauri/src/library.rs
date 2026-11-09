@@ -330,6 +330,8 @@ pub struct Applied {
     pub correction: Correction,
     pub count: usize,
     pub in_glossary: bool,
+    /// On the never list: summaries are told never to make it.
+    pub rejected: bool,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -463,7 +465,7 @@ pub fn transcript(vtt: &str, fixes: &[Correction]) -> Transcript {
         .iter()
         .zip(used)
         .filter(|(_, n)| *n > 0)
-        .map(|(f, count)| Applied { correction: f.clone(), count, in_glossary: false })
+        .map(|(f, count)| Applied { correction: f.clone(), count, in_glossary: false, rejected: false })
         .collect();
     Transcript { turns, minutes: end.div_ceil(60), corrections }
 }
@@ -584,37 +586,132 @@ pub fn search(library: &Path, query: &str) -> Vec<Hit> {
 
 /// `glossary.md` at the library root, one entry per line, edited by the user (D23).
 pub const GLOSSARY: &str = "glossary.md";
+/// The prefix of a rejected correction's line in `glossary.md`: `never: from -> to`. Summaries are told never to make
+/// it. A prefix rather than a heading, so each line says what it is, and a reader that knows only `from -> to` lines
+/// never takes it for an entry.
+pub const NEVER: &str = "never:";
 
-fn glossary_line(c: &Correction) -> String {
-    format!("{} -> {}", c.from.trim(), c.to.trim())
+/// A `glossary.md` line as (never, from, to); None for any other line (a bare term, a blank).
+fn pair(line: &str) -> Option<(bool, &str, &str)> {
+    let line = line.trim();
+    let (never, rest) = line.strip_prefix(NEVER).map_or((false, line), |r| (true, r));
+    let (from, to) = rest.split_once("->")?;
+    let (from, to) = (from.trim(), to.trim());
+    (!from.is_empty() && !to.is_empty()).then_some((never, from, to))
+}
+
+fn is(line: &str, never: bool, c: &Correction) -> bool {
+    pair(line) == Some((never, c.from.trim(), c.to.trim()))
+}
+
+/// Whether `c` is in the glossary (`never` false) or the never list.
+pub fn listed(glossary: &str, never: bool, c: &Correction) -> bool {
+    glossary.lines().any(|l| is(l, never, c))
 }
 
 pub fn in_glossary(glossary: &str, c: &Correction) -> bool {
-    let line = glossary_line(c);
-    glossary.lines().any(|l| l.trim() == line)
+    listed(glossary, false, c)
 }
 
-/// Add to glossary (D23): appends the correction as one line, once. A glossary that can't be read is left alone.
-pub fn add_to_glossary(library: &Path, c: &Correction) -> Result<(), String> {
-    if [&c.from, &c.to].iter().any(|s| s.trim().is_empty() || s.contains(['\r', '\n'])) {
-        return Err("A glossary entry is one line.".into());
+/// The glossary's entries (`never` false) or the never list, in file order.
+pub fn entries(glossary: &str, never: bool) -> Vec<Correction> {
+    glossary
+        .lines()
+        .filter_map(pair)
+        .filter(|p| p.0 == never)
+        .map(|(_, from, to)| Correction { from: from.into(), to: to.into(), reason: String::new() })
+        .collect()
+}
+
+/// The Glossary page's edits (D23): in the glossary (`never` false) or the never list, `old` replaced by `new`;
+/// no `old` adds `new` at the end, no `new` removes `old`. A pair is in one list only, so adding it to one takes it
+/// out of the other. Other lines (bare terms) stay as they are. A glossary that can't be read is left alone.
+pub fn edit_glossary(library: &Path, never: bool, old: Option<&Correction>, new: Option<&Correction>) -> Result<(), String> {
+    if let Some(c) = new {
+        if [&c.from, &c.to].iter().any(|s| s.trim().is_empty() || s.contains(['\r', '\n']) || s.contains("->")) {
+            return Err("A glossary entry is one line, with words on both sides and no -> inside them.".into());
+        }
     }
     let path = library.join(GLOSSARY);
-    let mut text = match fs::read_to_string(&path) {
+    let text = match fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(format!("{GLOSSARY} couldn't be read ({e}).")),
     };
-    if in_glossary(&text, c) {
-        return Ok(());
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let at = match old {
+        Some(o) => Some(lines.iter().position(|l| is(l, never, o)).ok_or(format!("That entry is no longer in {GLOSSARY}."))?),
+        None => None,
+    };
+    let line = |c: &Correction| format!("{}{} -> {}", if never { "never: " } else { "" }, c.from.trim(), c.to.trim());
+    match (at, new) {
+        (Some(i), Some(c)) => lines[i] = line(c),
+        (Some(i), None) => {
+            lines.remove(i);
+        }
+        (None, Some(c)) => lines.push(line(c)),
+        (None, None) => return Ok(()),
+    }
+    if let Some(c) = new {
+        // Its first line in this list stays; a copy, or the pair in the other list, goes.
+        let mut seen = false;
+        lines.retain(|l| !is(l, !never, c) && !(is(l, never, c) && std::mem::replace(&mut seen, true)));
     }
     let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    if !text.is_empty() && !text.ends_with('\n') {
-        text += nl;
+    let out = if lines.is_empty() { String::new() } else { lines.join(nl) + nl };
+    if out == text {
+        return Ok(());
     }
-    text += &glossary_line(c);
-    text += nl;
-    write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())
+    write_atomic(&path, out.as_bytes()).map_err(|e| e.to_string())
+}
+
+/// Add to glossary (D23): appends the correction as one line, once.
+pub fn add_to_glossary(library: &Path, c: &Correction) -> Result<(), String> {
+    edit_glossary(library, false, None, Some(c))
+}
+
+/// A correction summaries made that is neither in the glossary nor rejected, grouped across meetings: the places it
+/// changed in all of them, and the meetings (folder id, subject), newest first.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Review {
+    #[serde(flatten)]
+    pub correction: Correction,
+    pub places: usize,
+    pub meetings: Vec<(String, String)>,
+}
+
+/// The Glossary page's To review: every meeting's `summary.json` corrections that changed a word in its transcript
+/// and are in neither list. Its length is the glossary button's badge.
+pub fn review(library: &Path) -> Vec<Review> {
+    #[derive(Deserialize, Default)]
+    #[serde(default)]
+    struct Fixes {
+        corrections: Vec<Correction>,
+    }
+    let glossary = fs::read_to_string(library.join(GLOSSARY)).unwrap_or_default();
+    let mut out: Vec<Review> = vec![];
+    for l in list(library) {
+        let dir = library.join(&l.id);
+        let Some(fixes) = fs::read(dir.join(SUMMARY_JSON)).ok().and_then(|b| serde_json::from_slice::<Fixes>(&b).ok()) else { continue };
+        let pending: Vec<Correction> = fixes.corrections.into_iter().filter(|c| !listed(&glossary, false, c) && !listed(&glossary, true, c)).collect();
+        let Some(vtt) = (!pending.is_empty()).then(|| fs::read_to_string(dir.join(VTT)).ok()).flatten() else { continue };
+        for a in transcript(&vtt, &pending).corrections {
+            let (from, to) = (a.correction.from.trim(), a.correction.to.trim());
+            match out.iter_mut().find(|r| (r.correction.from.as_str(), r.correction.to.as_str()) == (from, to)) {
+                Some(r) if r.meetings.iter().any(|m| m.0 == l.id) => r.places += a.count,
+                Some(r) => {
+                    r.places += a.count;
+                    r.meetings.push((l.id.clone(), l.meeting.subject.clone()));
+                }
+                None => out.push(Review {
+                    correction: Correction { from: from.into(), to: to.into(), reason: a.correction.reason },
+                    places: a.count,
+                    meetings: vec![(l.id.clone(), l.meeting.subject.clone())],
+                }),
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -882,6 +979,85 @@ Ask Robin about the 403
         fs::write(lib.join(GLOSSARY), b"caf\xe9").unwrap();
         assert!(add_to_glossary(&lib, &c).is_err(), "an unreadable glossary is not overwritten");
         assert_eq!(fs::read(lib.join(GLOSSARY)).unwrap(), b"caf\xe9");
+    }
+
+    #[test]
+    fn the_never_list_is_its_own_lines_and_never_reads_as_a_glossary_entry() {
+        let text = "Orbit\nfelter -> filter\nnever: Helix -> Helix CI\n  never:Prya->Priya  \nnever: no arrow\n";
+        assert!(in_glossary(text, &fix("felter", "filter", "")));
+        assert!(!in_glossary(text, &fix("Helix", "Helix CI", "")), "a rejected pair is not an entry");
+        assert!(listed(text, true, &fix("Helix", "Helix CI", "")));
+        assert!(listed(text, true, &fix("Prya", "Priya", "")), "a hand edit's spacing still reads");
+        let pairs = |v: Vec<Correction>| v.into_iter().map(|c| format!("{}={}", c.from, c.to)).collect::<Vec<_>>();
+        assert_eq!(pairs(entries(text, false)), ["felter=filter"]);
+        assert_eq!(pairs(entries(text, true)), ["Helix=Helix CI", "Prya=Priya"]);
+    }
+
+    #[test]
+    fn edit_glossary_adds_edits_removes_and_moves_a_pair_between_the_lists() {
+        let lib = temp("edit-glossary");
+        let read = || fs::read_to_string(lib.join(GLOSSARY)).unwrap();
+        fs::write(lib.join(GLOSSARY), "Orbit\r\nfelter -> filter\r\n").unwrap();
+        // Reject: a never line, the bare term and the CRLF style kept.
+        edit_glossary(&lib, true, None, Some(&fix(" Helix", "Helix CI ", ""))).unwrap();
+        assert_eq!(read(), "Orbit\r\nfelter -> filter\r\nnever: Helix -> Helix CI\r\n");
+        // Edit in place.
+        edit_glossary(&lib, false, Some(&fix("felter", "filter", "")), Some(&fix("felter", "filters", ""))).unwrap();
+        assert_eq!(read(), "Orbit\r\nfelter -> filters\r\nnever: Helix -> Helix CI\r\n");
+        // Adding a rejected pair to the glossary takes it off the never list, and back.
+        edit_glossary(&lib, false, None, Some(&fix("Helix", "Helix CI", ""))).unwrap();
+        assert_eq!(read(), "Orbit\r\nfelter -> filters\r\nHelix -> Helix CI\r\n");
+        edit_glossary(&lib, true, None, Some(&fix("Helix", "Helix CI", ""))).unwrap();
+        assert_eq!(read(), "Orbit\r\nfelter -> filters\r\nnever: Helix -> Helix CI\r\n");
+        // An edit onto an entry already there leaves one line.
+        edit_glossary(&lib, false, None, Some(&fix("cash", "cache", ""))).unwrap();
+        edit_glossary(&lib, false, Some(&fix("cash", "cache", "")), Some(&fix("felter", "filters", ""))).unwrap();
+        assert_eq!(read(), "Orbit\r\nfelter -> filters\r\nnever: Helix -> Helix CI\r\n");
+        // Remove, from either list.
+        edit_glossary(&lib, true, Some(&fix("Helix", "Helix CI", "")), None).unwrap();
+        edit_glossary(&lib, false, Some(&fix("felter", "filters", "")), None).unwrap();
+        assert_eq!(read(), "Orbit\r\n");
+        // Refused: a gone entry, an empty side, a second line, an arrow inside a side; the file unchanged.
+        assert_eq!(edit_glossary(&lib, false, Some(&fix("gone", "x", "")), None).unwrap_err(), "That entry is no longer in glossary.md.");
+        for bad in [fix(" ", "x", ""), fix("a\nb", "x", ""), fix("a -> b", "c", ""), fix("a", "b->c", "")] {
+            assert!(edit_glossary(&lib, false, None, Some(&bad)).is_err(), "{bad:?}");
+        }
+        assert_eq!(read(), "Orbit\r\n");
+    }
+
+    #[test]
+    fn review_groups_each_pending_pair_across_meetings_with_its_places() {
+        let lib = temp("review");
+        let meeting = |folder: &str, subject: &str, start: &str, vtt: &str, fixes: serde_json::Value| {
+            let dir = lib.join(folder);
+            fs::create_dir_all(&dir).unwrap();
+            let start = DateTime::parse_from_rfc3339(start).unwrap();
+            save(&dir, &Meeting { subject: subject.into(), start: Some(start), ..Meeting::default() }).unwrap();
+            fs::write(dir.join(VTT), vtt).unwrap();
+            fs::write(dir.join(SUMMARY_JSON), serde_json::json!({ "overview": "x", "corrections": fixes }).to_string()).unwrap();
+        };
+        meeting("A", "Felter review", "2026-11-02T10:00:00Z", FELTER, serde_json::json!([
+            { "from": "felter", "to": "filter", "reason": "domain term" },
+            { "from": "Katia", "to": "Katya", "reason": "attendee name" },
+            { "from": "never said", "to": "x", "reason": "no place" },
+        ]));
+        let b = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n<v Prya>The felter, then the felter again, and the cash.</v>\n";
+        meeting("B", "Design sync", "2026-11-03T10:00:00Z", b, serde_json::json!([
+            { "from": "felter", "to": "filter", "reason": "term" },
+            { "from": "Prya", "to": "Priya", "reason": "attendee" },
+            { "from": "cash", "to": "cache", "reason": "term" },
+        ]));
+        fs::write(lib.join(GLOSSARY), "cash -> cache\nnever: Prya -> Priya\n").unwrap();
+        let got: Vec<_> = review(&lib).into_iter().map(|r| (r.correction.from, r.correction.to, r.places, r.meetings.into_iter().map(|m| m.1).collect::<Vec<_>>())).collect();
+        assert_eq!(
+            got,
+            [
+                ("felter".into(), "filter".into(), 3, vec!["Design sync".to_string(), "Felter review".into()]),
+                ("Katia".into(), "Katya".into(), 1, vec!["Felter review".into()]),
+            ]
+        );
+        fs::write(lib.join(GLOSSARY), "cash -> cache\nnever: Prya -> Priya\nfelter -> filter\nnever: Katia -> Katya\n").unwrap();
+        assert!(review(&lib).is_empty());
     }
 
     /// Meeting A and B, as a capture and the notes tab would leave them.
