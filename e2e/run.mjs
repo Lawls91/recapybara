@@ -98,6 +98,9 @@ for (const spec of specs) {
   };
   // Claude Code not installed: nothing at the path it is run from.
   if (name === "first-run-no-claude") env.MEETING_CAPTURE_CLAUDE = path.join(root, "not-installed", "claude.exe");
+  // The installed copy's default library, on a dev instance: a debug build's stand-in for the Documents known folder
+  // (a OneDrive-redirected one, by its name), not yet there.
+  if (name === "first-run-default") env.MEETING_CAPTURE_DOCUMENTS = path.join(root, "OneDrive - Example", "Documents");
   // These two test the installed copy's own path, so they run without dev mode.
   if (name === "real-folders" || name === "single-instance") delete env.MEETING_CAPTURE_DEV;
   // Updates run only in the installed copy's path, against the spec's own server and a throwaway key made here (never

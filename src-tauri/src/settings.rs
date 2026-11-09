@@ -50,11 +50,23 @@ pub fn load(dir: &Path) -> Settings {
         .unwrap_or_default()
 }
 
-/// A dev instance (`--dev`): never at logon, so the Run key is never touched, and the library defaults into the dev dir.
-pub fn for_dev(mut s: Settings, dev: &Path) -> Settings {
+/// A dev instance (`--dev`): never at logon, so the Run key is never touched, and the library defaults into the dev dir
+/// (unless `own_library` is off: a test standing in for the installed copy's Documents default).
+pub fn for_dev(mut s: Settings, dev: &Path, own_library: bool) -> Settings {
     s.start_at_logon = false;
-    s.library_path.get_or_insert_with(|| dev_library(dev));
+    if own_library {
+        s.library_path.get_or_insert_with(|| dev_library(dev));
+    }
     s
+}
+
+/// The library first run offers (D25), so Finish works without a pick: a dev instance's own `<dir>\library`, else
+/// `<Documents>\Meeting capture`, Documents being the known folder (OneDrive-redirected or not). None without either.
+pub fn proposed_library(dev: Option<&Path>, documents: Option<&Path>) -> Option<String> {
+    match dev {
+        Some(dev) => Some(dev_library(dev)),
+        None => documents.map(|d| d.join("Meeting capture").to_string_lossy().into_owned()),
+    }
 }
 
 fn dev_library(dev: &Path) -> String {
@@ -103,11 +115,11 @@ mod tests {
 
     #[test]
     fn dev_forces_logon_off_and_defaults_the_library_into_the_dev_dir() {
-        let fresh = for_dev(Settings::default(), Path::new(r"C:\dev\one"));
+        let fresh = for_dev(Settings::default(), Path::new(r"C:\dev\one"), true);
         assert!(!fresh.start_at_logon);
         assert_eq!(fresh.library_path.as_deref(), Some(r"C:\dev\one\library"));
         let chosen = Settings { library_path: Some(r"D:\lib".into()), start_at_logon: true, ..Settings::default() };
-        let kept = for_dev(chosen, Path::new(r"C:\dev\one"));
+        let kept = for_dev(chosen, Path::new(r"C:\dev\one"), true);
         assert_eq!(kept.library_path.as_deref(), Some(r"D:\lib"), "a library already chosen is kept");
         assert!(!kept.start_at_logon);
     }
@@ -115,13 +127,23 @@ mod tests {
     #[test]
     fn a_dev_instance_makes_only_its_own_default_library_even_once_settings_are_saved() {
         let dev = Path::new(r"C:\dev\one");
-        let fresh = for_dev(Settings::default(), dev);
+        let fresh = for_dev(Settings::default(), dev, true);
         assert!(makes_dev_library(&fresh, dev));
         // An Appearance change saves settings.json with the default path in it: still the dev dir's own.
-        let saved = for_dev(Settings { library_path: Some(r"C:\dev\one\library".into()), ..Settings::default() }, dev);
+        let saved = for_dev(Settings { library_path: Some(r"C:\dev\one\library".into()), ..Settings::default() }, dev, true);
         assert!(makes_dev_library(&saved, dev));
-        let chosen = for_dev(Settings { library_path: Some(r"D:\lib".into()), ..Settings::default() }, dev);
+        let chosen = for_dev(Settings { library_path: Some(r"D:\lib".into()), ..Settings::default() }, dev, true);
         assert!(!makes_dev_library(&chosen, dev), "a chosen library that has gone isn't made anew");
+    }
+
+    #[test]
+    fn first_run_proposes_the_dev_dirs_library_else_documents_meeting_capture() {
+        let docs = Path::new(r"C:\Users\someone\OneDrive - Example\Documents");
+        assert_eq!(proposed_library(None, Some(docs)).as_deref(), Some(r"C:\Users\someone\OneDrive - Example\Documents\Meeting capture"));
+        assert_eq!(proposed_library(Some(Path::new(r"C:\dev\one")), Some(docs)).as_deref(), Some(r"C:\dev\one\library"), "a dev instance keeps its own");
+        assert_eq!(proposed_library(None, None), None, "no Documents folder: nothing offered, the user picks");
+        // A test standing in for Documents on a dev instance: no in-memory dev library, so first run is the installed copy's.
+        assert_eq!(for_dev(Settings::default(), Path::new(r"C:\dev\one"), false).library_path, None);
     }
 
     #[test]

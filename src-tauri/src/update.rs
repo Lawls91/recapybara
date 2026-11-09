@@ -16,8 +16,9 @@ pub const START_DELAY: Duration = Duration::from_secs(10);
 pub const POLL: Duration = Duration::from_secs(60 * 60);
 pub const DAILY: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// A debug-only override (`MEETING_CAPTURE_UPDATE_URL`, `MEETING_CAPTURE_UPDATE_PUBKEY`): the E2E suite points the
-/// app at a local server and a throwaway key. A release build ignores it, so it can't redirect a real install.
+/// A debug-only override (`MEETING_CAPTURE_UPDATE_URL`, `MEETING_CAPTURE_UPDATE_PUBKEY`, `MEETING_CAPTURE_DOCUMENTS`):
+/// the E2E suite points the app at a local server, a throwaway key and a temp Documents folder. A release build
+/// ignores it, so it can't redirect a real install.
 pub fn debug_only(debug: bool, value: Option<OsString>) -> Option<String> {
     value.filter(|v| debug && !v.is_empty()).map(|v| v.to_string_lossy().into_owned())
 }

@@ -1288,7 +1288,7 @@ listen("install-update", installUpdate); // the tray's Restart and update to ver
 
 // ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------
 
-/** The library first run will save: a dev instance's own default until one is chosen; none for the installed copy. */
+/** The library first run will save: the one offered (a dev instance's own, else Documents\Meeting capture) until one is chosen. */
 let firstLibrary: string | null = null;
 function paintFirstLibrary() {
   $("first-library").textContent = firstLibrary ?? "No folder chosen yet";
@@ -1298,7 +1298,7 @@ function paintFirstLibrary() {
 async function firstRun() {
   $("list-view").hidden = true;
   $("first-run").hidden = false;
-  firstLibrary = current.libraryPath;
+  firstLibrary = await invoke<string | null>("proposed_library");
   paintFirstLibrary();
   const dev = await invoke<boolean>("is_dev");
   const box = firstLogonBox(current, dev);

@@ -65,8 +65,11 @@ the list: two lines on what the app does, then
 - **Claude Code**: `claude --version`, through the same once-per-session lookup the fetches use, reads "Claude Code
   found: 2.1.318 (Claude Code)", or "Claude Code not found. Install it or add it to PATH, then restart the app." (in
   red). It doesn't block Finish.
-- **Library folder**, with Choose library folder (the native picker). A dev instance offers its own `<dir>\library`;
-  the installed copy has none until one is picked, and Finish waits for it.
+- **Library folder**, offered with its full path so Finish works without a pick: `<Documents>\Meeting capture`, where
+  Documents is your Documents known folder (wherever it is redirected, OneDrive included). Choose library folder (the
+  native picker) picks another. The offered folder is made at Finish if it isn't there, never before. A dev instance
+  offers its own `<dir>\library` instead. Only if Windows has no Documents folder is none offered, and Finish waits
+  for a pick.
 - **Start when I log in**, a plain checkbox, ticked (D31) and in sight, so it can be unticked before Finish. Finish
   sets the Run value to match at once: written if ticked, removed if not (the MSI writes it at install). The app writes
   it quoted as the MSI does (`"<exe>" --autostart`), and rewrites an unquoted one at each start. A dev instance
@@ -207,7 +210,8 @@ It installs `llvm-tools-preview` and `cargo-llvm-cov` if missing; `@wdio/tauri-s
 `tauri-driver` and a matching `msedgedriver` on first run. Each spec's app is a dev instance
 (`MEETING_CAPTURE_DEV`), so a running Meeting capture doesn't collide with it, except in the `single-instance` and
 `real-folders` specs, which test the installed copy's path: close Meeting capture before those. The `first-run` specs
-start with no `settings.json`, and `first-run-no-claude` points `MEETING_CAPTURE_CLAUDE` at a path with nothing there.
+start with no `settings.json`, `first-run-no-claude` points `MEETING_CAPTURE_CLAUDE` at a path with nothing there,
+and `first-run-default` sets `MEETING_CAPTURE_DOCUMENTS` to test the installed copy's default library on a dev instance.
 After each spec, `e2e/run.mjs` stops only the tauri-driver listening on its own `MC_E2E_PORT` (and that driver's
 msedgedriver), so runs on different ports can go at once.
 
@@ -219,6 +223,7 @@ Test-only env vars (D36, D37):
 | `MEETING_CAPTURE_DATA_DIR` | replaces `%APPDATA%\com.lawls91.meetingcapture` (settings, `runs`) |
 | `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
 | `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default `claude` on PATH) |
+| `MEETING_CAPTURE_DOCUMENTS` | debug build only: replaces the Documents known folder for first run's offered library, and on a dev instance replaces the dev dir's own `<dir>\library` default too |
 | `MC_E2E_PORT` | the E2E tauri-driver port (default 4444), when something else holds 4444 |
 | `FAKE_CLAUDE_SCENARIO` | scenario file for the fake claude; it appends a record to `<scenario>.record.jsonl` (argv, env, stdin, `startedMs`/`endedMs`, the hooks `fired`) |
 

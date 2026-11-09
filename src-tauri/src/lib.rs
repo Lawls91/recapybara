@@ -63,6 +63,8 @@ struct AppState {
     dev: bool,
     /// No library chosen yet: the page shows first run until its Finish.
     first_run: Mutex<bool>,
+    /// The library first run offers (settings::proposed_library), made at Finish if it isn't there.
+    proposed_library: Option<String>,
     /// The newer version found and verified, ready to install; the lock also keeps checks one at a time.
     update: tauri::async_runtime::Mutex<Option<(String, Vec<u8>)>>,
     /// The last check that got an answer, for the daily check.
@@ -544,6 +546,11 @@ fn is_first_run(state: State<AppState>) -> bool {
     *state.first_run.lock().unwrap()
 }
 
+#[tauri::command]
+fn proposed_library(state: State<AppState>) -> Option<String> {
+    state.proposed_library.clone()
+}
+
 /// First run is up (no library chosen yet, D25): the scheduler's tick (its folders and fetches, so their summaries) waits
 /// for its Finish, so nothing is fetched or written into a library the user hasn't picked. The calendar refresh still
 /// runs: it only fills the in-memory cache.
@@ -563,8 +570,12 @@ async fn claude_check() -> Result<String, String> {
 /// key is set to match now (the installer may have written it already); a dev instance never touches it.
 #[tauri::command]
 fn finish_first_run(app: AppHandle, library: String, start_at_logon: bool) -> Result<(), String> {
-    library::check(Path::new(&library))?;
     let state = app.state::<AppState>();
+    // The folder offered is made now, never before Finish; a folder picked must still be there (D45).
+    if state.proposed_library.as_ref() == Some(&library) {
+        std::fs::create_dir_all(&library).map_err(|e| format!("Couldn't make the library folder {library}: {e}"))?;
+    }
+    library::check(Path::new(&library))?;
     let current = state.settings.lock().unwrap().clone();
     let logon = start_at_logon && !state.dev;
     // Saved first, the Run key left to the line below (apply_settings sees no toggle), so a failed save changes nothing.
@@ -817,8 +828,13 @@ pub fn run() {
             let mut s = settings::load(&data_dir);
             // First run until a library is saved, a dev instance's included (its default is offered, not chosen).
             let first = s.library_path.is_none();
+            // A debug build's stand-in for the Documents known folder: E2E drives the installed copy's default on a
+            // dev instance (so never the Run key), in place of the dev dir's own library.
+            let test_documents = update::debug_only(cfg!(debug_assertions), std::env::var_os("MEETING_CAPTURE_DOCUMENTS")).map(PathBuf::from);
+            let own_dev = dev.as_deref().filter(|_| test_documents.is_none());
+            let proposed_library = settings::proposed_library(own_dev, test_documents.or_else(|| app.path().document_dir().ok()).as_deref());
             if let Some(dir) = &dev {
-                s = settings::for_dev(s, dir);
+                s = settings::for_dev(s, dir, own_dev.is_some());
                 if settings::makes_dev_library(&s, dir) {
                     std::fs::create_dir_all(s.library_path.as_deref().unwrap_or_default())?;
                 }
@@ -837,7 +853,7 @@ pub fn run() {
             let _ = std::fs::remove_file(&result);
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), update: Default::default(), last_check: Mutex::new(None), update_failed });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), proposed_library, update: Default::default(), last_check: Mutex::new(None), update_failed });
             // Display name follows productName only (D50).
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -913,6 +929,7 @@ pub fn run() {
             teams_import,
             is_dev,
             is_first_run,
+            proposed_library,
             claude_check,
             finish_first_run,
             check_updates,
