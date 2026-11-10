@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { bump, check, manifest, releaseNotes, versions } from "./release.mjs";
+import { bump, check, manifest, nextVersion, releaseNotes, subjectNotes, versions } from "./release.mjs";
 
 const FILES = ["src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "package.json", "package-lock.json", "Cargo.lock"];
 /** A copy of the repo's version files, to bump without touching the checkout. */
@@ -87,12 +88,33 @@ describe("release", () => {
     });
   });
 
-  it("releaseNotes reads release-notes/<tag>.md, and is empty without one", () => {
-    const dir = copy();
-    expect(releaseNotes("v0.4.2", dir)).toBe("");
+  it("nextVersion takes the version given, or the latest tag's next minor, and refuses one already tagged", () => {
+    const tags = ["v0.1.0", "v0.10.1", "v0.2.0", "v0.9.0-test", "other"];
+    expect(nextVersion(tags)).toEqual({ version: "0.11.0", tag: "v0.11.0", prev: "v0.10.1" });
+    expect(nextVersion(tags, " 0.10.2 ")).toEqual({ version: "0.10.2", tag: "v0.10.2", prev: "v0.10.1" });
+    expect(nextVersion([])).toEqual({ version: "0.1.0", tag: "v0.1.0", prev: "" });
+    expect(() => nextVersion(tags, "0.2.0")).toThrow("Tag v0.2.0 already exists.");
+    expect(() => nextVersion(tags, "1.2")).toThrow('Version "1.2" isn\'t X.Y.Z.');
+  });
+
+  it("subjectNotes makes bullets of commit subjects, without release commits, [skip ci] or the PR number", () => {
+    expect(
+      subjectNotes(["Synthetic fix (#12)", "Release v0.4.2", "Rename a thing [skip ci]", "", "Keep (#3) in the middle"]),
+    ).toBe("- Synthetic fix\n- Rename a thing\n- Keep (#3) in the middle");
+  });
+
+  it("releaseNotes is release-notes/<tag>.md if there is one, else the commit subjects since the previous tag", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mc-notes-"));
+    const git = (...a) => execFileSync("git", ["-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.invalid", ...a]);
+    git("init", "-q");
+    git("commit", "-q", "--allow-empty", "-m", "Old synthetic change");
+    git("tag", "v0.4.1");
+    git("commit", "-q", "--allow-empty", "-m", "New synthetic change (#7)");
+    git("commit", "-q", "--allow-empty", "-m", "Release v0.4.2");
+    expect(releaseNotes("v0.4.2", "v0.4.1", dir)).toBe("- New synthetic change");
+    expect(releaseNotes("v0.4.2", "", dir)).toBe("- New synthetic change\n- Old synthetic change");
     fs.mkdirSync(path.join(dir, "release-notes"));
     fs.writeFileSync(path.join(dir, "release-notes", "v0.4.2.md"), "- One synthetic change\r\n- Another\r\n\r\n");
-    expect(releaseNotes("v0.4.2", dir)).toBe("- One synthetic change\r\n- Another");
-    expect(releaseNotes("v0.4.3", dir)).toBe("");
+    expect(releaseNotes("v0.4.2", "v0.4.1", dir)).toBe("- One synthetic change\r\n- Another");
   });
 });
