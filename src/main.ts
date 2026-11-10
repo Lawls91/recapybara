@@ -1609,7 +1609,10 @@ $("review-keep-all").onclick = () =>
   });
 // Reject all asks first: a reject can't be undone on screen. Cancel or Esc: the dialog gives focus back to the button.
 const rejectDialog = $<HTMLDialogElement>("reject-confirm");
-rejectDialog.onkeydown = (e) => e.key === "Escape" && e.stopPropagation(); // Esc closes the dialog, not the page
+// A block, not `cond && ...`: a handler property returning false cancels the key, so Enter and Space would do nothing.
+rejectDialog.onkeydown = (e) => {
+  if (e.key === "Escape") e.stopPropagation(); // Esc closes the dialog, not the page
+};
 $("reject-cancel").onclick = () => rejectDialog.close();
 $("review-reject-all").onclick = () => {
   $("reject-confirm-title").textContent = `Reject all ${plural(glossary.review.length, "correction", "corrections")}?`;
@@ -1728,7 +1731,9 @@ function paintUpdate(version: string | null, notes = "", refused = "") {
 const openWhatsNew = () => updateVersion && !whatsNew.open && whatsNew.showModal(); // focus: Restart and update
 $("update-pill").onclick = openWhatsNew;
 $("whats-new-later").onclick = () => whatsNew.close(); // the pill stays
-whatsNew.onkeydown = (e) => e.key === "Escape" && e.stopPropagation(); // Esc is Later, and closes nothing else
+whatsNew.onkeydown = (e) => {
+  if (e.key === "Escape") e.stopPropagation(); // Esc is Later, and closes nothing else (a block: see rejectDialog)
+};
 invoke<[string, string] | null>("update_failed").then((f) => {
   updateFailed = f;
   if (f) {
