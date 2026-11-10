@@ -339,6 +339,8 @@ pub struct Transcript {
     /// Length from the last cue's end, in whole minutes (D44 "40 min").
     pub minutes: u32,
     pub corrections: Vec<Applied>,
+    /// summary.json's `rejected` (library::reject): listed on the Transcript tab, never applied.
+    pub rejected: Vec<Correction>,
 }
 
 /// `hh:mm:ss.ttt`, `mm:ss.ttt` or `hh:mm:ss` to milliseconds.
@@ -465,7 +467,7 @@ pub fn transcript(vtt: &str, fixes: &[Correction]) -> Transcript {
         .filter(|(_, n)| *n > 0)
         .map(|(f, count)| Applied { correction: f.clone(), count, in_glossary: false })
         .collect();
-    Transcript { turns, minutes: end.div_ceil(60), corrections }
+    Transcript { turns, minutes: end.div_ceil(60), corrections, rejected: vec![] }
 }
 
 fn joined(parts: &[Part]) -> String {
@@ -670,7 +672,18 @@ pub fn add_to_glossary(library: &Path, c: &Correction) -> Result<(), String> {
 /// `transcript.md` is written again without it, so its Transcript tab shows what Teams heard. Nothing is sent to later
 /// summaries: a later meeting making the same correction shows it for review again. The summary text stays as written.
 /// A meeting whose summary is running is refused untouched (its run would write over the change, or this over its run).
+/// The meeting's Transcript tab lists what was rejected, with Restore (`restore`).
 pub fn reject(library: &Path, ids: &[String], c: &Correction) -> Result<(), String> {
+    shift(library, ids, c, "corrections", "rejected", "Reject it there")
+}
+
+/// Restore on a Transcript tab's rejected row: the reverse of `reject` for that one meeting.
+pub fn restore(library: &Path, id: &str, c: &Correction) -> Result<(), String> {
+    shift(library, &[id.to_string()], c, "rejected", "corrections", "Restore it")
+}
+
+/// Moves `c` from summary.json's `out` list to its `into` list and writes transcript.md again from `corrections`.
+fn shift(library: &Path, ids: &[String], c: &Correction, out: &str, into: &str, then: &str) -> Result<(), String> {
     let mut busy = vec![];
     for id in ids {
         let dir = meeting_dir(library, id)?;
@@ -680,18 +693,17 @@ pub fn reject(library: &Path, ids: &[String], c: &Correction) -> Result<(), Stri
         }
         let Ok(bytes) = fs::read(dir.join(SUMMARY_JSON)) else { continue };
         let mut raw: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{id}: {e}"))?;
-        let Some(list) = raw.get_mut("corrections").and_then(|v| v.as_array_mut()) else { continue };
+        let Some(list) = raw.get_mut(out).and_then(|v| v.as_array_mut()) else { continue };
         let (gone, kept): (Vec<_>, Vec<_>) = list.drain(..).partition(|v| serde_json::from_value::<Correction>(v.clone()).is_ok_and(|x| same(&x, c)));
         *list = kept;
         if gone.is_empty() {
             continue;
         }
-        let left: Vec<Correction> = serde_json::from_value(serde_json::Value::Array(list.clone())).unwrap_or_default();
-        // Kept, not deleted: a reject made by mistake can be put back by hand (nothing on screen reads this list).
-        match raw.get_mut("rejected").and_then(|v| v.as_array_mut()) {
+        match raw.get_mut(into).and_then(|v| v.as_array_mut()) {
             Some(r) => r.extend(gone),
-            None => raw["rejected"] = serde_json::Value::Array(gone),
+            None => raw[into] = serde_json::Value::Array(gone),
         }
+        let left: Vec<Correction> = serde_json::from_value(raw["corrections"].clone()).unwrap_or_default();
         let vtt = fs::read_to_string(dir.join(VTT)).map_err(|e| format!("{id}: {e}"))?;
         write_atomic(&dir.join(SUMMARY_JSON), &serde_json::to_vec_pretty(&raw).unwrap())
             .and_then(|_| write_atomic(&dir.join(TRANSCRIPT_MD), transcript_md(&transcript(&vtt, &left)).as_bytes()))
@@ -699,7 +711,7 @@ pub fn reject(library: &Path, ids: &[String], c: &Correction) -> Result<(), Stri
     }
     match busy.as_slice() {
         [] => Ok(()),
-        b => Err(format!("A summary is running for {}. Reject it there when it finishes.", b.join(", "))),
+        b => Err(format!("A summary is running for {}. {then} when it finishes.", b.join(", "))),
     }
 }
 
@@ -1095,6 +1107,19 @@ Ask Robin about the 403
         save(&lib.join("A"), &Meeting { subject: "Felter review".into(), state: State::Summarising, ..Meeting::default() }).unwrap();
         assert!(reject(&lib, &["A".into()], &fix("felter", "filter", "")).unwrap_err().contains("A summary is running for A"));
         assert!(fs::read_to_string(lib.join("A").join(SUMMARY_JSON)).unwrap().contains("felter"));
+        // Restore puts felter back in B: corrections again, transcript.md corrected, back in To review for B.
+        restore(&lib, "B", &fix("felter", "filter", "")).unwrap();
+        let b_json: serde_json::Value = serde_json::from_slice(&fs::read(lib.join("B").join(SUMMARY_JSON)).unwrap()).unwrap();
+        let froms = |k: &str| b_json[k].as_array().unwrap().iter().map(|c| c["from"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!((froms("corrections"), froms("rejected")), (vec!["Prya".to_string(), "cash".into(), "felter".into()], vec![]));
+        assert!(fs::read_to_string(lib.join("B").join(TRANSCRIPT_MD)).unwrap().contains("The filter, then the filter again"));
+        let felter = review(&lib).into_iter().find(|r| r.correction.from == "felter").unwrap();
+        assert_eq!(felter.meetings.len(), 2);
+        // Restore is refused while the meeting's summary runs.
+        reject(&lib, &["B".into()], &fix("felter", "filter", "")).unwrap();
+        save(&lib.join("B"), &Meeting { subject: "Design sync".into(), state: State::Summarising, ..Meeting::default() }).unwrap();
+        assert_eq!(restore(&lib, "B", &fix("felter", "filter", "")).unwrap_err(), "A summary is running for B. Restore it when it finishes.");
+        assert!(fs::read_to_string(lib.join("B").join(SUMMARY_JSON)).unwrap().contains("\"rejected\""));
         fs::write(lib.join(GLOSSARY), "cash -> cache\nfelter -> filter\nKatia -> Katya\nPrya -> Priya\n").unwrap();
         assert!(review(&lib).is_empty());
     }

@@ -69,6 +69,9 @@ Transcription mishears names and terms. Each summary run also lists the correcti
 - A strip above the first turn says how many corrections the transcript has and how many are still to review ("2
   corrections in this transcript · 1 to review", or "all in glossary"). **Show** lists each correction with its
   reason and how many places it changed.
+- Corrections you rejected on the [Glossary](glossary.md) page are listed there too, marked Rejected and not applied
+  (the strip counts them: "· 1 rejected"). **Restore** applies one again and puts it back in the Glossary page's To
+  review.
 
 Corrections never change the raw transcript (`transcript.vtt`), and citations are always checked against the raw
 words.

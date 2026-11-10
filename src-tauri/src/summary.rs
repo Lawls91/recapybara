@@ -76,6 +76,9 @@ pub struct Summary {
     /// Applied to `transcript.md` and the Transcript tab, never to the citation check (D20, D22).
     #[serde(default)]
     pub corrections: Vec<Correction>,
+    /// Corrections the user rejected on this meeting (library::reject), kept until a re-run writes a new file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejected: Vec<Correction>,
 }
 
 impl Summary {
@@ -453,7 +456,7 @@ mod tests {
     }
 
     fn summary(decisions: Vec<Item>) -> Summary {
-        Summary { overview: "O".into(), sections: vec![], decisions, actions: vec![], questions: vec![], corrections: vec![] }
+        Summary { overview: "O".into(), sections: vec![], decisions, actions: vec![], questions: vec![], corrections: vec![], rejected: vec![] }
     }
 
     /// Checks one item against `vtt` and returns it.

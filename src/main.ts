@@ -898,6 +898,8 @@ interface Transcript {
   turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
   minutes: number;
   corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean }[];
+  /** Rejected on the Glossary page for this meeting: listed with Restore, not applied. */
+  rejected: { from: string; to: string; reason: string }[];
 }
 
 // A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45); a search hit's `q` marked.
@@ -1070,13 +1072,19 @@ function transcriptBody(t: Transcript | null, q: string) {
     .join("");
   // The corrections applied, one strip above the first turn; Show expands them, each with Add to glossary (D22, D23, D45).
   const open = corrShown === selected;
-  const fixes = t.corrections.length
-    ? `<div id="corrections" class="corr"><div class="cstrip"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="corr-line">${esc(corrLine(t.corrections))}</span><span class="sp"></span>` +
+  const fixes = t.corrections.length || t.rejected.length
+    ? `<div id="corrections" class="corr"><div class="cstrip"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="corr-line">${esc(corrLine(t.corrections, t.rejected.length))}</span><span class="sp"></span>` +
       `<button class="lnk" id="corr-show" aria-expanded="${open}" aria-controls="corr-rows">${open ? "Hide" : "Show"}</button></div><div id="corr-rows"${open ? "" : " hidden"}>${t.corrections
         .map(
           (c, i) =>
             `<div class="crow" id="corr-${i}"><span class="w">${esc(c.from)} → <b>${esc(c.to)}</b></span><span class="r">${esc(c.reason)}, ${c.count} ${c.count === 1 ? "place" : "places"}</span>` +
             `<button class="lnk" id="glossary-${i}" data-corr="${i}"${c.inGlossary ? " disabled" : ""}>${c.inGlossary ? "In glossary" : "Add to glossary"}</button></div>`,
+        )
+        .join("")}${t.rejected
+        .map(
+          (c, j) =>
+            `<div class="crow" id="rej-${j}"><span class="w">${esc(c.from)} → <s class="muted">${esc(c.to)}</s></span><span class="r">Rejected${c.reason ? `, ${esc(c.reason)}` : ""}</span>` +
+            `<button class="lnk" id="restore-${j}" data-restore="${j}" aria-label="Restore ${esc(c.from)} → ${esc(c.to)}">Restore</button></div>`,
         )
         .join("")}</div></div>`
     : "";
@@ -1169,6 +1177,20 @@ async function renderDetail() {
         b.disabled = true;
         await invoke("add_to_glossary", { from: c.from, to: c.to }).catch(failed);
         await renderDetail();
+        loadGlossary();
+      }),
+  );
+  // Restore: the rejected correction applies again; focus on the next rejected row's Restore, else Show/Hide.
+  det.querySelectorAll<HTMLButtonElement>("[data-restore]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const j = Number(b.dataset.restore);
+        const c = t!.rejected[j];
+        $("corr-show").focus();
+        b.disabled = true;
+        await invoke("restore_correction", { id: m.id, from: c.from, to: c.to }).catch(failed);
+        await renderDetail();
+        document.getElementById(`restore-${j}`)?.focus();
         loadGlossary();
       }),
   );

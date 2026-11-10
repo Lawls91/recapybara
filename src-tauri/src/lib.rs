@@ -229,8 +229,9 @@ fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, Str
     let lib = library_path(&app)?;
     let dir = library::meeting_dir(&lib, &id)?;
     let vtt = std::fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
-    let fixes = summary::load(&dir).map(|s| s.corrections).unwrap_or_default();
+    let (fixes, rejected) = summary::load(&dir).map(|s| (s.corrections, s.rejected)).unwrap_or_default();
     let mut t = library::transcript(&vtt, &fixes);
+    t.rejected = rejected;
     let glossary = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
     for a in &mut t.corrections {
         a.in_glossary = library::in_glossary(&glossary, &a.correction);
@@ -309,6 +310,12 @@ fn edit_glossary(app: AppHandle, old: Option<library::Correction>, new: Option<l
 #[tauri::command]
 fn reject_correction(app: AppHandle, ids: Vec<String>, from: String, to: String) -> Result<(), String> {
     library::reject(&library_path(&app)?, &ids, &library::Correction { from, to, reason: String::new() })
+}
+
+/// Restore on a Transcript tab's rejected row (library::restore).
+#[tauri::command]
+fn restore_correction(app: AppHandle, id: String, from: String, to: String) -> Result<(), String> {
+    library::restore(&library_path(&app)?, &id, &library::Correction { from, to, reason: String::new() })
 }
 
 #[tauri::command]
@@ -985,6 +992,7 @@ pub fn run() {
             get_glossary,
             edit_glossary,
             reject_correction,
+            restore_correction,
             get_notes,
             save_notes,
             search,

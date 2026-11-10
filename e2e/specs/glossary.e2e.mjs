@@ -109,4 +109,25 @@ describe("the glossary page", () => {
     const a = JSON.parse(fs.readFileSync(root("library", A, "summary.json"), "utf8"));
     expect([a.corrections.map((c) => c.from), a.rejected.map((c) => c.from)]).toEqual([["felter"], ["Katia"]]);
   });
+
+  it("a rejected correction shows on its meeting's Transcript with Restore, which applies it again and puts it back in To review", async () => {
+    await $("#glossary-back").click();
+    await $(`.row[data-id="${A}"]`).click();
+    await $("#tab-transcript").click();
+    await expect($("#corr-line")).toHaveText("1 correction in this transcript · all in glossary · 1 rejected");
+    if ((await $("#corr-show").getText()) === "Show") await $("#corr-show").click();
+    await expect($("#rej-0")).toHaveText(expect.stringContaining("Katia → Katya"));
+    await expect($("#rej-0")).toHaveText(expect.stringContaining("Rejected, attendee name"));
+    await expect($("#turn-0")).toHaveText(expect.stringContaining("Katia"));
+    await $("#restore-0").click();
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 1 to review");
+    await expect($("#rej-0")).not.toBeExisting();
+    await expect($("#turn-0")).toHaveText(expect.stringContaining("Katya"));
+    expect(await browser.execute(() => document.activeElement.id)).toBe("corr-show");
+    const a = JSON.parse(fs.readFileSync(root("library", A, "summary.json"), "utf8"));
+    expect([a.corrections.map((c) => c.from), a.rejected.map((c) => c.from)]).toEqual([["felter", "Katia"], []]);
+    await expect($("#glossary-button")).toHaveAttribute("aria-label", "Glossary, 1 correction to review");
+    await $("#glossary-button").click();
+    await expect($("#review-list")).toHaveText(expect.stringContaining("Katia → Katya"));
+  });
 });
