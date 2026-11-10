@@ -234,7 +234,6 @@ fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, Str
     let glossary = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
     for a in &mut t.corrections {
         a.in_glossary = library::in_glossary(&glossary, &a.correction);
-        a.rejected = library::listed(&glossary, true, &a.correction);
     }
     Ok(t)
 }
@@ -284,27 +283,32 @@ fn add_to_glossary(app: AppHandle, from: String, to: String) -> Result<(), Strin
 struct GlossaryPage {
     review: Vec<library::Review>,
     entries: Vec<library::Correction>,
-    never: Vec<library::Correction>,
 }
 
-/// The Glossary page and its button's badge: To review, the glossary and the never list. Every summary.json is read,
+/// The Glossary page and its button's badge: To review and the glossary. Every summary.json is read,
 /// so on a blocking thread.
 #[tauri::command]
 async fn get_glossary(app: AppHandle) -> Result<GlossaryPage, String> {
     let lib = library_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let text = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
-        GlossaryPage { review: library::review(&lib), entries: library::entries(&text, false), never: library::entries(&text, true) }
+        GlossaryPage { review: library::review(&lib), entries: library::entries(&text) }
     })
     .await
     .map_err(|e| e.to_string())
 }
 
-/// The Glossary page's Add entry, Edit, Remove and Reject (library::edit_glossary). A sync command, so edits run one
+/// The Glossary page's Add entry, Edit and Remove (library::edit_glossary). A sync command, so edits run one
 /// after another on the main thread.
 #[tauri::command]
-fn edit_glossary(app: AppHandle, never: bool, old: Option<library::Correction>, new: Option<library::Correction>) -> Result<(), String> {
-    library::edit_glossary(&library_path(&app)?, never, old.as_ref(), new.as_ref())
+fn edit_glossary(app: AppHandle, old: Option<library::Correction>, new: Option<library::Correction>) -> Result<(), String> {
+    library::edit_glossary(&library_path(&app)?, old.as_ref(), new.as_ref())
+}
+
+/// Reject on To review: the correction leaves these meetings only (library::reject).
+#[tauri::command]
+fn reject_correction(app: AppHandle, ids: Vec<String>, from: String, to: String) -> Result<(), String> {
+    library::reject(&library_path(&app)?, &ids, &library::Correction { from, to, reason: String::new() })
 }
 
 #[tauri::command]
@@ -980,6 +984,7 @@ pub fn run() {
             add_to_glossary,
             get_glossary,
             edit_glossary,
+            reject_correction,
             get_notes,
             save_notes,
             search,

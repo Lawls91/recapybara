@@ -335,21 +335,18 @@ Every item cites the transcript: citations[].at is the hh:mm:ss start of a cue i
 PROJ-123. Look up every ticket key you mention in Jira with getJiraIssue (getAccessibleAtlassianResources gives \
 its cloudId), and never guess a key. corrections: words Teams misheard (names from the attendee list, terms from the glossary, ticket keys, \
 jargon), as whole words, each with a short reason; a glossary entry is a hint, not a rule: correct a word only where the \
-context shows it was misheard, never where the speaker meant the word as transcribed; never make one listed under \"Never make these corrections\", the user rejected it. \
+context shows it was misheard, never where the speaker meant the word as transcribed. \
 Never invent attendees, owners or tickets.";
 
 /// The summary run (D18): the summary model, `--json-schema`, attendees, glossary and transcript on stdin (D19).
 pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun {
     let people: Vec<&str> = m.organiser.iter().map(String::as_str).chain(m.attendees.iter().map(String::as_str)).collect();
-    // The never list's lines (`never: from -> to`) go in their own block, without the prefix.
-    let (never, entries): (Vec<&str>, Vec<&str>) = glossary.lines().partition(|l| l.trim_start().starts_with(library::NEVER));
-    let entries = entries.join("\n");
-    let never: Vec<&str> = never.iter().map(|l| l.trim_start()[library::NEVER.len()..].trim()).collect();
+    // An older build's never lines (library::NEVER) are left out.
+    let entries = glossary.lines().filter(|l| !l.trim_start().starts_with(library::NEVER)).collect::<Vec<_>>().join("\n");
     let stdin = format!(
-        "Attendees:\n{}\n\nGlossary (one entry per line):\n{}{}\n\nTranscript (WebVTT):\n{vtt}",
+        "Attendees:\n{}\n\nGlossary (one entry per line):\n{}\n\nTranscript (WebVTT):\n{vtt}",
         if people.is_empty() { "(none listed)".into() } else { people.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n") },
         if entries.trim().is_empty() { "(empty)" } else { entries.trim_end() },
-        if never.is_empty() { String::new() } else { format!("\n\nNever make these corrections (one per line):\n{}", never.join("\n")) }
     );
     ClaudeRun {
         kind: "summary",
@@ -703,13 +700,12 @@ mod tests {
         assert!(r.stdin.starts_with("Attendees:\n- Robin Sample\n- Speaker A\n\nGlossary (one entry per line):\n(empty)\n\nTranscript (WebVTT):\nWEBVTT"));
         let g = run_for(&m, CUE, "felter -> filter\r\n", "sonnet");
         assert!(g.stdin.contains("\n\nGlossary (one entry per line):\nfelter -> filter\n\nTranscript"));
-        // The never list goes in its own block, its prefix dropped, and never as a glossary entry.
+        // An older build's never lines are left out; the prompt calls the glossary a hint.
         let n = run_for(&m, CUE, "felter -> filter\r\nnever: Helix -> Helix CI\r\n  never:Orbit->Orbital\r\n", "sonnet");
-        let want = "\n\nGlossary (one entry per line):\nfelter -> filter\n\nNever make these corrections (one per line):\nHelix -> Helix CI\nOrbit->Orbital\n\nTranscript";
-        assert!(n.stdin.contains(want), "{}", n.stdin);
-        assert!(n.prompt.contains("never make one listed under \"Never make these corrections\""));
+        assert!(n.stdin.contains("\n\nGlossary (one entry per line):\nfelter -> filter\n\nTranscript"), "{}", n.stdin);
+        assert!(n.prompt.contains("a glossary entry is a hint, not a rule"));
         let only = run_for(&m, CUE, "never: Helix -> Helix CI\n", "sonnet");
-        assert!(only.stdin.contains("Glossary (one entry per line):\n(empty)\n\nNever make these corrections (one per line):\nHelix -> Helix CI\n\nTranscript"));
+        assert!(only.stdin.contains("Glossary (one entry per line):\n(empty)\n\nTranscript"));
         assert!(!r.prompt.contains("retry limit field"));
     }
 

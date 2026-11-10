@@ -37,7 +37,6 @@ describe("the glossary page", () => {
     await expect($("#review-list")).toHaveText(expect.stringContaining("domain term · 3 places in Design sync, Felter review"));
     await expect($("#entry-count")).toHaveText("1"); // a bare term (Orbit) is not an entry
     await expect($("#entry-list")).toHaveText(expect.stringContaining("cash → cache"));
-    await expect($("#never-section")).not.toBeDisplayed();
   });
 
   it("Add to glossary appends the pair and leaves To review", async () => {
@@ -48,27 +47,27 @@ describe("the glossary page", () => {
     await expect($("#entry-list")).toHaveText(expect.stringContaining("felter → filter"));
   });
 
-  it("Reject moves the pair to Never correct, says so, and the next summary run is told never to make it", async () => {
+  it("Reject undoes the correction in that meeting only, says so, and tells later summaries nothing", async () => {
     await expect($("#review-list .qr")).toHaveText(expect.stringContaining("Prya → Priya"));
     await $("#review-reject-0").click();
-    await expect($("#notice")).toHaveText("Rejected. Summaries will never change Prya to Priya.");
-    await expect($("#never-section")).toBeDisplayed();
-    await expect($("#never-list")).toHaveText(expect.stringContaining("Prya → Priya"));
+    await expect($("#notice")).toHaveText("Rejected in 1 meeting. A later summary that makes it shows it here again.");
     await expect($("#glossary-button")).toHaveAttribute("aria-label", "Glossary, 1 correction to review");
-    expect(glossary()).toBe("Orbit\ncash -> cache\nfelter -> filter\nnever: Prya -> Priya\n");
+    expect(glossary()).toBe("Orbit\ncash -> cache\nfelter -> filter\n");
+    const left = JSON.parse(fs.readFileSync(root("library", B, "summary.json"), "utf8")).corrections.map((c) => c.from);
+    expect(left).toEqual(["felter"]);
 
     scenario({ structuredOutput: JSON.parse(summary([])) });
     const runs = claudeRecords().length;
     await invoke("summarise", { id: B });
     await browser.waitUntil(() => claudeRecords().length === runs + 1);
     const stdin = claudeRecords().at(-1).stdin;
-    expect(stdin).toContain("Glossary (one entry per line):\nOrbit\ncash -> cache\nfelter -> filter\n\nNever make these corrections (one per line):\nPrya -> Priya\n");
+    expect(stdin).toContain("Glossary (one entry per line):\nOrbit\ncash -> cache\nfelter -> filter\n\nTranscript");
   });
 
   it("Remove takes an entry out of glossary.md", async () => {
     await $("#entry-remove-0").click();
     await expect($("#entry-list")).not.toHaveText(expect.stringContaining("cash"));
-    expect(glossary()).toBe("Orbit\nfelter -> filter\nnever: Prya -> Priya\n");
+    expect(glossary()).toBe("Orbit\nfelter -> filter\n");
   });
 
   it("Add entry refuses an arrow inside a side, then adds the pair", async () => {
@@ -83,7 +82,7 @@ describe("the glossary page", () => {
     await $("#entry-save").click();
     await expect($("#entry-edit")).not.toBeExisting();
     await expect($("#entry-list")).toHaveText(expect.stringContaining("Helix → Helix CI"));
-    expect(glossary()).toBe("Orbit\nfelter -> filter\nnever: Prya -> Priya\nHelix -> Helix CI\n");
+    expect(glossary()).toBe("Orbit\nfelter -> filter\nHelix -> Helix CI\n");
   });
 
   it("a meeting link opens its Transcript, whose strip counts what is left to review and Show expands", async () => {

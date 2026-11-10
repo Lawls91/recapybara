@@ -897,7 +897,7 @@ interface Transcript {
   /** `speaker` and `text` raw, as the citation check read them (D20); the parts corrected (D22). */
   turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
   minutes: number;
-  corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean; rejected: boolean }[];
+  corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean }[];
 }
 
 // A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45); a search hit's `q` marked.
@@ -1198,17 +1198,16 @@ interface Pair {
   to: string;
 }
 interface Glossary {
-  /** Corrections summaries made that are in neither list, grouped across meetings: [folder id, subject] each. */
+  /** Corrections summaries made that are not in the glossary, grouped across meetings: [folder id, subject] each. */
   review: (Pair & { reason: string; places: number; meetings: [string, string][] })[];
   entries: Pair[];
-  never: Pair[];
 }
-let glossary: Glossary = { review: [], entries: [], never: [] };
+let glossary: Glossary = { review: [], entries: [] };
 let glossaryLoads = 0;
 /** The entry being edited: its index, "new" for Add entry. A reload doesn't redraw the entries under it. */
 let editing: number | "new" | null = null;
 
-const pairHtml = (p: Pair, never = false) => `${esc(p.from)} → ${never ? `<s>${esc(p.to)}</s>` : `<b>${esc(p.to)}</b>`}`;
+const pairHtml = (p: Pair) => `${esc(p.from)} → <b>${esc(p.to)}</b>`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** Reads the glossary and the corrections to review, then redraws the badge and, when open, the page. */
@@ -1230,7 +1229,7 @@ async function loadGlossary() {
 }
 
 function drawGlossary() {
-  const { review, entries, never } = glossary;
+  const { review, entries } = glossary;
   $("review-count").textContent = String(review.length);
   $("review-add-all").hidden = $("review-reject-all").hidden = !review.length;
   $("review-list").innerHTML = `<div class="exl">${
@@ -1261,15 +1260,6 @@ function drawGlossary() {
         )
         .join("") || (editing === "new" ? "" : `<div class="gempty">No glossary entries yet. Add a correction to review, or one of your own with Add entry.</div>`)
     }</div>`;
-  $("never-section").hidden = !never.length;
-  $("never-count").textContent = String(never.length);
-  $("never-list").innerHTML = `<div class="exl">${never
-    .map(
-      (p, i) =>
-        `<div class="qr"><div class="qm"><div class="qw">${pairHtml(p, true)}</div></div><div class="qa">` +
-        `<button class="lnk" id="never-remove-${i}" data-unreject="${i}"><i aria-hidden="true" class="ic">&#xE74D;</i>Remove</button></div></div>`,
-    )
-    .join("")}</div>`;
   const on = (attr: string, f: (i: number, b: HTMLElement) => unknown) =>
     $("glossary-view").querySelectorAll<HTMLElement>(`[data-${attr}]`).forEach((b) => (b.onclick = () => f(Number(b.dataset[attr]), b)));
   on("meeting", (_, b) => {
@@ -1279,8 +1269,8 @@ function drawGlossary() {
   on("add", (i) => glossaryEdit([`review-add-${i}`, `review-add-${i - 1}`, "review-list"], () => invoke("add_to_glossary", { from: review[i].from, to: review[i].to })));
   on("reject", (i) =>
     glossaryEdit([`review-reject-${i}`, `review-reject-${i - 1}`, "review-list"], async () => {
-      await invoke("edit_glossary", { never: true, old: null, new: review[i] });
-      notify(`Rejected. Summaries will never change ${review[i].from} to ${review[i].to}.`);
+      await reject(review[i]);
+      notify(`Rejected in ${plural(review[i].meetings.length, "meeting", "meetings")}. A later summary that makes it shows it here again.`);
     }),
   );
   on("edit", (i) => {
@@ -1288,8 +1278,7 @@ function drawGlossary() {
     drawGlossary();
     $("entry-to").focus();
   });
-  on("remove", (i) => glossaryEdit([`entry-remove-${i}`, `entry-remove-${i - 1}`, "entry-list"], () => invoke("edit_glossary", { never: false, old: entries[i], new: null })));
-  on("unreject", (i) => glossaryEdit([`never-remove-${i}`, `never-remove-${i - 1}`, "entry-add"], () => invoke("edit_glossary", { never: true, old: never[i], new: null })));
+  on("remove", (i) => glossaryEdit([`entry-remove-${i}`, `entry-remove-${i - 1}`, "entry-list"], () => invoke("edit_glossary", { old: entries[i], new: null })));
   const box = document.getElementById("entry-edit");
   if (!box) return;
   const at = editing;
@@ -1298,7 +1287,7 @@ function drawGlossary() {
   const save = async () => {
     const pair = { from: $<HTMLInputElement>("entry-from").value, to: $<HTMLInputElement>("entry-to").value };
     try {
-      await invoke("edit_glossary", { never: false, old: typeof at === "number" ? entries[at] : null, new: pair });
+      await invoke("edit_glossary", { old: typeof at === "number" ? entries[at] : null, new: pair });
     } catch (e) {
       notify(String(e)); // the row stays open with what was typed
       return;
@@ -1315,6 +1304,9 @@ function drawGlossary() {
     }
   };
 }
+
+/** Reject: the correction leaves the meetings listed under it only; their transcripts show what Teams heard again. */
+const reject = (r: Glossary["review"][number]) => invoke("reject_correction", { ids: r.meetings.map(([id]) => id), from: r.from, to: r.to });
 
 /** Runs a glossary change, reloads and redraws, then focuses the first of `focus` drawn (the pressed button may be gone). */
 async function glossaryEdit(focus: string[], change: () => Promise<unknown>) {
@@ -1338,8 +1330,8 @@ $("review-add-all").onclick = () =>
 $("review-reject-all").onclick = () =>
   glossaryEdit(["review-list"], async () => {
     const n = glossary.review.length;
-    for (const r of glossary.review) await invoke("edit_glossary", { never: true, old: null, new: r });
-    notify(`Rejected ${n}. Summaries will never make these corrections.`);
+    for (const r of glossary.review) await reject(r);
+    notify(`Rejected ${n}. A later summary that makes one shows it here again.`);
   });
 
 // ---------- wiring ----------

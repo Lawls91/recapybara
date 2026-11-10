@@ -25,6 +25,8 @@ notes.md
 glossary.md
 !**/fixtures/**
 !src-tauri/tests/golden/**
+# The docs page shares the glossary file's name.
+!docs/glossary.md
 
 # Per-user Claude Code settings
 .claude/settings.local.json

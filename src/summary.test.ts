@@ -55,8 +55,7 @@ test("Copy actions copies one line per action, owner first, Unassigned when it h
 });
 
 test("the corrections strip counts what is left to review", () => {
-  const c = (inGlossary: boolean, rejected = false) => ({ inGlossary, rejected });
-  expect(corrLine([c(false), c(true), c(false, true)])).toBe("3 corrections in this transcript · 1 to review");
+  const c = (inGlossary: boolean) => ({ inGlossary });
+  expect(corrLine([c(false), c(true), c(false)])).toBe("3 corrections in this transcript · 2 to review");
   expect(corrLine([c(true)])).toBe("1 correction in this transcript · all in glossary");
-  expect(corrLine([c(true), c(false, true)])).toBe("2 corrections in this transcript · none to review");
 });
