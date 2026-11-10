@@ -1,8 +1,13 @@
-// Release helpers (slice 19), used by .github/workflows/release.yml and scripts/release.ps1. Tests: release.test.mjs.
+// Release helpers (slice 19), used by .github/workflows/release.yml. Tests: release.test.mjs.
+//   node scripts/release.mjs version [X.Y.Z]       the release to make (blank: the latest vX.Y.Z tag's next minor);
+//                                                   fails if its tag exists; prints version=, tag=, prev= lines
 //   node scripts/release.mjs bump <X.Y.Z>          sets the app version in every place it is kept
 //   node scripts/release.mjs check <tag>            fails unless the tag (vX.Y.Z, or vX.Y.Z-suffix for a pre-release)
 //                                                   matches the app version; prints name=value lines for GITHUB_OUTPUT
-//   node scripts/release.mjs manifest <tag> <sig> <repo>   prints latest.json for the tag's release
+//   node scripts/release.mjs notes <tag> [<prev tag>]   prints the release notes: release-notes/<tag>.md if there is
+//                                                   one, else the commit subjects since <prev tag> as bullets
+//   node scripts/release.mjs manifest <tag> <sig> <repo> <notes file>   prints latest.json for the tag's release
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +35,7 @@ export function check(tag, dir = REPO) {
   const wrong = Object.entries(found).filter(([, v]) => v !== m[1]);
   if (wrong.length) {
     const list = Object.entries(found).map(([f, v]) => `${f} ${v}`).join(", ");
-    throw new Error(`Tag ${tag} doesn't match the app version (${list}). Run scripts/release.ps1 ${m[1]} to bump them together.`);
+    throw new Error(`Tag ${tag} doesn't match the app version (${list}). Run node scripts/release.mjs bump ${m[1]} to bump them together.`);
   }
   const name = JSON.parse(read(dir, "src-tauri/tauri.conf.json")).productName;
   return {
@@ -54,6 +59,37 @@ export function manifest({ version, asset, tag, signature, repo, notes, pubDate 
   };
 }
 
+/** The release to make: `input` (X.Y.Z), or blank for the latest vX.Y.Z tag's next minor version (0.1.0 with none).
+ * `prev` is that latest tag, the notes' start. Throws when the version isn't X.Y.Z or its tag exists. */
+export function nextVersion(tags, input = "") {
+  const released = tags
+    .filter((t) => /^v\d+\.\d+\.\d+$/.test(t))
+    .map((t) => t.slice(1).split(".").map(Number))
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  const last = released.at(-1);
+  const version = input.trim() || (last ? `${last[0]}.${last[1] + 1}.0` : "0.1.0");
+  if (!SEMVER.test(version)) throw new Error(`Version "${version}" isn't X.Y.Z.`);
+  if (tags.includes(`v${version}`)) throw new Error(`Tag v${version} already exists.`);
+  return { version, tag: `v${version}`, prev: last ? `v${last.join(".")}` : "" };
+}
+
+/** Commit subjects as release-note bullets: no "Release v..." commits, no " [skip ci]", no trailing PR number. */
+export function subjectNotes(subjects) {
+  return subjects
+    .filter((s) => s.trim() && !s.startsWith("Release v"))
+    .map((s) => `- ${s.replaceAll(" [skip ci]", "").replace(/ \(#\d+\)$/, "").trim()}`)
+    .join("\n");
+}
+
+/** The tag's release notes, as What's new and the GitHub release show them: release-notes/<tag>.md if there is one,
+ * else the commit subjects since `prev` (all of them with no `prev`). */
+export function releaseNotes(tag, prev, dir = REPO) {
+  const file = path.join(dir, "release-notes", `${tag}.md`);
+  if (fs.existsSync(file)) return fs.readFileSync(file, "utf8").trim();
+  const log = execFileSync("git", ["-C", dir, "log", prev ? `${prev}..HEAD` : "HEAD", "--format=%s"], { encoding: "utf8" });
+  return subjectNotes(log.split(/\r?\n/));
+}
+
 /** Sets `version` in tauri.conf.json, the app crate, package.json and both lock files, leaving their layout alone. */
 export function bump(version, dir = REPO) {
   if (!SEMVER.test(version)) throw new Error(`Version "${version}" isn't X.Y.Z.`);
@@ -72,20 +108,26 @@ export function bump(version, dir = REPO) {
   }
 }
 
+const lines = (r) => Object.entries(r).forEach(([k, v]) => console.log(`${k}=${v}`));
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [cmd, ...args] = process.argv.slice(2);
   try {
-    if (cmd === "bump") bump(args[0]);
-    else if (cmd === "check") {
-      const r = check(args[0]);
-      for (const [k, v] of Object.entries(r)) console.log(`${k}=${v}`);
-    } else if (cmd === "manifest") {
-      const [tag, sig, repo] = args;
+    if (cmd === "version") {
+      const tags = execFileSync("git", ["-C", REPO, "tag", "--list", "v*"], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
+      lines(nextVersion(tags, args[0] ?? ""));
+    } else if (cmd === "bump") bump(args[0]);
+    else if (cmd === "check") lines(check(args[0]));
+    else if (cmd === "notes") console.log(releaseNotes(args[0], args[1]));
+    else if (cmd === "manifest") {
+      const [tag, sig, repo, notes] = args;
       const r = check(tag);
-      const notes = `${JSON.parse(read(REPO, "src-tauri/tauri.conf.json")).productName} ${r.version}`;
-      const m = manifest({ ...r, tag, signature: fs.readFileSync(sig, "utf8"), repo, notes, pubDate: new Date().toISOString() });
+      const m = manifest({ ...r, tag, signature: fs.readFileSync(sig, "utf8"), repo, notes: fs.readFileSync(notes, "utf8").trim(), pubDate: new Date().toISOString() });
       console.log(JSON.stringify(m, null, 2));
-    } else throw new Error("usage: node scripts/release.mjs bump <X.Y.Z> | check <tag> | manifest <tag> <sig file> <owner/repo>");
+    } else
+      throw new Error(
+        "usage: node scripts/release.mjs version [X.Y.Z] | bump <X.Y.Z> | check <tag> | notes <tag> [<prev tag>] | manifest <tag> <sig file> <owner/repo> <notes file>",
+      );
   } catch (e) {
     console.error(e.message);
     process.exit(1);

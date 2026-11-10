@@ -169,14 +169,16 @@ own install isn't used because it relaunches the app only through a custom actio
 
 Cutting a release:
 
-1. On an up-to-date `main`: `pwsh -File scripts\release.ps1 0.2.0`. It sets the version in `tauri.conf.json`,
-   `src-tauri/Cargo.toml`, `package.json` and both lock files, commits "Release v0.2.0" and tags `v0.2.0`.
-2. `git push origin main v0.2.0`. The tag runs `.github/workflows/release.yml`: it fails at once unless the tag
-   matches all three versions, builds the MSI, signs it with the `TAURI_SIGNING_PRIVATE_KEY` and
-   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets, writes `latest.json` and publishes a GitHub Release with the MSI, its
-   `.sig` and `latest.json`. It can also be run by hand (Actions, Release, Run workflow) with a version.
-3. A tag with a suffix (`v0.2.0-test`) builds a **pre-release**, which the app never offers: a dry run. Delete it
-   afterwards (`gh release delete v0.2.0-test --cleanup-tag`).
+1. Optionally, write `release-notes/vX.Y.Z.md` on `main`: a line each, `- ` for a bullet, plain text. Without it the
+   notes are the PR titles (commit subjects) since the last release, as bullets.
+2. Run the Release workflow on `main`: Actions, Release, Run workflow, or `gh workflow run Release -R Lawls91/recapybara`
+   (add `-f version=X.Y.Z` to choose the version; blank is the latest release's next minor, 0.2.0 to 0.3.0).
+
+`.github/workflows/release.yml` refuses a run off `main`, a version that isn't X.Y.Z or one already tagged. It stamps
+the version into its own checkout only (`release.mjs bump`; nothing is committed, so `main` keeps the last released
+version), builds the MSI, signs it with the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+secrets, and publishes a GitHub Release (which creates the tag) with the MSI, its `.sig` and `latest.json`. The notes
+are the release's body and latest.json's `notes`, which What's new shows.
 
 Pull requests never run the release workflow, so they never see the secrets. Tests use a throwaway key made at run
 time.

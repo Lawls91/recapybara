@@ -109,6 +109,17 @@ button {
   font-size: 11px;
   font-weight: 600;
 }
+/* An update is staged: opens What's new. Accent ink on accent, as the dev badge. */
+.pill {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 11px;
+  background: var(--mc-acc);
+  color: var(--mc-accink);
+  font-size: 12px;
+  font-weight: 600;
+}
 .search:focus-within {
   border-color: var(--mc-acc);
   box-shadow: 0 0 0 3px var(--mc-accsoft);
@@ -995,6 +1006,23 @@ select {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+/* What's new */
+.confirm .notes {
+  margin: 0 0 16px;
+  max-height: 50vh;
+  overflow-y: auto;
+  color: var(--mc-txt2);
+}
+.confirm .notes p,
+.confirm .notes ul {
+  margin: 0 0 6px;
+}
+.confirm .notes ul {
+  padding-left: 18px;
+}
+.confirm p.err {
+  color: var(--st-failtxt);
 }
 /* Import from Teams */
 .teams .range {

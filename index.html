@@ -16,6 +16,7 @@
           </label>
           <button id="filter-button" class="ib" title="Filter" aria-haspopup="menu" aria-expanded="false" aria-controls="filter-menu"><i aria-hidden="true" class="ic">&#xE71C;</i><span id="filter-badge" class="bdg" aria-hidden="true" hidden></span></button>
           <span id="dev-badge" class="devbadge" title="A dev instance: its state is apart from the installed copy's" hidden>DEV</span>
+          <button id="update-pill" class="pill" aria-haspopup="dialog" hidden>Update</button>
           <button id="import-button" class="ib" title="Import transcript" aria-haspopup="menu" aria-expanded="false" aria-controls="import-menu"><i aria-hidden="true" class="ic">&#xE896;</i></button>
           <button id="glossary-button" class="ib" title="Glossary"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="glossary-badge" class="bdg" aria-hidden="true" hidden></span></button>
           <button id="settings-button" class="ib" title="Settings"><i aria-hidden="true" class="ic">&#xE713;</i></button>
@@ -24,11 +25,6 @@
           <span id="calendar-status" role="status" aria-live="polite">Calendar not loaded</span>
           <button id="refresh-button" class="ib sm" title="Refresh calendar"><i aria-hidden="true" class="ic">&#xE72C;</i></button>
         </div>
-        <!-- Not in the banners' live region: its text is announced through #sr-status, once, when it changes. -->
-        <p id="update-banner" class="import-error report" hidden>
-          <span id="update-text"></span>
-          <button id="update-install" class="btn">Restart and update</button>
-        </p>
         <div id="banners" aria-live="polite">
           <div id="library-missing" class="import-error" hidden>
             <span id="library-missing-text"></span>
@@ -215,6 +211,16 @@
       <div class="acts">
         <button id="reject-cancel" class="btn">Cancel</button>
         <button id="reject-yes" class="btn danger">Reject all</button>
+      </div>
+    </dialog>
+    <!-- What's new: the staged update's notes, as plain text. Its status line is announced through #sr-status. -->
+    <dialog id="whats-new" class="confirm" aria-labelledby="whats-new-title">
+      <h3 id="whats-new-title"></h3>
+      <div id="whats-new-notes" class="notes"></div>
+      <p id="whats-new-status" class="err" hidden></p>
+      <div class="acts">
+        <button id="whats-new-later" class="btn">Later</button>
+        <button id="whats-new-install" class="btn pri" autofocus>Restart and update</button>
       </div>
     </dialog>
     <script type="module" src="/src/main.ts"></script>

@@ -1,20 +1,21 @@
-# Release (slice 19): a pushed tag vX.Y.Z (scripts/release.ps1 makes one), or a run by hand with a version, builds the
-# per-user MSI, signs it with the updater key and publishes a GitHub Release holding the MSI, its .sig and latest.json,
-# which the app's updater reads from releases/latest. A tag vX.Y.Z-suffix makes a pre-release, which releases/latest
-# (and so the app) never offers. Only tags and runs by hand get here, never a pull request, so no PR run sees the secrets.
+# Release (slice 19): one run by hand on main (Actions, Release, Run workflow, or gh workflow run Release) makes a
+# release. It picks the version (the input, or the latest vX.Y.Z tag's next minor), stamps it into this runner's copy
+# only (nothing is committed: main keeps the last released version), builds the per-user MSI, signs it with the
+# updater key and publishes a GitHub Release holding the MSI, its .sig and latest.json, which the app's updater reads
+# from releases/latest. gh release create makes the tag on this commit. Never a pull request, so no PR run sees the
+# secrets.
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: Version to release, X.Y.Z (must match the app version; tags this commit vX.Y.Z)
-        required: true
+        description: Version to release, X.Y.Z (blank for the latest release's next minor version)
+        required: false
+        default: ""
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
 
 permissions:
   contents: write
@@ -25,10 +26,16 @@ jobs:
     timeout-minutes: 60
     env:
       CARGO_TERM_COLOR: always
-      # Through env, never pasted into a script: an input is text, not code.
-      TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
     steps:
+      - name: Only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          Write-Error "Release runs only on main, not $env:GITHUB_REF"
+          exit 1
+
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the tags: the version and the notes start from the latest
 
       - uses: actions/setup-node@v5
         with:
@@ -37,10 +44,34 @@ jobs:
       - name: npm ci
         run: npm ci
 
-      # Fails the run before anything is built when the tag and tauri.conf.json, the app crate and package.json disagree.
-      - name: Tag matches the app version
+      # Fails the run before anything is built when the version isn't X.Y.Z or its tag already exists.
+      - name: Version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }} # through env, never pasted into a script: an input is text, not code
+        run: |
+          $out = node scripts/release.mjs version "$env:VERSION"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $out
+          $out >> $env:GITHUB_OUTPUT
+          (@($out) -match '^tag=') -replace '^tag=', 'TAG=' >> $env:GITHUB_ENV
+
+      # This runner's copy only: no commit, no push.
+      - name: Stamp the version
         id: release
-        run: node scripts/release.mjs check $env:TAG >> $env:GITHUB_OUTPUT
+        run: |
+          node scripts/release.mjs bump '${{ steps.version.outputs.version }}'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          node scripts/release.mjs check $env:TAG >> $env:GITHUB_OUTPUT
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # release-notes/<tag>.md if main has one, else the commit subjects since the last release: the release's body and
+      # latest.json's notes (What's new in the app).
+      - name: Release notes
+        run: |
+          node scripts/release.mjs notes $env:TAG '${{ steps.version.outputs.prev }}' | Out-File -Encoding utf8NoBOM "$env:RUNNER_TEMP/notes.md"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Content "$env:RUNNER_TEMP/notes.md"
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -81,15 +112,15 @@ jobs:
 
       - name: latest.json
         run: |
-          node scripts/release.mjs manifest $env:TAG 'out/release/${{ steps.release.outputs.asset }}.sig' '${{ github.repository }}' | Out-File -Encoding utf8NoBOM out/release/latest.json
+          node scripts/release.mjs manifest $env:TAG 'out/release/${{ steps.release.outputs.asset }}.sig' '${{ github.repository }}' "$env:RUNNER_TEMP/notes.md" | Out-File -Encoding utf8NoBOM out/release/latest.json
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-Content out/release/latest.json
 
+      # Makes the tag vX.Y.Z on this commit, and the release, marked latest so the app's updater finds it.
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $pre = if ('${{ steps.release.outputs.prerelease }}' -eq 'true') { '--prerelease' } else { '--latest' }
           $assets = (Get-ChildItem out/release).FullName # pwsh expands no wildcard for a native command
-          gh release create $env:TAG @assets --target $env:GITHUB_SHA --title $env:TAG --generate-notes $pre
+          gh release create $env:TAG @assets --target $env:GITHUB_SHA --title $env:TAG --notes-file "$env:RUNNER_TEMP/notes.md" --latest
           if ($LASTEXITCODE -ne 0) { exit 1 }
