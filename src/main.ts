@@ -1679,7 +1679,7 @@ invoke<boolean>("is_dev").then((dev) => {
   $<HTMLButtonElement>("check-updates").disabled = true;
 });
 
-// ---------- updates (slice 19): checked at start and daily by the backend; installed only on Restart and update ----------
+// ---------- updates (slice 19): checked at start and hourly by the backend; installed only on Restart and update ----------
 
 /** A live region written while the window is still opening goes unread (NVDA spoke a start's "didn't install" message
  * on 1 start in 4), so the update's announcements wait until this long after the page began loading. */
@@ -1752,20 +1752,23 @@ listen<string>("update-restarting", (e) => {
   announceUpdate(e.payload);
 });
 invoke<[string, string] | null>("update_ready").then((u) => paintUpdate(u?.[0] ?? null, u?.[1]));
-async function checkUpdates() {
+/** Settings' Check for updates, or the tray's (`upToDate`, its notice): the tray's says its outcome in the notice. */
+async function checkUpdates(upToDate?: string) {
   const status = $("update-status");
   status.textContent = "Checking for updates…";
   status.classList.remove("err");
   try {
     status.textContent = await invoke<string>("check_updates");
-    openWhatsNew(); // an update is staged: its update-ready came first
+    if (updateVersion) openWhatsNew(); // an update is staged: its update-ready came first
+    else if (upToDate) notify(upToDate);
   } catch (e) {
     status.textContent = String(e);
     status.classList.add("err");
+    if (upToDate) notify(String(e));
   }
 }
-$("check-updates").onclick = checkUpdates;
-listen("check-updates", checkUpdates); // the tray's Check for updates, after it opened Settings
+$("check-updates").onclick = () => checkUpdates();
+listen<string>("check-updates", (e) => checkUpdates(e.payload)); // the tray's Check for updates, in place
 async function installUpdate() {
   openWhatsNew(); // the tray's runs it too: a refusal shows here
   await flushNotes(); // saved before the backend goes ahead (it quits as the tray's Quit does, which saves again)
