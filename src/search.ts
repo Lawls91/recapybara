@@ -1,4 +1,4 @@
-// Search hits in the list (D28, D45): snippet lines with the match marked in lavender.
+// Search hits in the list: snippet lines with the match marked in lavender.
 import { esc } from "./summary";
 
 export type Tab = "summary" | "transcript" | "notes";
@@ -26,7 +26,7 @@ export function metaHits(meetings: { id: string; subject: string; organiser: str
   });
 }
 
-/** A run of text; `was` is what Teams heard where a correction replaced it (D45). */
+/** A run of text; `was` is what Teams heard where a correction replaced it. */
 export interface Part {
   text: string;
   was: string | null;

@@ -2,7 +2,7 @@
 <!--
   Recapybara MSI: per-user (no UAC), unsigned, no custom actions. Built by scripts\build-msi.ps1.
 
-  Frozen layer (D50), never derived from productName; src-tauri/src/lib.rs pins each one in a test:
+  Frozen layer, never derived from productName; src-tauri/src/lib.rs pins each one in a test:
     - UpgradeCode, so every later build (a rename included) upgrades in place
     - install folder %LOCALAPPDATA%\Programs\com.lawls91.recapybara
     - the Start-menu shortcut's System.AppUserModel.ID com.lawls91.recapybara (the toast AUMID;
@@ -77,7 +77,7 @@
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
-    <!-- Start at logon (D31) on from a fresh install, as the app's own toggle writes it; uninstall removes it.
+    <!-- Start at logon on from a fresh install, as the app's own toggle writes it; uninstall removes it.
          An upgrade keeps the user's choice: it writes the value only if it was there before (AppSearch runs
          before RemoveExistingProducts, so LOGONRUN sees the pre-upgrade state).
          ponytail: if the user turned logon off, upgraded, then turned it on again in the app, uninstall leaves

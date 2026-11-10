@@ -44,32 +44,32 @@ let menuMeeting: Meeting | null = null;
 let renders = 0;
 let shown: { transcript: Transcript | null; summary: Summary | null } = { transcript: null, summary: null };
 let scrollToTurn: number | null = null;
-/** A transcript search hit just clicked (D45): the Transcript tab scrolls to the turn at this time and marks `q`. */
+/** A transcript search hit just clicked: the Transcript tab scrolls to the turn at this time and marks `q`. */
 let hitTurn: { at: string; line: string; q: string } | null = null;
-/** The search box's query, trimmed (D45), and its hits by meeting; null when the box is empty. */
+/** The search box's query, trimmed, and its hits by meeting; null when the box is empty. */
 let query = "";
 let hits: Map<string, Hit[]> | null = null;
 let searches = 0;
-/** The list's Filter, Show all in this series (D17) among it, as settings.json keeps it; search filters within it. */
+/** The list's Filter, Show all in this series among it, as settings.json keeps it; search filters within it. */
 const lf = (): ListFilter => current.listFilter ?? NO_FILTER;
 /** The rows the list last drew, for the "n of total" count. */
 let shownCount = 0;
-/** The keyboard-cursor row's id (D42). A re-render that takes focus from the list or the detail pane gives it back to
+/** The keyboard-cursor row's id. A re-render that takes focus from the list or the detail pane gives it back to
  * this row; `refocus` holds that until the row is drawn (a skipped calendar event comes back under its folder id). */
 let cursor: string | null = null;
 let refocus = false;
 /** Settings' Remove that was pressed, so focus lands on the next Remove once the list redraws. */
 let removing: number | null = null;
-/** Why the library folder can't be read (D45), while it can't: the list is then empty under its banner. */
+/** Why the library folder can't be read, while it can't: the list is then empty under its banner. */
 let libraryMissing: string | null = null;
-/** What focus goes back to when a menu or the peek closes (D42): a control's id; null for the row menu, whose opener
+/** What focus goes back to when a menu or the peek closes: a control's id; null for the row menu, whose opener
  * is its row (the keyboard cursor). */
 let menuFrom: string | null = null;
 let peekFrom: string | null = null;
 /** The meeting whose corrections strip is expanded (Show), so a redraw keeps it open. */
 let corrShown: string | null = null;
 
-// ---------- My notes (D27) ----------
+// ---------- My notes ----------
 
 /** Typed text not yet confirmed on disk, by meeting: kept until its save lands, so a failed save is retried by every
  * flush, even after a switch. The box on screen is the only other copy; anything else is read from disk. */
@@ -91,7 +91,7 @@ let notesSaving: Promise<unknown> = Promise.resolve();
 const NOTES_PAUSE = 500;
 
 const notesState = (id: string) => (notSaved.has(id) ? "Not saved" : unsaved.has(id) ? "Saving…" : "Saved");
-/** The tab status of the meeting whose box is on screen (D44). */
+/** The tab status of the meeting whose box is on screen. */
 function paintNotesStatus() {
   const id = document.querySelector<HTMLTextAreaElement>("#notes")?.dataset.id;
   const el = document.getElementById("notes-status");
@@ -104,7 +104,7 @@ function paintNotesStatus() {
  * switch, a redraw, Settings, Quit, and the window losing focus, hiding or closing. */
 function flushNotes() {
   clearTimeout(notesTimer);
-  // Refused while the library is missing (D45): kept, Not saved, and sent once it is back or another is chosen (each
+  // Refused while the library is missing: kept, Not saved, and sent once it is back or another is chosen (each
   // refusal redraws, which flushes, so sending now would loop).
   if (libraryMissing) {
     for (const id of unsaved.keys()) notSaved.add(id);
@@ -185,7 +185,7 @@ window.addEventListener("blur", () => flushNotes());
 window.addEventListener("pagehide", () => flushNotes());
 document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushNotes());
 
-// ---------- settings and appearance (D46) ----------
+// ---------- settings and appearance ----------
 
 function applyTheme(appearance: string) {
   const root = document.documentElement;
@@ -206,7 +206,7 @@ async function loadSettings() {
   $<HTMLInputElement>("start-at-logon").checked = current.startAtLogon;
   $("start-at-logon-state").textContent = current.startAtLogon ? "On" : "Off";
   $<HTMLSelectElement>("appearance").value = current.appearance;
-  // Excluded series, each with Remove (D46).
+  // Excluded series, each with Remove.
   $("excluded-series").innerHTML = current.excludedSeries.length
     ? `<div class="exl">${current.excludedSeries
         .map((s, i) => `<div class="exr"><span class="exn">${esc(s.subject || s.joinUrl)}</span><button class="lnk" id="include-${i}" data-include="${i}"><i aria-hidden="true" class="ic">&#xE74D;</i>Remove</button></div>`)
@@ -226,7 +226,7 @@ async function loadSettings() {
   }
 }
 
-// ---------- keyboard focus across re-renders (D42) ----------
+// ---------- keyboard focus across re-renders ----------
 
 document.addEventListener("focusin", (e) => {
   const row = rowOf(e);
@@ -239,7 +239,7 @@ const lost = () => {
   return !a || a === document.body || !!a.closest("[hidden]");
 };
 /** Focuses the cursor row; waits (refocus) when it isn't drawn yet. With no cursor row, nothing: keys then do nothing
- * (D42). */
+ *. */
 function focusCursor() {
   if (!cursor) return;
   const rows = [...document.querySelectorAll<HTMLElement>("#meeting-list .row")];
@@ -272,14 +272,14 @@ function keepFocus(within: HTMLElement[], render: () => void) {
   regain(had);
 }
 
-/** Focus back on the control with this id when it is still drawn, else on the cursor row (D42). */
+/** Focus back on the control with this id when it is still drawn, else on the cursor row. */
 function backTo(id: string | null) {
   const el = id ? document.getElementById(id) : null;
   if (el && !el.closest("[hidden]")) el.focus();
   else focusCursor();
 }
 
-/** A short confirmation in the live region (D42), cleared after a few seconds. */
+/** A short confirmation in the live region, cleared after a few seconds. */
 let noticeTimer: number | undefined;
 function notify(text: string) {
   $("notice").textContent = text;
@@ -290,7 +290,7 @@ function notify(text: string) {
 /** The backend's refusal while the library folder can't be read (library::check). */
 const LIBRARY_GONE = "Library folder not found";
 
-/** An error for the error banner; a missing library's goes to its own banner instead, so it shows once (D45). */
+/** An error for the error banner; a missing library's goes to its own banner instead, so it shows once. */
 function failed(e: unknown) {
   const text = String(e);
   if (text.includes(LIBRARY_GONE)) {
@@ -301,7 +301,7 @@ function failed(e: unknown) {
   $("import-error").hidden = false;
 }
 
-// ---------- skip and exclude (D17, D49) ----------
+// ---------- skip and exclude ----------
 
 async function skip(m: Meeting) {
   const was = selected === m.id;
@@ -336,7 +336,7 @@ async function save(change: Partial<Settings>) {
   });
 }
 
-/** Opening Settings or the Glossary focuses its Back link; leaving it gives focus back to its button (D42). */
+/** Opening Settings or the Glossary focuses its Back link; leaving it gives focus back to its button. */
 function show(view: "list" | "settings" | "glossary") {
   if (!$("first-run").hidden) return; // first run ends on the list, from its Finish
   flushNotes();
@@ -348,7 +348,7 @@ function show(view: "list" | "settings" | "glossary") {
   if (view === "glossary") loadGlossary();
 }
 
-// ---------- list (D40, D41) ----------
+// ---------- list ----------
 
 const time = (iso: string | null) =>
   iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
@@ -382,14 +382,14 @@ async function loadMeetings() {
   loadGlossary(); // a summary that finished may bring corrections to review
 }
 
-// ---------- search (D28, D45) ----------
+// ---------- search ----------
 
 /** Scans the library for `query`; an older scan that ends after a newer one is dropped. */
 async function runSearch() {
   const n = ++searches;
   const q = query;
   const found = q && current.libraryPath && !libraryMissing ? await invoke<Hit[]>("search", { query: q }).catch((e) => (failed(e), [])) : null;
-  // A meeting's title and people first, then its files (D45).
+  // A meeting's title and people first, then its files.
   if (n === searches) hits = found && byMeeting([...metaHits(meetings, q), ...found]);
 }
 
@@ -423,7 +423,7 @@ function drawList() {
   const list = $("meeting-list");
   const f = lf();
   const chips = filterChips(f);
-  // Search filters within the Filter (D17).
+  // Search filters within the Filter.
   const inFilter = meetings.filter((m) => passes(m, f, new Date()));
   const shown = hits ? inFilter.filter((m) => hits!.has(m.id)) : inFilter;
   shownCount = shown.length;
@@ -455,7 +455,7 @@ function drawList() {
   list.innerHTML = dayGroups(shown, new Date())
     .map(
       (g) =>
-        // The section labels, Upcoming and the Earlier divider: headings like the day headers, never options (D42).
+        // The section labels, Upcoming and the Earlier divider: headings like the day headers, never options.
         (g.section ? `<div class="sect" id="sect-${g.section.toLowerCase()}">${g.section}</div>` : "") +
         `<div class="gh">${esc(g.label)}${g.date ? ` <span>${esc(g.date)}</span>` : ""}</div>` +
         g.items
@@ -471,12 +471,12 @@ function drawList() {
           .join(""),
     )
     .join("");
-  // The list is one tab stop (D42): the selected row, or the first row when there is none or a search hides it.
+  // The list is one tab stop: the selected row, or the first row when there is none or a search hides it.
   if (!list.querySelector('[tabindex="0"]')) list.querySelector<HTMLElement>(".row")?.setAttribute("tabindex", "0");
 }
 
-/** A matching meeting's hits under its row (D45): tab icon, tab name, a transcript hit's time, the line marked. Options
- * of the list like the rows, reached with the arrows, so the list stays one tab stop (D42). */
+/** A matching meeting's hits under its row: tab icon, tab name, a transcript hit's time, the line marked. Options
+ * of the list like the rows, reached with the arrows, so the list stays one tab stop. */
 const snippets = (id: string) =>
   (hits?.get(id) ?? [])
     .map(
@@ -500,7 +500,7 @@ async function open(id: string, on?: Tab) {
   await renderDetail();
 }
 
-/** A snippet clicked or Entered: its meeting on its tab; a transcript hit at its turn, the match marked (D45). */
+/** A snippet clicked or Entered: its meeting on its tab; a transcript hit at its turn, the match marked. */
 function openSnip(snip: HTMLElement) {
   const h = hits?.get(snip.dataset.id!)?.[Number(snip.dataset.hit)];
   if (!h) return;
@@ -524,7 +524,7 @@ $("meeting-list").addEventListener("contextmenu", (e) => {
   e.preventDefault();
   openMenu(byId(row.dataset.id)!, e.clientX, e.clientY, null);
 });
-// Keys act on the keyboard-cursor row only, so they do nothing when no row has focus (D42).
+// Keys act on the keyboard-cursor row only, so they do nothing when no row has focus.
 $("meeting-list").addEventListener("keydown", (e) => {
   const item = (e.target as HTMLElement).closest<HTMLElement>(".row, .snip");
   // Arrows move through rows and their snippets alike; on a snippet only Enter acts.
@@ -557,7 +557,7 @@ $("meeting-list").addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-// ---------- row menu (D42, D49) ----------
+// ---------- row menu ----------
 
 /** The row's or the detail pane's ... menu; `from` is the opener's id when it isn't the row. */
 function openMenu(m: Meeting, x: number, y: number, from: string | null) {
@@ -633,7 +633,7 @@ document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#import-menu, #import-button")) closeImportMenu();
   if (!(e.target as HTMLElement).closest("#filter-menu, #filter-series-menu, #filter-range, #filter-button")) closeFilterMenu();
 });
-// Esc closes what is open, and focus goes back to what opened it (D42).
+// Esc closes what is open, and focus goes back to what opened it.
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!$("row-menu").hidden) {
@@ -652,7 +652,7 @@ document.addEventListener("keydown", (e) => {
   } else if ($("list-view").hidden) show("list");
 });
 
-// ---------- the Filter (D17's series among it): Show groups, a date, one series ----------
+// ---------- the Filter (one series among it): Show groups, a date, one series ----------
 
 /** Changes the Filter, saves it to settings.json, redraws the list and says how many rows are left. */
 function setFilter(change: Partial<ListFilter>) {
@@ -805,7 +805,7 @@ confirmDialog.addEventListener("close", () => {
   deleting = null;
   focusCursor();
 });
-// Delete (D30): the folder goes to the Recycle Bin, then the meeting leaves the list, its search hits and the detail
+// Delete: the folder goes to the Recycle Bin, then the meeting leaves the list, its search hits and the detail
 // pane; the keyboard cursor moves to the row below it (or above, for the last), else to the search box.
 $("confirm-delete").onclick = async () => {
   const m = deleting;
@@ -826,7 +826,7 @@ $("confirm-delete").onclick = async () => {
   else $("search").focus();
 };
 
-// ---------- import (D15, D44) ----------
+// ---------- import ----------
 
 async function chooseFile(id: string | null) {
   const path = await invoke<string | null>("pick_transcript_file");
@@ -862,7 +862,7 @@ function followImports() {
   if (fileImport !== was) loadCalendarStatus();
 }
 
-// The Import button's menu: a transcript file (D15) or Import from Teams.
+// The Import button's menu: a transcript file or Import from Teams.
 function closeImportMenu() {
   $("import-menu").hidden = true;
   $("import-button").setAttribute("aria-expanded", "false");
@@ -1002,7 +1002,7 @@ listen<string>("teams-import-report", (e) => {
 $("import-report-close").onclick = () => ($("import-report").hidden = true);
 
 listen<string>("meeting-changed", () => loadMeetings());
-/** The library folder gone or back since the list was drawn (D45): reload, so the banner follows it. */
+/** The library folder gone or back since the list was drawn: reload, so the banner follows it. */
 async function checkLibrary() {
   if (!current?.libraryPath) return;
   if ((await invoke<boolean>("library_ok")) === !!libraryMissing) await loadMeetings();
@@ -1037,7 +1037,7 @@ listen<{ id: string | null; message: string }>("import-refused", (e) => {
   } else failed(e.payload.message);
 });
 
-// OS drag-drop: only the attach strip is a drop target; the list is not (D15).
+// OS drag-drop: only the attach strip is a drop target; the list is not.
 function overStrip(p: { x: number; y: number }) {
   const strip = document.getElementById("attach-strip");
   if (!strip) return false;
@@ -1055,10 +1055,10 @@ getCurrentWebview().onDragDropEvent((e) => {
   } else strip?.classList.remove("drag");
 });
 
-// ---------- detail pane (D42, D44, D49) ----------
+// ---------- detail pane ----------
 
 interface Transcript {
-  /** `speaker` and `text` raw, as the citation check read them (D20); the parts corrected (D22). */
+  /** `speaker` and `text` raw, as the citation check read them; the parts corrected. */
   turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
   minutes: number;
   corrections: Fix[];
@@ -1101,9 +1101,9 @@ function goTurn(i: number) {
   el?.scrollIntoView({ block: "center" });
 }
 
-// A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45); a search hit's `q` marked.
+// A corrected word: dotted accent underline, "Was: <wrong>" tooltip; a search hit's `q` marked.
 const partsHtml = (ps: Part[], q = "") => markParts(ps, q);
-// D22's turn head, **[hh:mm:ss] Speaker:**, in the Transcript tab and the peek alike.
+// A transcript turn's head, **[hh:mm:ss] Speaker:**, in the Transcript tab and the peek alike.
 const turnHead = (at: string, who: string) => `<b class="th"><span class="tm">[${esc(at)}]</span> <span class="sp">${who}</span>:</b>`;
 
 function attachStrip() {
@@ -1156,7 +1156,7 @@ async function tryAgain(m: Meeting) {
   }
 }
 
-/** Scheduled, In progress, Awaiting transcript and Skipped (D49): title, time and the state's sentence, plus its action. */
+/** Scheduled, In progress, Awaiting transcript and Skipped: title, time and the state's sentence, plus its action. */
 function stateCard(m: Meeting, sentence: string) {
   // Awaiting transcript: when it checks next and the attempts left, and its transcript can be imported now.
   const action =
@@ -1187,7 +1187,7 @@ async function runSummary(id: string) {
   await invoke("summarise", { id }).catch(failed);
 }
 
-// ---------- summary tab: items, trust chips and the peek sheet (D21, D43) ----------
+// ---------- summary tab: items, trust chips and the peek sheet ----------
 
 let citeIndex: Citation[] = [];
 
@@ -1241,7 +1241,7 @@ function openPeek(chip: HTMLElement) {
     turn ? `<button id="peek-open" class="lnk">Open full transcript</button>` : ""
   }<button id="peek-close" class="btn sm">Close</button></div><div class="pkb" id="peek-body">${body}</div>`;
   $("detail").append(peek);
-  // Keep the cited item visible above the sheet (D43): room to scroll, then scroll it clear.
+  // Keep the cited item visible above the sheet: room to scroll, then scroll it clear.
   const pane = $("tab-body");
   pane.style.paddingBottom = `${peek.offsetHeight}px`;
   const li = chip.closest("li")!.getBoundingClientRect();
@@ -1269,7 +1269,7 @@ function transcriptBody(t: Transcript | null, q: string) {
       return `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}">${turnHead(u.at, partsHtml(u.speakerParts, mq))}<span class="tx">${partsHtml(u.parts, mq)}</span></p>`;
     })
     .join("");
-  // The corrections applied, one strip above the first turn; Show expands them, each with Add to glossary (D22, D23, D45).
+  // The corrections applied, one strip above the first turn; Show expands them, each with Add to glossary.
   const open = corrShown === selected;
   const fixes = t.corrections.length || t.rejected.length
     ? `<div id="corrections" class="corr"><div class="cstrip"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="corr-line">${esc(corrLine(t.corrections, t.rejected.length))}</span><span class="sp"></span>` +
@@ -1348,7 +1348,7 @@ async function renderDetail() {
     box.value = unsaved.get(m.id) ?? loaded!; // typed into while notes.md was read
     box.oninput = notesTyped;
   } else {
-    // A clicked transcript hit: the turn at its time, the match marked (D45).
+    // A clicked transcript hit: the turn at its time, the match marked.
     const q = tab === "transcript" && hitTurn && t ? hitTurn.q : "";
     if (q) scrollToTurn = turnOfHit(t!.turns, hitTurn!.at, hitTurn!.line);
     hitTurn = null;
@@ -1635,7 +1635,7 @@ $("settings-button").onclick = () => show("settings");
 $("glossary-button").onclick = () => show("glossary");
 $("glossary-back").onclick = () => show("list");
 $("settings-back").onclick = () => show("list");
-// Change folder in Settings, and Choose folder on the library-missing banner (D45).
+// Change folder in Settings, and Choose folder on the library-missing banner.
 $("change-folder").onclick = async () => {
   const picked = await invoke<string | null>("pick_library_folder");
   if (picked) await save({ libraryPath: picked });
@@ -1649,7 +1649,7 @@ $("library-choose").onclick = async () => {
 $<HTMLSelectElement>("summary-model").onchange = (e) => save({ summaryModel: (e.target as HTMLSelectElement).value });
 $<HTMLInputElement>("start-at-logon").onchange = (e) => save({ startAtLogon: (e.target as HTMLInputElement).checked });
 $<HTMLSelectElement>("appearance").onchange = (e) => save({ appearance: (e.target as HTMLSelectElement).value });
-// The calendar status line (D40); the refresh's outcome arrives as calendar-changed, whoever started it.
+// The calendar status line; the refresh's outcome arrives as calendar-changed, whoever started it.
 async function loadCalendarStatus() {
   const line = calendarLine(await invoke<CalendarStatus>("calendar_status"));
   const el = $("calendar-status");
@@ -1681,7 +1681,7 @@ invoke<boolean>("is_dev").then((dev) => {
   $<HTMLButtonElement>("check-updates").disabled = true;
 });
 
-// ---------- updates (slice 19): checked at start and hourly by the backend; installed only on Restart and update ----------
+// ---------- updates: checked at start and hourly by the backend; installed only on Restart and update ----------
 
 /** A live region written while the window is still opening goes unread (NVDA spoke a start's "didn't install" message
  * on 1 start in 4), so the update's announcements wait until this long after the page began loading. */
@@ -1779,7 +1779,7 @@ async function installUpdate() {
 $("whats-new-install").onclick = installUpdate;
 listen("install-update", installUpdate); // the tray's Restart and update to version X
 
-// ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------
+// ---------- first run: what the app does, Claude Code, the library, Start when I log in ----------
 
 /** The library first run will save: the one offered (a dev instance's own, else Documents\Recapybara) until one is chosen. */
 let firstLibrary: string | null = null;

@@ -2,9 +2,9 @@ import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { body, event, fetchesOf, freshFixture, invoke, root, scenario, seed, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
 
-// Slice S3: each capture failure state says why and what to do in its card, with Try again (one fetch attempt now,
+// Each capture failure state says why and what to do in its card, with Try again (one fetch attempt now,
 // through the scheduler's fetch code) and Import transcript. Synthetic meetings only, ended days ago, so the schedule
-// (D12) is over and each Try again is one attempt whose outcome is final.
+// is over and each Try again is one attempt whose outcome is final.
 const daysAgo = (days, hh) => {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -66,7 +66,7 @@ describe("capture failure states", () => {
       await expect($("#fetch-card h5")).toHaveText(label);
       await expect($("#fetch-retry")).toHaveText("Try again");
       await expect($("#import-now")).toHaveText("Import transcript");
-      await expect($("#attach-strip")).toBeDisplayed(); // still the drop target (D44)
+      await expect($("#attach-strip")).toBeDisplayed(); // still the drop target
     }
   });
 

@@ -1,4 +1,4 @@
-//! The summary run (D18), the citation check (D20), `summary.md` (D21) and re-run (D24).
+//! The summary run, the citation check, `summary.md` and re-run.
 use crate::{
     claude::{ClaudeRun, Output},
     library::{self, Correction, Cue, Meeting, State},
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{fs, io, path::Path};
 
-/// How a citation fared against the raw cues (D20). Filled by `check`, never read from Claude.
+/// How a citation fared against the raw cues. Filled by `check`, never read from Claude.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Check {
@@ -27,7 +27,7 @@ pub struct Citation {
     pub quote: String,
     #[serde(skip_deserializing)]
     pub check: Check,
-    /// The cue at `at`, for the peek sheet (D43): its start, speaker, raw text and speaker turn.
+    /// The cue at `at`, for the peek sheet: its start, speaker, raw text and speaker turn.
     #[serde(skip_deserializing)]
     pub cue_at: Option<String>,
     #[serde(skip_deserializing)]
@@ -38,7 +38,7 @@ pub struct Citation {
     pub turn: Option<usize>,
 }
 
-/// D18's Item; `owner` is set on actions only.
+/// A summary item; `owner` is set on actions only.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Item {
@@ -47,10 +47,10 @@ pub struct Item {
     pub inferred: bool,
     pub ticket_keys: Vec<String>,
     pub owner: Option<String>,
-    /// Every citation verified, and at least one (D20).
+    /// Every citation verified, and at least one.
     #[serde(skip_deserializing)]
     pub verified: bool,
-    /// `ticket_keys` the run's Jira lookups didn't find (D20): "Key not found" (D43), `(unverified key)` (D21).
+    /// `ticket_keys` the run's Jira lookups didn't find: "Key not found", `(unverified key)`.
     #[serde(skip_deserializing)]
     pub missing_keys: Vec<String>,
 }
@@ -73,7 +73,7 @@ pub struct Summary {
     pub actions: Vec<Item>,
     #[serde(default)]
     pub questions: Vec<Item>,
-    /// Applied to `transcript.md` and the Transcript tab, never to the citation check (D20, D22).
+    /// Applied to `transcript.md` and the Transcript tab, never to the citation check.
     #[serde(default)]
     pub corrections: Vec<Correction>,
     /// Corrections the user rejected on this meeting (library::reject), kept until a re-run writes a new file.
@@ -95,7 +95,7 @@ impl Summary {
     }
 }
 
-/// Lowercase words, punctuation dropped, whitespace collapsed (D20).
+/// Lowercase words, punctuation dropped, whitespace collapsed.
 fn words(s: &str) -> Vec<String> {
     s.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
@@ -139,7 +139,7 @@ fn check_citation(cues: &[Cue], c: &mut Citation) {
         (Some(library::hms(cue.start)), Some(cue.speaker.clone()), Some(cue.text.clone()), Some(cue.turn));
 }
 
-/// Checks every citation against the raw cues of `vtt` (D20). Items are never dropped.
+/// Checks every citation against the raw cues of `vtt`. Items are never dropped.
 pub fn check(s: &mut Summary, vtt: &str) {
     let cues = library::cues(vtt);
     for item in s.items_mut() {
@@ -148,7 +148,7 @@ pub fn check(s: &mut Summary, vtt: &str) {
     }
 }
 
-/// The summary run's only tools (D18): the Atlassian connector's Jira reads, plus the site lookup that gives
+/// The summary run's only tools: the Atlassian connector's Jira reads, plus the site lookup that gives
 /// them their cloudId. Never a write.
 pub const JIRA_READ_TOOLS: &[&str] = &[
     "mcp__claude_ai_Atlassian__getAccessibleAtlassianResources",
@@ -209,7 +209,7 @@ fn named_keys(v: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// Ticket keys the run's Jira lookups found (D20): from PostToolUse payloads of the Jira read tools whose response
+/// Ticket keys the run's Jira lookups found: from PostToolUse payloads of the Jira read tools whose response
 /// is not an error, each issue `"key"` they name. The response shape is undocumented, so anything else finds nothing.
 pub fn found_keys(captured: &[Value]) -> Vec<String> {
     let mut found = vec![];
@@ -225,14 +225,14 @@ pub fn found_keys(captured: &[Value]) -> Vec<String> {
     found
 }
 
-/// Marks each item's ticket keys that `found` lacks (D20). Items are never dropped.
+/// Marks each item's ticket keys that `found` lacks. Items are never dropped.
 pub fn check_keys(s: &mut Summary, found: &[String]) {
     for item in s.items_mut() {
         item.missing_keys = item.ticket_keys.iter().filter(|k| !found.contains(&k.trim().to_ascii_uppercase())).cloned().collect();
     }
 }
 
-/// The summary from a `--output-format json` result: its `structured_output` (D18), kept as returned.
+/// The summary from a `--output-format json` result: its `structured_output`, kept as returned.
 pub fn parse_result(stdout: &str) -> Result<(Summary, Value), String> {
     // Each message is short and carries no result text, so it can sit on the card (meeting.json).
     let v: Value = serde_json::from_str(stdout.trim()).map_err(|_| "Claude's result isn't JSON.".to_string())?;
@@ -272,7 +272,7 @@ fn item_line(it: &Item, owner: bool) -> String {
     l + "\n"
 }
 
-/// `summary.md` (D21): title, date line, Overview, the run's sections, Decisions, Actions, Open questions.
+/// `summary.md`: title, date line, Overview, the run's sections, Decisions, Actions, Open questions.
 /// Empty lists are left out.
 pub fn render(m: &Meeting, s: &Summary) -> String {
     let mut md = format!("# {}\n\n", m.subject);
@@ -298,7 +298,7 @@ pub fn render(m: &Meeting, s: &Summary) -> String {
     md
 }
 
-/// D18's return shape, for `--json-schema`.
+/// The summary run's return shape, for `--json-schema`.
 pub fn schema() -> Value {
     let item = json!({
         "type": "object",
@@ -344,7 +344,7 @@ jargon), as whole words, each with a short reason; a glossary entry is a hint, n
 context shows it was misheard, never where the speaker meant the word as transcribed. \
 Never invent attendees, owners or tickets.";
 
-/// The summary run (D18): the summary model, `--json-schema`, attendees, glossary and transcript on stdin (D19).
+/// The summary run: the summary model, `--json-schema`, attendees, glossary and transcript on stdin.
 pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun {
     let people: Vec<&str> = m.organiser.iter().map(String::as_str).chain(m.attendees.iter().map(String::as_str)).collect();
     // An older build's never lines (library::NEVER) are left out.
@@ -378,7 +378,7 @@ pub fn load(dir: &Path) -> Option<Summary> {
 }
 
 /// Runs the summary for the meeting in `dir` and writes `summary.json`, `summary.md` and `transcript.md`, replacing
-/// any earlier ones and nothing else (D24). `glossary.md` comes from the library, the meeting folder's parent (D23). Failure keeps an earlier summary and marks the meeting "summary failed",
+/// any earlier ones and nothing else. `glossary.md` comes from the library, the meeting folder's parent. Failure keeps an earlier summary and marks the meeting "summary failed",
 /// on every exit, a panic included.
 pub fn summarise<R: Into<Output>>(dir: &Path, model: &str, run: impl FnOnce(&ClaudeRun) -> io::Result<R>) -> Result<Summary, String> {
     let first = library::load(dir);
@@ -387,7 +387,7 @@ pub fn summarise<R: Into<Output>>(dir: &Path, model: &str, run: impl FnOnce(&Cla
         let m = first.as_ref().map_err(|e| e.to_string())?;
         let vtt = fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
         let glossary = dir.parent().and_then(|lib| fs::read_to_string(lib.join(library::GLOSSARY)).ok()).unwrap_or_default();
-        // The fix names the card's own button (D49): Run summary until a summary exists.
+        // The fix names the card's own button: Run summary until a summary exists.
         let button = if dir.join(library::SUMMARY_MD).exists() { "Re-run summary" } else { "Run summary" };
         let out: Output = run(&run_for(m, &vtt, &glossary, model)).map_err(|e| crate::claude::failure(&e, button))?.into();
         let (mut s, raw) = parse_result(&out.stdout)?;
@@ -431,7 +431,7 @@ pub fn begin(dir: &Path) -> Result<Meeting, String> {
     Ok(m)
 }
 
-/// D47 toast wording. Titles over 60 characters are cut with an ellipsis.
+/// Toast wording. Titles over 60 characters are cut with an ellipsis.
 pub fn toast_title(m: &Meeting) -> String {
     let n = m.subject.chars().count();
     if n > 60 { m.subject.chars().take(59).chain(['…']).collect() } else { m.subject.clone() }
@@ -556,7 +556,7 @@ mod tests {
         assert_eq!(render(&m, &s), include_str!("../tests/golden/summary.md").replace("\r\n", "\n"));
     }
 
-    // Shape recorded in Research "Headless Claude Code": structured_output (parsed) plus result (the same, as a string).
+    // The shape headless Claude Code returns: structured_output (parsed) plus result (the same, as a string).
     const REAL_SHAPE: &str = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":8123,"num_turns":2,
         "result":"{\"overview\":\"From structured_output\",\"actions\":[]}","session_id":"0d5c",
         "structured_output":{"overview":"From structured_output","actions":[]}}"#;
@@ -627,7 +627,7 @@ mod tests {
         let md = fs::read_to_string(dir.join(library::TRANSCRIPT_MD)).unwrap();
         assert!(md.starts_with("**[00:00:03] Katia:** we keep the filter rule as it is\n"), "{md}");
 
-        // A re-run replaces transcript.md (D24).
+        // A re-run replaces transcript.md.
         summarise(&dir, "opus", |_| Ok(json!({ "is_error": false, "structured_output": { "overview": "y" } }).to_string())).unwrap();
         assert_eq!(fs::read_to_string(dir.join(library::TRANSCRIPT_MD)).unwrap(), "**[00:00:03] Katia:** we keep the felter rule as it is\n");
         fs::remove_dir_all(lib).unwrap();
@@ -716,7 +716,7 @@ mod tests {
     }
 
     /// A PostToolUse payload as the capture hook hands it over; the text block is the shape the Atlassian
-    /// connector answered with on Jack's machine (synthetic values).
+    /// connector answered with on a real machine (synthetic values).
     fn lookup(tool: &str, text: &str) -> Value {
         json!({ "hook_event_name": "PostToolUse", "transcript_path": "x", "tool_name": format!("mcp__claude_ai_Atlassian__{tool}"),
                 "tool_input": { "issueIdOrKey": "PROJ-123" }, "tool_response": [{ "type": "text", "text": text }] })

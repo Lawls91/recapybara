@@ -25,7 +25,7 @@ tauri-plugin-updater = "2"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.7"
-# Already in the tree through tauri; only the Recycle Bin call (D30) is added.
+# Already in the tree through tauri; only the Recycle Bin call is added.
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell"] }
 # Already in the tree through tauri-plugin-autostart: the Run value written again, quoted.
 windows-registry = "0.6"

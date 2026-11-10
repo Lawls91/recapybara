@@ -1,4 +1,4 @@
-//! With RECAPYBARA_CLAUDE unset the app runs `claude` from PATH (D36), as a real install does.
+//! With RECAPYBARA_CLAUDE unset the app runs `claude` from PATH, as a real install does.
 use recapybara_lib::{calendar, claude};
 use serde_json::Value;
 use std::{fs, path::PathBuf};

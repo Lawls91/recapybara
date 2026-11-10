@@ -1,4 +1,4 @@
-/* Components, from the agreed mockups (D39-D46, D49). Colours come only from tokens.css. */
+/* Components. Colours come only from tokens.css. */
 * {
   box-sizing: border-box;
 }
@@ -59,7 +59,7 @@ button {
   display: none !important;
 }
 
-/* ---- window frame (D39) ---- */
+/* ---- window frame ---- */
 .frame {
   height: 100%;
   display: flex;
@@ -192,7 +192,7 @@ button {
   color: var(--mc-txt);
 }
 
-/* ---- the meeting list (D40, D41, D42) ---- */
+/* ---- the meeting list ---- */
 /* Basis 0: the list takes what is left, so a status line that wraps pushes it down instead of overlapping. */
 /* scroll-padding: a row reached with the arrows scrolls clear of the sticky day header. */
 .list {
@@ -438,7 +438,7 @@ button {
   margin: 4px 6px;
 }
 
-/* ---- detail pane (D39, D44, D49) ---- */
+/* ---- detail pane ---- */
 .detwrap {
   flex: 1 1 auto;
   min-width: 0;
@@ -542,7 +542,7 @@ button {
   overflow-y: auto;
   padding-top: 16px;
 }
-/* My notes (D27): the whole tab body is the editor; it widens by its padding so the text lines up with the title */
+/* My notes: the whole tab body is the editor; it widens by its padding so the text lines up with the title */
 .body.nb {
   display: flex;
   overflow: hidden;
@@ -594,7 +594,7 @@ button {
   }
 }
 
-/* cards: no summary yet, summary failed, D49 state cards */
+/* cards: no summary yet, summary failed, state cards */
 .card {
   background: var(--mc-card);
   border-radius: 12px;
@@ -659,7 +659,7 @@ button {
   color: var(--st-failtxt);
 }
 
-/* attach strip (D44) */
+/* attach strip */
 .strip {
   display: flex;
   align-items: center;
@@ -703,7 +703,7 @@ button {
   font-size: 14px;
 }
 
-/* transcript tab (D22) */
+/* transcript tab */
 .transcript {
   max-width: 720px;
 }
@@ -712,7 +712,7 @@ button {
   display: flex;
   flex-direction: column;
 }
-/* D22's head, **[hh:mm:ss] Speaker:**, bold throughout */
+/* a turn's head, **[hh:mm:ss] Speaker:**, bold throughout */
 .turn .th {
   font-size: 12.5px;
   line-height: 18px;
@@ -722,7 +722,7 @@ button {
   color: var(--mc-txt3);
   font-variant-numeric: tabular-nums;
 }
-/* a corrected word (D45) */
+/* a corrected word */
 .cx {
   text-decoration: underline dotted var(--mc-acc);
   text-decoration-thickness: 1.5px;
@@ -787,7 +787,7 @@ button {
   font-weight: var(--mc-readwt);
 }
 
-/* ---- settings page (D46) ---- */
+/* ---- settings page ---- */
 .settings {
   padding: 0 8px 8px;
 }
@@ -1112,7 +1112,7 @@ select {
   color: var(--mc-dis);
 }
 
-/* ---- summary tab (D21, D43) ---- */
+/* ---- summary tab ---- */
 .det {
   position: relative;
 }
@@ -1150,7 +1150,7 @@ select {
   font-weight: 600;
   color: var(--mc-txt);
 }
-/* trust chips: 18 px high, 9 px radius, focus ring (D43) */
+/* trust chips: 18 px high, 9 px radius, focus ring */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1187,7 +1187,7 @@ button.chip:hover {
   outline: 2px solid var(--mc-focus);
   outline-offset: 2px;
 }
-/* peek sheet: 54% of the pane, from the bottom (D43) */
+/* peek sheet: 54% of the pane, from the bottom */
 .peek {
   position: absolute;
   left: 0;
@@ -1274,7 +1274,7 @@ button.chip:hover {
   border-radius: 6px;
 }
 
-/* ---- search hits under their meeting's row (D45) ---- */
+/* ---- search hits under their meeting's row ---- */
 .snip {
   display: flex;
   flex-direction: column;
@@ -1321,7 +1321,7 @@ button.chip:hover {
   padding: 0 2px;
 }
 
-/* ---- Show all in this series: the filter chip at the top of the list (D17) ---- */
+/* ---- Show all in this series: the filter chip at the top of the list ---- */
 .sfilter {
   display: flex;
   flex-wrap: wrap;
@@ -1410,7 +1410,7 @@ button.chip:hover {
   outline: 2px solid var(--mc-focus);
 }
 
-/* ---- Settings: excluded series, each with Remove (D46) ---- */
+/* ---- Settings: excluded series, each with Remove ---- */
 .exl {
   border: 1px solid var(--mc-stroke);
   border-radius: 10px;

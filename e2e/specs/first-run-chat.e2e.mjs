@@ -2,7 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { calendar, claudeRecords, event, invoke, M365, root, scenario } from "../helpers.mjs";
 
-// Slice chat-events, through the hand route QA takes: a dev instance with no settings (first run), the fake claude,
+// Chat events, through the route a person takes by hand: a dev instance with no settings (first run), the fake claude,
 // meetings already started when the app launches, then Finish. Join URLs are percent-encoded as encodeURIComponent
 // writes them (upper-case %3A and %40), as well as Teams' own lower case.
 const READ = `${M365}read_resource`;

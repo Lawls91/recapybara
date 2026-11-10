@@ -11,7 +11,7 @@ out/
 .env.*
 CLAUDE.local.md
 
-# Never commit real meeting content (Design D34): transcripts are blocked everywhere
+# Never commit real meeting content: transcripts are blocked everywhere
 # except synthetic test fixtures.
 *.vtt
 !**/fixtures/**/*.vtt

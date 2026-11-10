@@ -3,14 +3,14 @@ import { $, browser, expect } from "@wdio/globals";
 const bg = (sel) => browser.execute((s) => getComputedStyle(document.querySelector(s)).backgroundColor, sel);
 const until = (sel, rgb) =>
   browser.waitUntil(async () => (await bg(sel)) === rgb, { timeoutMsg: `${sel} never became ${rgb}` });
-const WINDOW = { dark: "rgb(32, 32, 32)", light: "rgb(244, 245, 248)" }; // D48 #202020, D38 #F4F5F8
+const WINDOW = { dark: "rgb(32, 32, 32)", light: "rgb(244, 245, 248)" }; // dark #202020, light #F4F5F8
 
 describe("appearance", () => {
   beforeEach(async () => {
     if (await $("#settings-back").isDisplayed()) await $("#settings-back").click(); // start on the list
   });
 
-  it("Dark draws the D48 tokens and Light draws D38's", async () => {
+  it("Dark draws the dark tokens and Light draws the light ones", async () => {
     await $("#settings-button").click();
     await $("#appearance").selectByAttribute("value", "dark");
     await until("body", WINDOW.dark);

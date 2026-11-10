@@ -22,7 +22,7 @@ pub mod update;
 
 use settings::Settings;
 
-/// Run-key value name, frozen (D50). Never derive it from productName.
+/// Run-key value name, frozen. Never derive it from productName.
 pub const RUN_KEY_NAME: &str = "Recapybara";
 
 /// The Run value, quoted as the MSI writes it, so an exe path with a space (a profile "First Last") still starts.
@@ -43,13 +43,13 @@ fn enable_logon(app: &AppHandle) -> Result<(), String> {
 fn logon_at_start(first: bool, dev: bool, logon: bool) -> Option<bool> {
     (!first && !dev).then_some(logon)
 }
-/// Toast identity, frozen (D50): the MSI's Start-menu shortcut carries it.
+/// Toast identity, frozen: the MSI's Start-menu shortcut carries it.
 pub const AUMID: &str = "com.lawls91.recapybara";
 
 struct AppState {
     data_dir: PathBuf,
     home: PathBuf,
-    /// Where the skill goes (D33), if anywhere: see `skill_home`.
+    /// Where the skill goes, if anywhere: see `skill_home`.
     skill_home: Option<PathBuf>,
     settings: Mutex<Settings>,
     logon_item: Mutex<Option<CheckMenuItem<Wry>>>,
@@ -77,18 +77,18 @@ struct AppState {
     update_failed: Option<(String, String)>,
 }
 
-/// Env override (set and non-empty), else the real folder (D37).
+/// Env override (set and non-empty), else the real folder.
 pub fn dir_from_env(var: &str, real: PathBuf) -> PathBuf {
     std::env::var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or(real)
 }
 
-/// The home the skill is installed in (D33): a dev instance installs only into an overridden home, so it never
+/// The home the skill is installed in: a dev instance installs only into an overridden home, so it never
 /// points the installed copy's skill at a dev library.
 fn skill_home(dev: bool, home_overridden: bool, home: &Path) -> Option<PathBuf> {
     (!dev || home_overridden).then(|| home.to_path_buf())
 }
 
-/// Installs the skill for `library` when it is missing or differs (D33). Best effort: a failure is logged.
+/// Installs the skill for `library` when it is missing or differs. Best effort: a failure is logged.
 fn install_skill(home: Option<&Path>, library: Option<&str>) {
     if let (Some(home), Some(library)) = (home, library) {
         if let Err(e) = skill::install(home, library) {
@@ -113,7 +113,7 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-/// A toast click (D29): runs on a WinRT thread, so the window work goes to the main thread. The meeting id is
+/// A toast click: runs on a WinRT thread, so the window work goes to the main thread. The meeting id is
 /// parked for the page, which takes it on this event or whenever it next gains focus.
 fn open_from_toast(app: &AppHandle, id: String) {
     *app.state::<AppState>().pending_open.lock().unwrap() = Some(id);
@@ -164,7 +164,7 @@ async fn pick_library_folder(app: AppHandle) -> Option<String> {
     app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
 }
 
-/// The library folder, refused while it can't be read (D45): every command, fetch and import goes through here, so none
+/// The library folder, refused while it can't be read: every command, fetch and import goes through here, so none
 /// lists an empty history or writes into a folder made anew until the user chooses one.
 fn library_path(app: &AppHandle) -> Result<PathBuf, String> {
     let lib = app.state::<AppState>().settings.lock().unwrap().library_path.clone();
@@ -183,7 +183,7 @@ fn list_meetings(app: AppHandle) -> Result<Vec<library::Listed>, String> {
     Ok(list)
 }
 
-/// Skip (D17) from the list, on a folder or a cached event (which gets its folder now). Returns the folder id.
+/// Skip from the list, on a folder or a cached event (which gets its folder now). Returns the folder id.
 #[tauri::command]
 fn skip_meeting(app: AppHandle, id: String) -> Result<String, String> {
     let done = fetch::skip(&library_path(&app)?, &id, &app.state::<AppState>().calendar.events(), chrono::Utc::now())?;
@@ -191,7 +191,7 @@ fn skip_meeting(app: AppHandle, id: String) -> Result<String, String> {
     Ok(done)
 }
 
-/// Delete (D30), after the page's confirmation: its calendar event, if any, is recorded to stay out of the list and the
+/// Delete, after the page's confirmation: its calendar event, if any, is recorded to stay out of the list and the
 /// fetch, even across restarts; then the folder goes to the Recycle Bin. Off the main thread, like search.
 #[tauri::command]
 async fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
@@ -212,7 +212,7 @@ async fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Unskip (D49): a meeting that ended within the catch-up window is fetched at once.
+/// Unskip: a meeting that ended within the catch-up window is fetched at once.
 #[tauri::command]
 fn unskip_meeting(app: AppHandle, id: String) -> Result<(), String> {
     let events = app.state::<AppState>().calendar.events();
@@ -224,7 +224,7 @@ fn unskip_meeting(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// The Transcript tab: turns with the last summary run's corrections applied, the same ones `transcript.md` holds (D22).
+/// The Transcript tab: turns with the last summary run's corrections applied, the same ones `transcript.md` holds.
 #[tauri::command]
 fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, String> {
     let lib = library_path(&app)?;
@@ -241,13 +241,13 @@ fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, Str
     Ok(t)
 }
 
-/// My notes (D27): the meeting's `notes.md`, empty when there is none.
+/// My notes: the meeting's `notes.md`, empty when there is none.
 #[tauri::command]
 fn get_notes(app: AppHandle, id: String) -> Result<String, String> {
     library::read_notes(&library::meeting_dir(&library_path(&app)?, &id)?).map_err(|e| e.to_string())
 }
 
-/// Saves My notes as the user types (D27). A calendar-only meeting gets its folder first, its state and schedule
+/// Saves My notes as the user types. A calendar-only meeting gets its folder first, its state and schedule
 /// unchanged (fetch::folder_of). `base`: text carried over from another library, with notes.md as the page last had it
 /// there, so it never replaces other notes in a same-named folder here (library::write_carried_notes). Returns the
 /// folder id, which the page takes over from the event's. No event: the page already shows what it saved.
@@ -263,7 +263,7 @@ fn save_notes(app: AppHandle, id: String, text: String, base: Option<String>) ->
     Ok(id)
 }
 
-/// Search (D28) for the list's search box. The scan runs on a blocking thread, so a big library never holds the window.
+/// Search for the list's search box. The scan runs on a blocking thread, so a big library never holds the window.
 #[tauri::command]
 async fn search(app: AppHandle, query: String) -> Result<Vec<library::Hit>, String> {
     let lib = library_path(&app)?;
@@ -276,7 +276,7 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
-/// Add to glossary on an applied correction (D23).
+/// Add to glossary on an applied correction.
 #[tauri::command]
 fn add_to_glossary(app: AppHandle, from: String, to: String) -> Result<(), String> {
     library::add_to_glossary(&library_path(&app)?, &library::Correction { from, to, reason: String::new() })
@@ -344,7 +344,7 @@ fn import_transcript(app: AppHandle, path: String, id: Option<String>) -> Result
         Err(message) => app.emit("import-refused", serde_json::json!({ "id": id, "message": message })),
     }
     .map_err(|e| e.to_string())?;
-    // Every import, attach or Replace transcript… starts the summary (D15, D49).
+    // Every import, attach or Replace transcript… starts the summary.
     if let Ok(done) = &result {
         if let Err(e) = start_summary(&app, done) {
             eprintln!("summary not started for {done}: {e}"); // the import itself landed
@@ -354,7 +354,7 @@ fn import_transcript(app: AppHandle, path: String, id: Option<String>) -> Result
 }
 
 /// Marks the meeting "summarising" and runs its summary in the background. Outcomes arrive as
-/// meeting-changed events, plus one toast (D29).
+/// meeting-changed events, plus one toast.
 fn start_summary(app: &AppHandle, id: &str) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(summary_job(app, id)?);
     Ok(())
@@ -384,26 +384,26 @@ fn summary_job(app: &AppHandle, id: &str) -> Result<impl FnOnce() + Send + 'stat
     })
 }
 
-/// Run summary / Re-run summary (D49).
+/// Run summary / Re-run summary.
 #[tauri::command]
 fn summarise(app: AppHandle, id: String) -> Result<(), String> {
     start_summary(&app, &id)
 }
 
-/// Whether the library folder can be read now (D45): the page checks on focus and every 30 s, so the banner follows a
+/// Whether the library folder can be read now: the page checks on focus and every 30 s, so the banner follows a
 /// drive unplugged or reconnected without waiting for a reload.
 #[tauri::command]
 fn library_ok(app: AppHandle) -> bool {
     library_path(&app).is_ok()
 }
 
-/// Copy summary: `summary.md` as it is (D21).
+/// Copy summary: `summary.md` as it is.
 #[tauri::command]
 fn get_summary_md(app: AppHandle, id: String) -> Result<String, String> {
     std::fs::read_to_string(library::meeting_dir(&library_path(&app)?, &id)?.join(library::SUMMARY_MD)).map_err(|e| e.to_string())
 }
 
-/// The checked summary for the Summary tab, or none before the first one (D43).
+/// The checked summary for the Summary tab, or none before the first one.
 #[tauri::command]
 fn get_summary(app: AppHandle, id: String) -> Result<Option<summary::Summary>, String> {
     Ok(summary::load(&library::meeting_dir(&library_path(&app)?, &id)?))
@@ -415,10 +415,10 @@ fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
     std::process::Command::new("explorer").arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// One calendar refresh (D9) through the user's claude. `scheduled`: only if 30 minutes have passed since the last.
+/// One calendar refresh through the user's claude. `scheduled`: only if 30 minutes have passed since the last.
 /// Never two at once; the page follows along through calendar-changed.
 fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
-    // A chosen library that can't be read: nothing can be captured into it, so no claude run for it (D45). With none
+    // A chosen library that can't be read: nothing can be captured into it, so no claude run for it. With none
     // chosen yet (first run) the calendar still loads.
     let chosen = app.state::<AppState>().settings.lock().unwrap().library_path.clone();
     if chosen.is_some_and(|l| library::check(Path::new(&l)).is_err()) {
@@ -438,8 +438,8 @@ fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
     }
 }
 
-/// Fetches every meeting that is due (D12): a folder for each cached event that just ended, then each due attempt,
-/// one at a time. A capture starts its summary (D15); a capture failure raises its toast (D29, D47).
+/// Fetches every meeting that is due: a folder for each cached event that just ended, then each due attempt,
+/// one at a time. A capture starts its summary; a capture failure raises its toast.
 fn fetch_due(app: &AppHandle) {
     if first_running(app) {
         return;
@@ -448,7 +448,7 @@ fn fetch_due(app: &AppHandle) {
     let Ok(lib) = library_path(app) else { return };
     let state = app.state::<AppState>();
     let (runs, home, events) = (state.data_dir.join("runs"), state.home.clone(), state.calendar.events());
-    // Read afresh each time: an Exclude series pressed during a run still holds (D17).
+    // Read afresh each time: an Exclude series pressed during a run still holds.
     let excluded = || state.settings.lock().unwrap().excluded();
     let program = claude::program();
     // Each attempt's follow-up runs as it lands, so quitting during a later attempt loses none.
@@ -469,7 +469,7 @@ fn fetch_due(app: &AppHandle) {
 
 /// The meeting chats due a check (chat::tick): not during first run, and in a dev instance only against a stand-in
 /// claude. A call found ended makes its meeting due, so the fetch right after this starts it early; a call found
-/// without transcription raises its notification, whose Skip this meeting skips it (D17) and whose body opens it.
+/// without transcription raises its notification, whose Skip this meeting skips it and whose body opens it.
 fn check_chats(app: &AppHandle) {
     let state = app.state::<AppState>();
     let overridden = std::env::var_os("RECAPYBARA_CLAUDE").is_some_and(|v| !v.is_empty());
@@ -501,8 +501,8 @@ fn check_chats(app: &AppHandle) {
     }
 }
 
-/// A fetch attempt's follow-up: a capture starts its summary in the background (D15); a capture failure raises its
-/// toast (D29, D47).
+/// A fetch attempt's follow-up: a capture starts its summary in the background; a capture failure raises its
+/// toast.
 fn after_fetch(app: &AppHandle, id: &str, m: &library::Meeting, excluded: &[String]) {
     match m.state {
         library::State::TranscriptReady if !library::excluded(m, excluded) => {
@@ -614,14 +614,14 @@ fn teams_import(app: AppHandle, from: String, to: String, ids: Vec<String>) -> R
     Ok(())
 }
 
-/// The list's refresh button and the tray's Refresh calendar now (D47). Returns when the refresh has ended, or at
+/// The list's refresh button and the tray's Refresh calendar now. Returns when the refresh has ended, or at
 /// once when one is already going.
 #[tauri::command]
 async fn refresh_calendar(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || refresh_calendar_now(&app, false)).await.map_err(|e| e.to_string())
 }
 
-/// The calendar status line (D40).
+/// The calendar status line.
 #[tauri::command]
 fn calendar_status(state: State<AppState>) -> calendar::Status {
     state.calendar.status()
@@ -637,7 +637,7 @@ fn proposed_library(state: State<AppState>) -> Option<String> {
     state.proposed_library.clone()
 }
 
-/// First run is up (no library chosen yet, D25): the scheduler's tick (its folders and fetches, so their summaries) waits
+/// First run is up (no library chosen yet): the scheduler's tick (its folders and fetches, so their summaries) waits
 /// for its Finish, so nothing is fetched or written into a library the user hasn't picked. The calendar refresh still
 /// runs: it only fills the in-memory cache.
 fn first_running(app: &AppHandle) -> bool {
@@ -652,12 +652,12 @@ async fn claude_check() -> Result<String, String> {
     version.ok_or_else(|| claude::failure(&std::io::ErrorKind::NotFound.into(), "restart the app"))
 }
 
-/// First run's Finish: the library chosen, and Start at logon as the user left the box, ticked or not (D31). The Run
+/// First run's Finish: the library chosen, and Start at logon as the user left the box, ticked or not. The Run
 /// key is set to match now (the installer may have written it already); a dev instance never touches it.
 #[tauri::command]
 fn finish_first_run(app: AppHandle, library: String, start_at_logon: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
-    // The folder offered is made now, never before Finish; a folder picked must still be there (D45).
+    // The folder offered is made now, never before Finish; a folder picked must still be there.
     if state.proposed_library.as_ref() == Some(&library) {
         std::fs::create_dir_all(&library).map_err(|e| format!("Couldn't make the library folder {library}: {e}"))?;
     }
@@ -683,7 +683,7 @@ fn finish_first_run(app: AppHandle, library: String, start_at_logon: bool) -> Re
     Ok(())
 }
 
-/// productName (D50), marked on a dev instance: the window title and tray tooltip.
+/// productName, marked on a dev instance: the window title and tray tooltip.
 fn display_name(app: &AppHandle) -> String {
     let name = app.package_info().name.clone();
     if app.state::<AppState>().dev { format!("{name} (DEV)") } else { name }
@@ -940,7 +940,7 @@ pub fn run() {
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
             app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, chats: chat::Chats::default(), teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), proposed_library, update: Default::default(), last_check: Mutex::new(None), update_failed });
-            // Display name follows productName only (D50).
+            // Display name follows productName only.
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
             }
@@ -952,7 +952,7 @@ pub fn run() {
             let (item, updates) = build_tray(app.handle(), logon)?;
             *app.state::<AppState>().logon_item.lock().unwrap() = Some(item);
             *app.state::<AppState>().update_item.lock().unwrap() = Some(updates);
-            // The calendar at start, then every 30 minutes (D9); the fetches it makes due, and every retry (D12).
+            // The calendar at start, then every 30 minutes; the fetches it makes due, and every retry.
             let handle = app.handle().clone();
             std::thread::spawn(move || loop {
                 refresh_calendar_now(&handle, true);
@@ -1043,7 +1043,7 @@ mod tests {
         assert_eq!(conf["identifier"], "com.lawls91.recapybara");
         assert_eq!(RUN_KEY_NAME, "Recapybara");
         assert_eq!(AUMID, "com.lawls91.recapybara");
-        // The MSI's frozen layer (D50): changing any of these breaks upgrades, toasts or uninstall.
+        // The MSI's frozen layer: changing any of these breaks upgrades, toasts or uninstall.
         let wxs = include_str!("../../installer/wix/Package.wxs");
         for frozen in [
             r#"UpgradeCode="{6D924D52-CF86-41C9-8AD5-364EF36A2E0D}""#,
@@ -1105,7 +1105,7 @@ mod tests {
         std::env::remove_var("MC_TEST_DIR_UNSET");
         assert_eq!(dir_from_env("MC_TEST_DIR_SET", "real".into()), PathBuf::from(r"C:\tmp\x"));
         assert_eq!(dir_from_env("MC_TEST_DIR_UNSET", "real".into()), PathBuf::from("real"));
-        // Set but empty (a shell's "unset" can leave it so) is unset: an empty home would point D7's cleanup at
+        // Set but empty (a shell's "unset" can leave it so) is unset: an empty home would point the project-folder cleanup at
         // a relative .claude\projects and leave the real copies behind.
         std::env::set_var("MC_TEST_DIR_EMPTY", "");
         assert_eq!(dir_from_env("MC_TEST_DIR_EMPTY", "real".into()), PathBuf::from("real"));

@@ -2,7 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { body, calendar, event, fetchesOf, hourFromNow, invoke, refreshCalendar, root, scenario, seed, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
 
-// Ticket 10: Skip and Exclude series (D17, D49). Synthetic events and transcripts in the connector's shapes.
+// Skip and Exclude series. Synthetic events and transcripts in the connector's shapes.
 const SUMMARY = { overview: "Synthetic summary." };
 const joinUrl = (e) => `https://teams.example/j/${e.id}`;
 /** A calendar of `events`, each with its own join URL, where every fetch finds its transcript. */

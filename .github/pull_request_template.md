@@ -1,8 +1,8 @@
 ## Problem
-<!-- What's broken or missing, from the reader's view. 1-3 sentences. Name the ticket (Outline ticket NN). -->
+<!-- What's broken or missing, from the reader's view, and why it matters. 1-3 sentences. -->
 
 ## Solution
-<!-- What changed and the one non-obvious decision. Bullets. Cite the Design decisions it implements (Dn). -->
+<!-- What changed and the one non-obvious decision. Bullets. -->
 
 ## Evidence
-<!-- What you actually ran and the decisive output line: cargo test, Vitest, E2E, and any (live) criterion checked by hand. A UI change carries a screenshot. Never paste real meeting content. -->
+<!-- How it was tested: what you actually ran and the decisive output line (cargo test, Vitest, E2E), and anything checked by hand. A UI change carries a screenshot. Never paste real meeting content. -->

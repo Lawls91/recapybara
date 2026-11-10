@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { body, calendar, claudeRecords, event, freshFixture, invoke, M365, root, scenario, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
 
-// Ticket 08: auto-fetch after a meeting (D12, D13, D14, D25). Every payload is synthetic, in the shapes Research
-// recorded (Headless Claude Code): the transcript read answers {meeting, transcripts[]} as a text block.
+// Auto-fetch after a meeting. Every payload is synthetic, in the shapes headless Claude Code returns:
+// the transcript read answers {meeting, transcripts[]} as a text block.
 const READ = `${M365}read_resource`;
 const VERSION = "2.1.318 (Claude Code)";
 const STUB = String.raw`Error: result (60,000 characters across 1 line) exceeds maximum allowed tokens. Output has been saved to C:\Users\synthetic\.claude\projects\synthetic\tool-results\toolu_synthetic.txt`;
@@ -62,7 +62,7 @@ describe("auto-fetch after a meeting", () => {
     await until(fetched, "done");
     expect(fs.existsSync(folder(await meetingOf(fetched), "transcript.vtt"))).toBe(true);
     await row(m.id).click();
-    await expect($("#attach-strip")).toBeDisplayed(); // manual import stays available (D14)
+    await expect($("#attach-strip")).toBeDisplayed(); // manual import stays available
   });
 
   it("a 403 is not reachable, and importing a .vtt into it then summarises normally", async () => {

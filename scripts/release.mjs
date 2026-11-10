@@ -1,4 +1,4 @@
-// Release helpers (slice 19), used by .github/workflows/release.yml. Tests: release.test.mjs.
+// Release helpers, used by .github/workflows/release.yml. Tests: release.test.mjs.
 //   node scripts/release.mjs version [X.Y.Z]       the release to make (blank: the latest vX.Y.Z tag's next minor);
 //                                                   fails if its tag exists; prints version=, tag=, prev= lines
 //   node scripts/release.mjs bump <X.Y.Z>          sets the app version in every place it is kept

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { body, calendar, event, fetchesOf, pickerAnswers, refreshCalendar, root, scenario, transcriptRead, vtt } from "../helpers.mjs";
 
-// First run (D25, D31), on a dev instance with no settings yet (e2e/run.mjs writes none for this spec), so the Run key
+// First run, on a dev instance with no settings yet (e2e/run.mjs writes none for this spec), so the Run key
 // is never touched. The fake claude answers --version.
 const settingsOnDisk = () => JSON.parse(fs.readFileSync(root("data", "settings.json"), "utf8"));
 // Read only: the value as it stands (the installed copy's, or none), compared after.

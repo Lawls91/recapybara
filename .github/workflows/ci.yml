@@ -1,6 +1,6 @@
-# CI (Outline ticket 18): every PR runs `npm run check` (tsc, cargo test under the 80% coverage gate, Vitest and the
+# CI: every PR runs `npm run check` (tsc, cargo test under the 80% coverage gate, Vitest and the
 # debug build) and then the calendar tests again in two far-apart time zones. A push to main also builds the
-# installer. The E2E suite runs beside it in its own job. Only the fake claude ever runs (D36); no secrets are used.
+# installer. The E2E suite runs beside it in its own job. Only the fake claude ever runs; no secrets are used.
 name: CI
 
 on:

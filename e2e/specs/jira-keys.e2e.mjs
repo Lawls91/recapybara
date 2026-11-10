@@ -2,7 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { claudeRecords, freshFixture, invoke, root, scenario } from "../helpers.mjs";
 
-// Ticket 06: the summary run's Jira lookups reach the app through its capture hook (D13, D20), never via Claude.
+// The summary run's Jira lookups reach the app through its capture hook, never via Claude.
 const ATL = "mcp__claude_ai_Atlassian__";
 const decision = (text, key) => ({
   text,
@@ -10,7 +10,7 @@ const decision = (text, key) => ({
   inferred: false,
   ticketKeys: [key],
 });
-// Synthetic Atlassian answers, in the shape the connector gave on Jack's machine.
+// Synthetic Atlassian answers, in the shape the connector gave on a real machine.
 const lookup = (key, text) => ({
   tool_name: `${ATL}getJiraIssue`,
   tool_input: { cloudId: "example", issueIdOrKey: key },
@@ -60,10 +60,10 @@ describe("Jira key check", () => {
     await expect(markers("Park PROJ-404.")).toBeElementsArrayOfSize(1);
     await expect(markers("Close XYZ-0707.")).toBeElementsArrayOfSize(1);
     const chip = await markers("Close XYZ-0707.")[0];
-    expect((await chip.getCSSProperty("border-top-style")).value).toBe("dashed"); // amber, like No citation (D43)
+    expect((await chip.getCSSProperty("border-top-style")).value).toBe("dashed"); // amber, like No citation
     expect((await chip.getCSSProperty("color")).parsed.hex).toBe("#8f5200"); // --tr-warn
 
-    // The payload files went with the run (D7).
+    // The payload files went with the run.
     expect(fs.readdirSync(root("data", "runs")).filter((f) => f.startsWith("hooks-"))).toEqual([]);
   });
 

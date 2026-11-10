@@ -32,7 +32,7 @@ fn run_within(name: &str, scenario_json: &str, capture: &'static [&'static str],
     std::env::set_var("CLAUDE_CODE_GIT_BASH_PATH", r"C:\Program Files\Git\bin\bash.exe");
     let sibling = dir.join("home").join(".claude").join("projects").join("sibling");
     fs::create_dir_all(&sibling).unwrap();
-    // Bigger than a pipe buffer, as a ticket 04 transcript is.
+    // Bigger than a pipe buffer, as a long meeting's transcript is.
     let stdin = format!("on stdin{}", "x".repeat(200_000));
     let run = claude::ClaudeRun { stdin, capture, timeout, ..calendar::run_for(chrono::Utc::now(), &[]) };
     let out = claude::run(&FAKE.into(), &dir.join("data").join("runs"), &dir.join("home"), &run);
@@ -94,7 +94,7 @@ fn run_is_isolated_and_cleans_its_project_folder() {
     fs::remove_dir_all(&dir).unwrap();
 
     // A capture run: each hook payload reaches the app raw, a tool outside the capture list doesn't,
-    // and nothing of it is left in the runs folder (D7, D13).
+    // and nothing of it is left in the runs folder.
     let scenario = serde_json::json!({ "result": { "is_error": false }, "hooks": [
         { "tool_name": "mcp__x__a", "tool_input": { "n": 1 }, "tool_response": [{ "type": "text", "text": "first" }] },
         { "event": "PostToolUseFailure", "tool_name": "mcp__x__b", "tool_input": { "n": 2 }, "error": "boom" },

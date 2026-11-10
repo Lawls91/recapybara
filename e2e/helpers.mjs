@@ -52,7 +52,7 @@ export const root = (...p) => path.join(process.env.E2E_ROOT, ...p);
 
 export const fixture = (name = "Sprint review.vtt") => path.resolve("e2e", "fixtures", name);
 
-/** Writes a meeting folder into the test library, as a later ticket's capture would (D25). */
+/** Writes a meeting folder into the test library, as a capture would. */
 export const seed = (folder, meeting, files = {}) => {
   const dir = root("library", folder);
   fs.mkdirSync(dir, { recursive: true });
@@ -71,7 +71,7 @@ export const at = (days, hh, mm = 0) => {
   return `${local}${off >= 0 ? "+" : "-"}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
 };
 
-/** Seeds every D26 state, one meeting each, then reloads the page so the list reads them. */
+/** Seeds every meeting state, one meeting each, then reloads the page so the list reads them. */
 export const STATE_SEEDS = {
   scheduled: ["Bug Triage", 1, 16],
   inCall: ["Sprint planning", 0, 23, 30],
@@ -83,7 +83,7 @@ export const STATE_SEEDS = {
   summarising: ["Team standup", -1, 9],
   done: ["Release retro", -2, 15],
   summaryFailed: ["Design review", -2, 14],
-  skipped: ["1:1 Jack and Robin", -2, 9],
+  skipped: ["1:1 Alex and Robin", -2, 9],
 };
 export const seedAllStates = async (browser) => {
   for (const [state, [subject, days, hh, mm]] of Object.entries(STATE_SEEDS)) {
@@ -105,7 +105,7 @@ export const seedAllStates = async (browser) => {
   await browser.refresh();
 };
 
-/** A fixture copied into the test root and modified now, so an import is dated today (D15), whatever the checkout's file time. */
+/** A fixture copied into the test root and modified now, so an import is dated today, whatever the checkout's file time. */
 export const freshFixture = (name = "Sprint review.vtt") => {
   const copy = root("incoming", name);
   fs.mkdirSync(path.dirname(copy), { recursive: true });
@@ -116,13 +116,13 @@ export const freshFixture = (name = "Sprint review.vtt") => {
 };
 
 /** Refresh calendar (the list's button and the tray's item), once the start-up refresh has ended: a refresh asked
- * for while one is going does nothing (D9). Resolves when this one has ended. */
+ * for while one is going does nothing. Resolves when this one has ended. */
 export const refreshCalendar = async () => {
   await browser.waitUntil(async () => !(await invoke("calendar_status")).refreshing, { timeout: 15000 });
   await invoke("refresh_calendar");
 };
 
-// Calendar refresh scenarios (D9): synthetic events in the connector's shape (Research, Calendar data shape): the
+// Calendar refresh scenarios: synthetic events in the connector's shape. The
 // search answers concatenated event objects plus a paging object, times as {dateTime, timeZone}.
 export const M365 = "mcp__claude_ai_Microsoft_365__";
 export const hourFromNow = (h) => {
@@ -165,7 +165,7 @@ export const calendar = (events, joinUrls, extra = {}) => ({
   ...extra,
 });
 
-// Fetch scenarios (D13): the transcript read answers {meeting, transcripts[]} as a text block (Research, Headless Claude Code).
+// Fetch scenarios: the transcript read answers {meeting, transcripts[]} as a text block.
 export const vtt = (who) => `WEBVTT\n\nsynth/1-0\n00:00:01.000 --> 00:00:04.000\n<v Speaker A>Synthetic ${who} opens the call.</v>\n`;
 export const body = (e, content) =>
   JSON.stringify({

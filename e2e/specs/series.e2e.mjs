@@ -1,7 +1,7 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 import { at, freshFixture, invoke, seed } from "../helpers.mjs";
 
-// Ticket 10: Show all in this series (D17). A series is the meetings sharing one Teams join URL.
+// Show all in this series. A series is the meetings sharing one Teams join URL.
 const REFINEMENT = "https://teams.example/j/refinement";
 const SEEDS = [
   // [folder, subject, days from today, join URL]
@@ -59,7 +59,7 @@ describe("show all in this series", () => {
     await $("#series-clear").click();
   });
 
-  it("with no cursor row, a redraw from the detail pane focuses no row, so S and Del do nothing (D42)", async () => {
+  it("with no cursor row, a redraw from the detail pane focuses no row, so S and Del do nothing", async () => {
     await browser.refresh(); // a fresh page: no row has had focus
     await expect($$("#meeting-list .row")).toBeElementsArrayOfSize(6);
     await invoke("import_transcript", { path: freshFixture(), id: null }); // opens the new meeting, no row click

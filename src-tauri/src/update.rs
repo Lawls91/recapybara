@@ -1,4 +1,4 @@
-//! Self-update (slice 19): what the updater's checks and installs say, when they run, and when an install must wait.
+//! Self-update: what the updater's checks and installs say, when they run, and when an install must wait.
 //! lib.rs drives tauri-plugin-updater with these. The endpoint and public key are in tauri.conf.json (plugins.updater).
 use crate::library::{Listed, State};
 use std::{
@@ -102,7 +102,7 @@ fn ps_quoted(p: impl std::fmt::Display) -> String {
 /// (the new version, or the old one if the install failed or was cancelled). Before the relaunch it writes the version
 /// and msiexec's exit code to `result` (RESULT_FILE in the app's data folder), which the app reads and deletes at start
 /// (`install_failed`). The MSI is per-user, so msiexec runs unelevated with no UAC prompt; /passive shows only its
-/// progress bar. The relaunch lives here, not in the MSI, which stays declarative (no custom action, Jack q3/q4); tauri-plugin-updater's own install needs one (it passes
+/// progress bar. The relaunch lives here, not in the MSI, which stays declarative (no custom action); tauri-plugin-updater's own install needs one (it passes
 /// AUTOLAUNCHAPP for the MSI to act on). The script holds no double quote, so the command line can't split it.
 pub fn install_args(pid: u32, msiexec: &Path, msi: &Path, exe: &Path, result: &Path, version: &str) -> String {
     let (msiexec, msi, exe) = (ps_quoted(msiexec.display()), ps_quoted(msi.display()), ps_quoted(exe.display()));
