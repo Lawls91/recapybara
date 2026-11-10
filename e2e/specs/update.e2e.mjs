@@ -206,6 +206,27 @@ describe("self-update", () => {
     await expect($("#update-pill")).not.toBeDisplayed();
   });
 
+  // The tray item emits this with update::tray_up_to_date's text (unit-tested) when no update is ready.
+  const trayCheck = () =>
+    browser.execute((p) => window.__TAURI_INTERNALS__.invoke("plugin:event|emit", { event: "check-updates", payload: p }), `${conf.productName} is up to date.`);
+
+  it("the tray's Check for updates with no update says so in the notice and leaves Settings shut", async () => {
+    await trayCheck();
+    await expect($("#notice")).toHaveText(`${conf.productName} is up to date.`, { wait: 20000 });
+    await expect($("#settings-view")).not.toBeDisplayed();
+    await expect(dialog()).not.toBeDisplayed();
+  });
+
+  it("the tray's Check for updates finding an update opens What's new, not Settings", async () => {
+    serve(manifest(NEWER, goodSig));
+    await trayCheck();
+    await expect(dialog()).toBeDisplayed({ wait: 20000 });
+    await expect($("#whats-new-title")).toHaveText(`What's new in ${NEWER}`);
+    await later();
+    await expect($("#settings-view")).not.toBeDisplayed();
+    await expect($("#update-pill")).toBeDisplayed();
+  });
+
   it("Check for updates with an older version says up to date", async () => {
     serve(manifest("0.0.1", goodSig));
     await check(`You're up to date (version ${CURRENT})`);

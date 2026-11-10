@@ -203,7 +203,7 @@ ends.
   thread id from the join URL) and looks only at the `callStartedEventMessageDetail`,
   `callTranscriptEventMessageDetail` and `callEndedEventMessageDetail` events from 15 minutes before the scheduled
   start to 2 hours after the scheduled end, matched by `callId` to the latest started call.
-- **Summary** (the summary model): `glossary.md` on stdin (its `never:` lines as their own block), a JSON schema for the output (`--json-schema`), and only
+- **Summary** (the summary model): `glossary.md` on stdin (as a hint; old `never:` lines are left out), a JSON schema for the output (`--json-schema`), and only
   the Atlassian Jira reads (`getAccessibleAtlassianResources`, `getJiraIssue`, `searchJiraIssuesUsingJql`,
   `listJiraIssueComments`). A key counts as found when a clean Jira read's response names it as an issue `"key"`.
 - Refresh, search and fetch runs set `ENABLE_TOOL_SEARCH=false` (one turn fewer). `claude --version` runs once per app
@@ -226,10 +226,11 @@ Each meeting is a folder `YYYY-MM-DD HHmm <Subject>` (characters Windows forbids
 - `notes.md`: the user's notes, written only by the My notes tab.
 
 Each summary run replaces `summary.*` and `transcript.md`, never `transcript.vtt` or `notes.md`. The library root
-holds `glossary.md`, one `from -> to` per line; a line `never: from -> to` is a rejected correction, sent to the
-summary run as its own "Never make these corrections" block. Other lines (a bare term) go with the glossary as they
-are. The Glossary page's To review reads every meeting's `summary.json` corrections that changed a word and are in
-neither list. The bundled skill (`src-tauri/skill/SKILL.md`) describes the same
+holds `glossary.md`, one `from -> to` per line; other lines (a bare term) go with the glossary as they are. An old
+`never: from -> to` line (a permanent reject from an earlier version) is ignored. The Glossary page's To review lists
+the `summary.json` corrections that changed a word, are not in the glossary and were made in two or more meetings,
+until the newest of those meetings is more than 14 days old. Reject applies only to the meetings listed (their
+`rejected` list); nothing is sent to later summaries. The bundled skill (`src-tauri/skill/SKILL.md`) describes the same
 layout for Claude.
 
 The run log format is described in [Troubleshooting](troubleshooting.md#the-run-log).

@@ -71,7 +71,7 @@ struct AppState {
     /// The newer version found and verified, ready to install: its version, notes (What's new) and package. The lock
     /// also keeps checks one at a time.
     update: tauri::async_runtime::Mutex<Option<(String, String, Vec<u8>)>>,
-    /// The last check that got an answer, for the daily check.
+    /// The last check that got an answer, for the hourly check.
     last_check: Mutex<Option<SystemTime>>,
     /// Started again after Restart and update failed: the version it tried and what the page says (update::install_failed).
     update_failed: Option<(String, String)>,
@@ -847,14 +847,14 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>
                 show_main(app);
                 let _ = app.emit("open-settings", ());
             }
-            // Restart and update to version X once one is ready (the page runs it, as What's new's button), else a check.
+            // Restart and update to version X once one is ready (the page runs it, as What's new's button), else a check
+            // in place: What's new if one is found, else a notice (the payload, its up-to-date text). Settings stays shut.
             "updates" => {
                 show_main(app);
                 if update_ready(app.state()).is_some() {
                     let _ = app.emit("install-update", ());
                 } else {
-                    let _ = app.emit("open-settings", ());
-                    let _ = app.emit("check-updates", ());
+                    let _ = app.emit("check-updates", update::tray_up_to_date(&app.package_info().name));
                 }
             }
             "refresh" => {
@@ -960,7 +960,7 @@ pub fn run() {
                 fetch_due(&handle);
                 std::thread::sleep(calendar::TICK);
             });
-            // Updates: once shortly after start, then daily (a failed check tries again on the next poll).
+            // Updates: once shortly after start, then hourly (a failed check tries again on the next poll).
             if dev.is_none() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {

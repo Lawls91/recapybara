@@ -12,9 +12,10 @@ use tauri_plugin_updater::Error;
 pub const DEV_OFF: &str = "Updates are off in a dev instance";
 /// The first check, once the app has settled after start.
 pub const START_DELAY: Duration = Duration::from_secs(10);
-/// How often the daily check looks whether a day has passed (a sleeping laptop doesn't advance a plain sleep).
-pub const POLL: Duration = Duration::from_secs(60 * 60);
-pub const DAILY: Duration = Duration::from_secs(24 * 60 * 60);
+/// How often the hourly check looks whether an hour has passed (a sleeping laptop doesn't advance a plain sleep).
+pub const POLL: Duration = Duration::from_secs(5 * 60);
+/// ponytail: a plain constant, not a setting; make it one if anyone wants another interval.
+pub const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// A debug-only override (`RECAPYBARA_UPDATE_URL`, `RECAPYBARA_UPDATE_PUBKEY`, `RECAPYBARA_DOCUMENTS`):
 /// the E2E suite points the app at a local server, a throwaway key and a temp Documents folder. A release build
@@ -23,13 +24,18 @@ pub fn debug_only(debug: bool, value: Option<OsString>) -> Option<String> {
     value.filter(|v| debug && !v.is_empty()).map(|v| v.to_string_lossy().into_owned())
 }
 
-/// Whether the daily check is due: never checked, or a day since the last (a clock set back counts as due).
+/// Whether the hourly check is due: never checked, or an hour since the last (a clock set back counts as due).
 pub fn due(last: Option<SystemTime>, now: SystemTime) -> bool {
-    last.is_none_or(|l| now.duration_since(l).map_or(true, |d| d >= DAILY))
+    last.is_none_or(|l| now.duration_since(l).map_or(true, |d| d >= CHECK_EVERY))
 }
 
 pub fn up_to_date(current: &str) -> String {
     format!("You're up to date (version {current})")
+}
+
+/// The tray's Check for updates finding none: said in the page's notice.
+pub fn tray_up_to_date(name: &str) -> String {
+    format!("{name} is up to date.")
 }
 
 pub fn available(version: &str) -> String {
@@ -152,11 +158,11 @@ mod tests {
     }
 
     #[test]
-    fn the_daily_check_is_due_after_a_day() {
+    fn the_hourly_check_is_due_after_an_hour() {
         let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
         assert!(due(None, t), "never checked");
-        assert!(!due(Some(t), t + Duration::from_secs(23 * 3600)));
-        assert!(due(Some(t), t + Duration::from_secs(24 * 3600)));
+        assert!(!due(Some(t), t + Duration::from_secs(59 * 60)));
+        assert!(due(Some(t), t + Duration::from_secs(3600)));
         assert!(due(Some(t), t - Duration::from_secs(60)), "a clock set back");
     }
 
@@ -164,6 +170,7 @@ mod tests {
     fn messages_name_the_version_and_a_short_reason() {
         assert_eq!(up_to_date("0.1.0"), "You're up to date (version 0.1.0)");
         assert_eq!(available("0.2.0"), "Version 0.2.0 is available");
+        assert_eq!(tray_up_to_date("Recapybara"), "Recapybara is up to date.");
         assert_eq!(check_failed(None, &Error::ReleaseNotFound), "Couldn't check for updates: no release was found at the update address");
         assert_eq!(check_failed(None, &Error::Network("Download request failed with status: 500".into())), "Couldn't check for updates: the update server couldn't be reached");
         let mismatch = Error::SignedVersionMismatch { signed: "0.1.0".into(), announced: "0.2.0".into() };

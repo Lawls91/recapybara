@@ -3,8 +3,9 @@
 > While the GitHub repository is private the app can't reach any update: a check says "Couldn't check for updates: no
 > release was found at the update address". Everything below works once the repository is public.
 
-The app checks for a new version 10 seconds after it starts, then once a day. **Check for updates** in Settings, or
-in the tray menu, checks now.
+The app checks for a new version 10 seconds after it starts, then every hour. **Check for updates** in Settings, or
+in the tray menu, checks now. The tray's opens the window without Settings: What's new if there is an update, else a
+short "Recapybara is up to date." (or why the check failed).
 
 When there is a newer version, the app downloads it and checks its signature first. Then a small **Update** pill
 shows in the list's header, and the tray menu reads **Restart and update to version X**. An update whose signature
