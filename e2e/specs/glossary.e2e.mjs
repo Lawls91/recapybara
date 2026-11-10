@@ -2,24 +2,32 @@ import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { claudeRecords, invoke, root, scenario, seed } from "../helpers.mjs";
 
-// Two summarised meetings (synthetic): both mishear "filter" as "felter"; each has one more correction.
-const A = "2026-11-02 1000 Felter review";
-const B = "2026-11-03 1000 Design sync";
+// A meeting `ago` days before today: To review lists a correction from 2+ meetings until its newest is 14 days old.
+const meeting = (ago, subject) => {
+  const d = new Date(Date.now() - ago * 864e5).toISOString().slice(0, 10);
+  return [`${d} 1000 ${subject}`, { subject, start: `${d}T10:00:00Z`, end: `${d}T11:00:00Z`, state: "done" }];
+};
+// Two summarised meetings (synthetic): both mishear "filter" as "felter", and both correct Katia and Prya.
+const [A, metaA] = meeting(5, "Felter review");
+const [B, metaB] = meeting(4, "Design sync");
 const cue = (who, text) => `WEBVTT\n\n00:00:03.000 --> 00:00:08.000\n<v ${who}>${text}</v>\n`;
 const summary = (corrections) => JSON.stringify({ overview: "Synthetic.", sections: [], decisions: [], actions: [], questions: [], corrections });
+const felter = { from: "felter", to: "filter", reason: "domain term" };
+const katia = { from: "Katia", to: "Katya", reason: "attendee name" };
+const prya = { from: "Prya", to: "Priya", reason: "attendee name" };
 const glossary = () => fs.readFileSync(root("library", "glossary.md"), "utf8");
 
 describe("the glossary page", () => {
   before(async () => {
-    seed(A, { subject: "Felter review", start: "2026-11-02T10:00:00Z", end: "2026-11-02T11:00:00Z", state: "done" }, {
-      "transcript.vtt": cue("Katia", "We keep the felter rule as it is."),
+    seed(A, metaA, {
+      "transcript.vtt": cue("Katia", "We keep the felter rule as it is, Prya."),
       "summary.md": "# Felter review\n",
-      "summary.json": summary([{ from: "felter", to: "filter", reason: "domain term" }, { from: "Katia", to: "Katya", reason: "attendee name" }]),
+      "summary.json": summary([felter, katia, prya]),
     });
-    seed(B, { subject: "Design sync", start: "2026-11-03T10:00:00Z", end: "2026-11-03T11:00:00Z", state: "done" }, {
-      "transcript.vtt": cue("Prya", "The felter rule, then the felter list."),
+    seed(B, metaB, {
+      "transcript.vtt": cue("Prya", "The felter rule, then the felter list, Katia."),
       "summary.md": "# Design sync\n",
-      "summary.json": summary([{ from: "felter", to: "filter", reason: "domain term" }, { from: "Prya", to: "Priya", reason: "attendee name" }]),
+      "summary.json": summary([felter, prya, katia]),
     });
     fs.writeFileSync(root("library", "glossary.md"), "Orbit\ncash -> cache\n");
     await browser.refresh();
@@ -47,16 +55,16 @@ describe("the glossary page", () => {
     await expect($("#entry-list")).toHaveText(expect.stringContaining("felter → filter"));
   });
 
-  it("Reject undoes the correction in that meeting only, says so, and tells later summaries nothing", async () => {
+  it("Reject undoes the correction in the meetings listed only, says so, and tells later summaries nothing", async () => {
     await expect($("#review-list .qr")).toHaveText(expect.stringContaining("Prya → Priya"));
     await $("#review-reject-0").click();
-    await expect($("#notice")).toHaveText("Rejected in 1 meeting. A later summary that makes it shows it here again.");
+    await expect($("#notice")).toHaveText("Rejected in 2 meetings. A later summary that makes it shows it here again.");
     await expect($("#glossary-button")).toHaveAttribute("aria-label", "Glossary, 1 correction to review");
     expect(glossary()).toBe("Orbit\ncash -> cache\nfelter -> filter\n");
     const left = JSON.parse(fs.readFileSync(root("library", B, "summary.json"), "utf8")).corrections.map((c) => c.from);
-    expect(left).toEqual(["felter"]);
+    expect(left).toEqual(["felter", "Katia"]);
 
-    scenario({ structuredOutput: JSON.parse(summary([])) });
+    scenario({ structuredOutput: JSON.parse(summary([katia])) }); // B keeps Katia, so it stays to review
     const runs = claudeRecords().length;
     await invoke("summarise", { id: B });
     await browser.waitUntil(() => claudeRecords().length === runs + 1);
@@ -89,7 +97,7 @@ describe("the glossary page", () => {
     await $(`#review-list [data-meeting="${A}"]`).click();
     await expect($("#list-view")).toBeDisplayed();
     await expect($("#tab-transcript")).toHaveAttribute("aria-selected", "true");
-    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 1 to review");
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 1 to review · 1 rejected");
     await expect($("#corr-0")).not.toBeDisplayed();
     await $("#corr-show").click();
     await expect($("#corr-0")).toBeDisplayed();
@@ -107,49 +115,62 @@ describe("the glossary page", () => {
     await $("#reject-yes").click();
     await expect($("#review-count")).toHaveText("0");
     const a = JSON.parse(fs.readFileSync(root("library", A, "summary.json"), "utf8"));
-    expect([a.corrections.map((c) => c.from), a.rejected.map((c) => c.from)]).toEqual([["felter"], ["Katia"]]);
+    expect([a.corrections.map((c) => c.from), a.rejected.map((c) => c.from)]).toEqual([["felter"], ["Prya", "Katia"]]);
   });
 
-  it("a rejected correction shows on its meeting's Transcript with Restore, which applies it again and puts it back in To review", async () => {
+  it("a rejected correction shows on its meeting's Transcript with Restore, which applies it again; restored in two meetings it is back in To review", async () => {
     await $("#glossary-back").click();
     await $(`.row[data-id="${A}"]`).click();
     await $("#tab-transcript").click();
-    await expect($("#corr-line")).toHaveText("1 correction in this transcript · all in glossary · 1 rejected");
+    await expect($("#corr-line")).toHaveText("1 correction in this transcript · all in glossary · 2 rejected");
     if ((await $("#corr-show").getText()) === "Show") await $("#corr-show").click();
-    await expect($("#rej-0")).toHaveText(expect.stringContaining("Katia → Katya"));
-    await expect($("#rej-0")).toHaveText(expect.stringContaining("Rejected, attendee name"));
+    await expect($("#rej-1")).toHaveText(expect.stringContaining("Katia → Katya"));
+    await expect($("#rej-1")).toHaveText(expect.stringContaining("Rejected, attendee name"));
     await expect($("#turn-0")).toHaveText(expect.stringContaining("Katia"));
-    await $("#restore-0").click();
-    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 1 to review");
-    await expect($("#rej-0")).not.toBeExisting();
+    await $("#restore-1").click();
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 1 to review · 1 rejected");
+    await expect($("#rej-1")).not.toBeExisting();
     await expect($("#turn-0")).toHaveText(expect.stringContaining("Katya"));
     expect(await browser.execute(() => document.activeElement.id)).toBe("corr-show");
     const a = JSON.parse(fs.readFileSync(root("library", A, "summary.json"), "utf8"));
-    expect([a.corrections.map((c) => c.from), a.rejected.map((c) => c.from)]).toEqual([["felter", "Katia"], []]);
+    expect([a.corrections.map((c) => c.from), a.rejected.map((c) => c.from)]).toEqual([["felter", "Katia"], ["Prya"]]);
+    await expect($("#glossary-badge")).not.toBeDisplayed(); // in one meeting only, it is not to review
+    await $(`.row[data-id="${B}"]`).click();
+    await $("#tab-transcript").click();
+    if ((await $("#corr-show").getText()) === "Show") await $("#corr-show").click();
+    await $("#restore-0").click();
     await expect($("#glossary-button")).toHaveAttribute("aria-label", "Glossary, 1 correction to review");
     await $("#glossary-button").click();
     await expect($("#review-list")).toHaveText(expect.stringContaining("Katia → Katya"));
   });
 });
 
-// A third meeting (synthetic): "cash" heard in two turns, a typo and a misheard word in between.
-const C = "2026-11-04 1000 Cache sync";
+// A third meeting (synthetic): "cash" heard in two turns, a typo and a misheard word in between. An older fourth makes
+// the same three corrections, so they are to review.
+const [C, metaC] = meeting(2, "Cache sync");
+const [D, metaD] = meeting(3, "Gateway sync");
+const cash = [
+  { from: "cash", to: "cache", reason: "domain term" },
+  { from: "gatway", to: "gateway", reason: "typo" },
+  { from: "notes", to: "nodes", reason: "domain term" },
+];
 const kept = (id) => (JSON.parse(fs.readFileSync(root("library", id, "summary.json"), "utf8")).kept ?? []).map((c) => c.from);
 const hl = () => browser.execute(() => [...document.querySelectorAll(".turn.hl")].map((e) => e.id));
 
 describe("a correction's context, and Keep", () => {
   before(async () => {
-    seed(C, { subject: "Cache sync", start: "2026-11-04T10:00:00Z", end: "2026-11-04T11:00:00Z", state: "done" }, {
+    seed(D, metaD, {
+      "transcript.vtt": cue("Lee", "The cash, the gatway and the notes."),
+      "summary.md": "# Gateway sync\n",
+      "summary.json": summary(cash),
+    });
+    seed(C, metaC, {
       "transcript.vtt":
         "WEBVTT\n\n00:00:03.000 --> 00:00:08.000\n<v Sam>We moved the cash layer behind the gatway last week.</v>\n\n" +
         "00:00:09.000 --> 00:00:12.000\n<v Lee>Good, the old notes all say nothing here.</v>\n\n" +
         "00:00:13.000 --> 00:00:16.000\n<v Sam>Then the cash stays warm.</v>\n",
       "summary.md": "# Cache sync\n",
-      "summary.json": summary([
-        { from: "cash", to: "cache", reason: "domain term" },
-        { from: "gatway", to: "gateway", reason: "typo" },
-        { from: "notes", to: "nodes", reason: "domain term" },
-      ]),
+      "summary.json": summary(cash),
     });
     await browser.refresh();
     await expect($(`.row[data-id="${C}"]`)).toBeDisplayed();
@@ -209,7 +230,7 @@ describe("a correction's context, and Keep", () => {
     await $("#glossary-button").click();
     await expect($("#review-list .qr")).toHaveText(expect.stringContaining("cash → cache"));
     await $("#review-keep-0").click();
-    await expect($("#notice")).toHaveText("Kept in 1 meeting. It stays corrected there.");
+    await expect($("#notice")).toHaveText("Kept in 2 meetings. It stays corrected there.");
     await expect($("#review-count")).toHaveText("1");
     expect(kept(C)).toEqual(["gatway", "cash"]);
     await $("#review-keep-all").click();
@@ -221,5 +242,35 @@ describe("a correction's context, and Keep", () => {
     await $(`.row[data-id="${C}"]`).click();
     await $("#tab-transcript").click();
     await expect($("#corr-line")).toHaveText("2 corrections in this transcript · none to review · 1 rejected");
+  });
+});
+
+// A fifth meeting (synthetic) whose correction no other meeting makes.
+const [E, metaE] = meeting(1, "Orbit sync");
+
+describe("a correction from one meeting only", () => {
+  before(async () => {
+    seed(E, metaE, {
+      "transcript.vtt": cue("Sam", "The Orbitt rollout is on track."),
+      "summary.md": "# Orbit sync\n",
+      "summary.json": summary([{ from: "Orbitt", to: "Orbit", reason: "product name" }]),
+    });
+    await browser.refresh();
+    await expect($(`.row[data-id="${E}"]`)).toBeDisplayed();
+  });
+
+  it("is not in To review or the badge, but its Transcript strip lists it with Keep and Reject", async () => {
+    await expect($("#glossary-badge")).not.toBeDisplayed();
+    await $("#glossary-button").click();
+    await expect($("#review-count")).toHaveText("0");
+    await expect($("#review-list")).not.toHaveText(expect.stringContaining("Orbitt"));
+    await $("#glossary-back").click();
+    await $(`.row[data-id="${E}"]`).click();
+    await $("#tab-transcript").click();
+    await expect($("#corr-line")).toHaveText("1 correction in this transcript · 1 to review");
+    if ((await $("#corr-show").getText()) === "Show") await $("#corr-show").click();
+    await expect($("#corr-0")).toHaveText(expect.stringContaining("Orbitt → Orbit"));
+    await expect($("#keep-0")).toBeDisplayed();
+    await expect($("#reject-0")).toBeDisplayed();
   });
 });
