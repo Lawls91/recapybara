@@ -1,4 +1,8 @@
-# Recapybara
+<p align="center">
+  <img src="src-tauri/icons/source.svg" alt="Recapybara logo: a capybara peeking over a meeting summary" width="160" height="160">
+</p>
+
+<h1 align="center">Recapybara</h1>
 
 A Windows tray app for your Teams meetings. It lists your meetings, fetches each transcript when the call ends,
 has Claude write a summary whose every point cites the transcript with a checked quote, and keeps every meeting
