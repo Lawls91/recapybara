@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -28,6 +29,7 @@ import {
 import { byMeeting, FIELDS, markParts, metaHits, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
 import { actionsText, chipLabel, corrLine, esc, lists, markQuote, peekReason, type Citation, type Item, type Summary } from "./summary";
 import { defaultRange, foundText, importHint, rangeError, ymd } from "./teams";
+import logo from "../src-tauri/icons/source.svg?url";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 // Stable element ids from the folder name (WebView2 exposes ids as UIA AutomationIds).
@@ -1301,7 +1303,7 @@ async function renderDetail() {
   flushNotes();
   if (!m) {
     keepFocus([det], () => {
-      det.innerHTML = `<div class="detempty">${meetings.length ? "Choose a meeting to see it here." : "Summaries you capture appear here."}</div>`;
+      det.innerHTML = `<div class="detempty"><img src="${logo}" alt="" aria-hidden="true" width="112" height="112">${meetings.length ? "Choose a meeting to see it here." : "Summaries you capture appear here."}</div>`;
     });
     return;
   }
