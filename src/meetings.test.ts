@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, menuFor, peopleLine, type Meeting } from "./meetings";
+import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, filterChips, groupOf, menuFor, NO_FILTER, passes, peopleLine, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -162,4 +162,47 @@ test("each capture failure's card says why: its state's reason, and Capture fail
   expect(failed("notReachable")).toBe("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
   expect(failed("captureFailed", "Teams sent a size-limit notice instead of the transcript.")).toBe("Teams sent a size-limit notice instead of the transcript.");
   expect(failed("captureFailed")).toBe("The last attempt saved no transcript, and recorded no reason."); // a folder from before reasons were kept
+});
+
+test("the Filter's five groups (G3) hold every state, and a running fetch is In flight", () => {
+  const of = (s: Meeting["state"]) => groupOf(meeting(s));
+  expect(["noTranscript", "notReachable", "captureFailed", "summaryFailed"].map((s) => of(s as Meeting["state"]))).toEqual(["fail", "fail", "fail", "fail"]);
+  expect(["inCall", "awaitingTranscript", "transcriptReady", "summarising"].map((s) => of(s as Meeting["state"]))).toEqual(["flight", "flight", "flight", "flight"]);
+  expect([of("done"), of("scheduled"), of("skipped")]).toEqual(["done", "up", "skip"]);
+  expect(groupOf({ ...meeting("captureFailed"), fetching: true })).toBe("flight");
+});
+
+test("the filter keeps a series, drops hidden groups, and dates only Earlier meetings", () => {
+  const now = new Date(2026, 10, 10, 12, 0); // Tue 10 Nov 2026, noon local
+  const on = (y: number, mo: number, d: number, state: Meeting["state"] = "done", joinUrl: string | null = null): Meeting => ({
+    ...meeting(state),
+    start: new Date(y, mo, d, 9).toISOString(),
+    end: new Date(y, mo, d, 10).toISOString(),
+    joinUrl,
+  });
+  const f = (x: Partial<typeof NO_FILTER>) => ({ ...NO_FILTER, ...x });
+  expect(passes(on(2026, 10, 10, "skipped"), f({ hidden: ["skip"] }), now)).toBe(false);
+  expect(passes(on(2026, 10, 10, "done"), f({ hidden: ["skip"] }), now)).toBe(true);
+  // Last 7 days: 4 Nov to 10 Nov.
+  expect(passes(on(2026, 10, 4), f({ date: "7d" }), now)).toBe(true);
+  expect(passes(on(2026, 10, 3), f({ date: "7d" }), now)).toBe(false);
+  expect(passes(on(2026, 10, 9), f({ date: "today" }), now)).toBe(false);
+  expect(passes(on(2026, 9, 12), f({ date: "30d" }), now)).toBe(true); // 12 Oct is day 30
+  expect(passes(on(2026, 9, 11), f({ date: "30d" }), now)).toBe(false);
+  expect(passes(on(2026, 10, 2), f({ date: "custom", from: "2026-11-02", to: "2026-11-05" }), now)).toBe(true);
+  expect(passes(on(2026, 10, 6), f({ date: "custom", from: "2026-11-02", to: "2026-11-05" }), now)).toBe(false);
+  expect(passes({ ...meeting("done"), start: null }, f({ date: "7d" }), now)).toBe(false);
+  // Upcoming is never dated out, only unticked.
+  expect(passes(on(2026, 10, 20, "scheduled"), f({ date: "today" }), now)).toBe(true);
+  expect(passes(on(2026, 10, 20, "scheduled"), f({ hidden: ["up"] }), now)).toBe(false);
+  const series = { joinUrl: "https://teams.example/j/1", subject: "Refinement" };
+  expect(passes(on(2026, 10, 9, "done", series.joinUrl), f({ series }), now)).toBe(true);
+  expect(passes(on(2026, 10, 9, "done", "https://teams.example/j/2"), f({ series }), now)).toBe(false);
+});
+
+test("one chip per kind on", () => {
+  expect(filterChips(NO_FILTER)).toEqual([]);
+  const chips = filterChips({ hidden: ["up", "skip"], date: "7d", from: "", to: "", series: { joinUrl: "u", subject: "Refinement" } });
+  expect(chips.map((c) => c.label)).toEqual(["Hidden: Upcoming, Skipped", "Last 7 days", "Series: Refinement"]);
+  expect(filterChips({ ...NO_FILTER, date: "custom", from: "2026-11-02", to: "2026-11-10" })[0].label).toBe("Mon 2 Nov – Tue 10 Nov");
 });

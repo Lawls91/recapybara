@@ -7,15 +7,22 @@ import {
   awaitingLine,
   calendarLine,
   dayGroups,
+  DATES,
   deletePrompt,
   failureReason,
+  filterChips,
+  GROUPS,
+  groupOf,
   menuFor,
+  NO_FILTER,
+  passes,
   needsTranscript,
   peopleLine,
   STATE_CARDS,
   STATES,
   summaryAction,
   type CalendarStatus,
+  type ListFilter,
   type Meeting,
 } from "./meetings";
 import { byMeeting, FIELDS, markParts, metaHits, snippet, TABS, turnOfHit, type Hit, type Part, type Tab } from "./search";
@@ -41,9 +48,10 @@ let hitTurn: { at: string; line: string; q: string } | null = null;
 let query = "";
 let hits: Map<string, Hit[]> | null = null;
 let searches = 0;
-/** Show all in this series (D17): the list keeps the meetings sharing this join URL. A list-state filter, so search
- * (ticket 15) can filter within it. */
-let series: { joinUrl: string; subject: string } | null = null;
+/** The list's Filter, Show all in this series (D17) among it, as settings.json keeps it; search filters within it. */
+const lf = (): ListFilter => current.listFilter ?? NO_FILTER;
+/** The rows the list last drew, for the "n of total" count. */
+let shownCount = 0;
 /** The keyboard-cursor row's id (D42). A re-render that takes focus from the list or the detail pane gives it back to
  * this row; `refocus` holds that until the row is drawn (a skipped calendar event comes back under its folder id). */
 let cursor: string | null = null;
@@ -362,6 +370,9 @@ async function loadMeetings() {
   // A banner left from before the library went (or came back) says nothing true now.
   if ($("import-error-text").textContent?.includes(LIBRARY_GONE)) $("import-error").hidden = true;
   if (selected && !meetings.some((m) => m.id === selected)) selected = null;
+  // A saved series filter whose series is gone is dropped, quietly.
+  const s = lf().series;
+  if (s && !libraryMissing && !meetings.some((m) => m.joinUrl === s.joinUrl)) save({ listFilter: { ...lf(), series: null } }).catch(failed);
   await runSearch();
   renderList();
   await renderDetail();
@@ -408,21 +419,32 @@ function renderList() {
 
 function drawList() {
   const list = $("meeting-list");
-  const chip = $("series-filter");
-  chip.hidden = !series;
-  chip.innerHTML = series
-    ? `<span class="schip" id="series-chip">Series: ${esc(series.subject)} <button id="series-clear" title="Show all meetings" aria-label="Clear series filter">×</button></span>`
-    : "";
-  if (series) $("series-clear").onclick = () => {
-    series = null;
-    renderList();
-  };
-  // Search filters within the series filter (D17).
-  const inSeries = series ? meetings.filter((m) => m.joinUrl === series!.joinUrl) : meetings;
-  const shown = hits ? inSeries.filter((m) => hits!.has(m.id)) : inSeries;
+  const f = lf();
+  const chips = filterChips(f);
+  // Search filters within the Filter (D17).
+  const inFilter = meetings.filter((m) => passes(m, f, new Date()));
+  const shown = hits ? inFilter.filter((m) => hits!.has(m.id)) : inFilter;
+  shownCount = shown.length;
+  const bar = $("series-filter");
+  bar.hidden = !chips.length;
+  bar.innerHTML =
+    chips
+      .map((c) => `<span class="schip" id="${c.kind}-chip">${esc(c.label)} <button id="${c.kind}-clear" title="Remove this filter" aria-label="Clear ${c.kind} filter">×</button></span>`)
+      .join("") +
+    (chips.length > 1 ? `<button class="lnk" id="filter-clear-all">Clear all</button>` : "") +
+    `<span class="fcount" id="filter-count">${shown.length} of ${meetings.length}</span>`;
+  $("filter-button").classList.toggle("on", !!chips.length);
+  $("filter-badge").hidden = !chips.length;
+  $("filter-badge").textContent = String(chips.length);
+  if (chips.length) $("filter-button").setAttribute("aria-label", `Filter, ${chips.length} on`);
+  else $("filter-button").removeAttribute("aria-label");
+  list.setAttribute("aria-label", chips.length ? "Meetings, filtered" : "Meetings");
   if (!shown.length) {
+    const more = hits ? meetings.filter((m) => hits!.has(m.id)).length : 0;
     list.innerHTML = libraryMissing
       ? ""
+      : chips.length
+      ? `<div class="empty" id="no-matches"><div class="emt">${hits ? `No matches for “${esc(query)}” with these filters` : "No meetings match these filters"}</div><p class="ems">${more ? `${more} ${more === 1 ? "match is" : "matches are"} in meetings the filters hide.` : "Clear a filter to see more."}</p><button class="btn" id="no-matches-clear">Clear filters</button></div>`
       : hits
       ? `<div class="empty" id="no-matches"><div class="emt">No matches for “${esc(query)}”</div><p class="ems">Try fewer words, or a person’s name.</p></div>`
       : `<div class="empty"><div class="emt">No meetings yet</div><p class="ems">Import a Teams transcript, and meetings from your calendar will show here as they happen.</p></div>`;
@@ -588,10 +610,8 @@ $("row-menu").addEventListener("click", async (e) => {
   else if (action === "skip") await skip(m);
   else if (action === "exclude") await exclude(m);
   else if (action === "include") await include(m.joinUrl!);
-  else if (action === "series") {
-    series = { joinUrl: m.joinUrl!, subject: m.subject };
-    renderList();
-  } else if (action === "copy-summary" || action === "copy-actions") await copy(m, action === "copy-summary");
+  else if (action === "series") setFilter({ series: { joinUrl: m.joinUrl!, subject: m.subject } });
+  else if (action === "copy-summary" || action === "copy-actions") await copy(m, action === "copy-summary");
   if (lost()) backTo(menuFrom);
 });
 
@@ -609,6 +629,7 @@ async function copy(m: Meeting, summary: boolean) {
 document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#row-menu, .kebab")) closeMenu();
   if (!(e.target as HTMLElement).closest("#import-menu, #import-button")) closeImportMenu();
+  if (!(e.target as HTMLElement).closest("#filter-menu, #filter-series-menu, #filter-range, #filter-button")) closeFilterMenu();
 });
 // Esc closes what is open, and focus goes back to what opened it (D42).
 document.addEventListener("keydown", (e) => {
@@ -619,10 +640,151 @@ document.addEventListener("keydown", (e) => {
   } else if (document.getElementById("peek")) {
     closePeek();
     backTo(peekFrom);
+  } else if (!$("filter-series-menu").hidden) closeSeriesMenu();
+  else if (!$("filter-range").hidden || !$("filter-menu").hidden) {
+    closeFilterMenu();
+    $("filter-button").focus();
   } else if (!$("import-menu").hidden) {
     closeImportMenu();
     $("import-button").focus();
   } else if ($("list-view").hidden) show("list");
+});
+
+// ---------- the Filter (D17's series among it): Show groups, a date, one series ----------
+
+/** Changes the Filter, saves it to settings.json, redraws the list and says how many rows are left. */
+function setFilter(change: Partial<ListFilter>) {
+  save({ listFilter: { ...lf(), ...change } }).catch(failed);
+  renderList();
+  syncFilterMenu();
+  $("sr-status").textContent = `${shownCount} of ${meetings.length} meetings shown`;
+}
+const clearFilters = () => setFilter(NO_FILTER);
+
+/** The series seen in the list, by join URL, A to Z. */
+const seriesSeen = () =>
+  [...new Map(meetings.filter((m) => m.joinUrl).map((m) => [m.joinUrl!, { joinUrl: m.joinUrl!, subject: m.subject || m.joinUrl! }])).values()].sort(
+    (a, b) => a.subject.localeCompare(b.subject),
+  );
+let seriesChoices: { joinUrl: string; subject: string }[] = [];
+
+const ck = `<span class="ck" aria-hidden="true"></span>`;
+function openFilterMenu() {
+  const count = (g: string) => meetings.filter((m) => groupOf(m) === g).length;
+  $("filter-menu").innerHTML =
+    `<div role="group" aria-labelledby="fmh-show"><div class="mh" id="fmh-show">Show</div>${GROUPS.map(
+      (g) =>
+        `<button class="mi" role="menuitemcheckbox" id="fshow-${g.id}" data-group="${g.id}">${ck}<i class="dot b-${g.dot}${g.dot === "up" ? " ring" : ""}"></i><span>${g.label}</span><span class="k">${count(g.id)}</span></button>`,
+    ).join("")}</div><div class="msep"></div>` +
+    `<div role="group" aria-labelledby="fmh-date"><div class="mh" id="fmh-date">Date</div>${Object.entries(DATES)
+      .map(([k, label]) => `<button class="mi" role="menuitemradio" id="fdate-${k || "any"}" data-date="${k}">${ck}<span>${label}</span></button>`)
+      .join("")}</div><div class="msep"></div>` +
+    `<button class="mi" role="menuitem" id="filter-series" aria-haspopup="menu" aria-expanded="false" aria-controls="filter-series-menu">${ck}<span>Series</span><span class="k"><span id="filter-series-k"></span> <i aria-hidden="true" class="ic">&#xE76C;</i></span></button><div class="msep"></div>` +
+    `<button class="mi" role="menuitem" id="filter-clear">${ck}<span>Clear filters</span></button>`;
+  syncFilterMenu();
+  $("filter-button").setAttribute("aria-expanded", "true");
+  const r = $("filter-button").getBoundingClientRect();
+  placeMenu($("filter-menu"), r.left, r.bottom + 4);
+}
+/** The open menu's ticks, Series' value and Clear filters, as the Filter stands. */
+function syncFilterMenu() {
+  if (!document.getElementById("filter-clear")) return; // not opened yet
+  const f = lf();
+  $("filter-menu").querySelectorAll<HTMLElement>("[data-group]").forEach((b) => b.setAttribute("aria-checked", String(!f.hidden.includes(b.dataset.group!))));
+  $("filter-menu").querySelectorAll<HTMLElement>("[data-date]").forEach((b) => b.setAttribute("aria-checked", String(f.date === b.dataset.date)));
+  $("filter-series-k").textContent = f.series ? "1" : "Any";
+  $<HTMLButtonElement>("filter-series").disabled = !seriesSeen().length;
+  $<HTMLButtonElement>("filter-clear").disabled = !filterChips(f).length;
+}
+function closeFilterMenu() {
+  for (const id of ["filter-menu", "filter-series-menu", "filter-range"]) $(id).hidden = true;
+  $("filter-button").setAttribute("aria-expanded", "false");
+}
+function openSeriesMenu() {
+  const on = lf().series?.joinUrl ?? "";
+  seriesChoices = [{ joinUrl: "", subject: "Any series" }, ...seriesSeen()];
+  const sub = $("filter-series-menu");
+  sub.innerHTML = seriesChoices
+    .map((s, i) => `<button class="mi" role="menuitemradio" aria-checked="${s.joinUrl === on}" id="fseries-${i}" data-i="${i}">${ck}<span>${esc(s.subject)}</span></button>`)
+    .join("");
+  $("filter-series").setAttribute("aria-expanded", "true");
+  const at = $("filter-series").getBoundingClientRect();
+  placeMenu(sub, $("filter-menu").getBoundingClientRect().right + 2, at.top - 4);
+}
+function closeSeriesMenu() {
+  $("filter-series-menu").hidden = true;
+  $("filter-series").setAttribute("aria-expanded", "false");
+  $("filter-series").focus();
+}
+function openRange() {
+  const f = lf();
+  $<HTMLInputElement>("range-from").value = f.date === "custom" ? f.from : "";
+  $<HTMLInputElement>("range-to").value = f.date === "custom" ? f.to : "";
+  closeFilterMenu();
+  $("filter-button").setAttribute("aria-expanded", "true");
+  const r = $("filter-button").getBoundingClientRect();
+  placeMenu($("filter-range"), r.left, r.bottom + 4);
+  $("range-from").focus();
+}
+
+$("filter-button").onclick = () => ($("filter-menu").hidden && $("filter-range").hidden ? openFilterMenu() : closeFilterMenu());
+// Space or a click ticks an item and keeps the menu open; Clear filters and a series close it.
+$("filter-menu").addEventListener("click", (e) => {
+  const item = (e.target as HTMLElement).closest<HTMLButtonElement>(".mi");
+  if (!item) return;
+  const f = lf();
+  const g = item.dataset.group;
+  if (g) setFilter({ hidden: f.hidden.includes(g) ? f.hidden.filter((x) => x !== g) : [...f.hidden, g] });
+  else if (item.dataset.date === "custom") openRange();
+  else if (item.dataset.date !== undefined) setFilter({ date: item.dataset.date, from: "", to: "" });
+  else if (item.id === "filter-series") openSeriesMenu();
+  else if (item.id === "filter-clear") {
+    closeFilterMenu();
+    clearFilters();
+    $("filter-button").focus();
+  }
+});
+$("filter-series-menu").addEventListener("click", (e) => {
+  const item = (e.target as HTMLElement).closest<HTMLButtonElement>(".mi");
+  if (!item) return;
+  const s = seriesChoices[Number(item.dataset.i)];
+  closeFilterMenu();
+  setFilter({ series: s.joinUrl ? s : null });
+  $("filter-button").focus();
+});
+// Right opens Series, Left goes back to it; Tab closes the menu and moves on from its button, as Import's does.
+for (const id of ["filter-menu", "filter-series-menu"])
+  $(id).addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight" && (e.target as HTMLElement).id === "filter-series") openSeriesMenu();
+    else if (e.key === "ArrowLeft" && id === "filter-series-menu") closeSeriesMenu();
+    else if (e.key === "Tab") {
+      closeFilterMenu();
+      $(e.shiftKey ? "filter-button" : "import-button").focus();
+    } else return;
+    e.preventDefault();
+  });
+$("range-apply").onclick = () => {
+  setFilter({ date: "custom", from: $<HTMLInputElement>("range-from").value, to: $<HTMLInputElement>("range-to").value });
+  closeFilterMenu();
+  $("filter-button").focus();
+};
+$("series-filter").addEventListener("click", (e) => {
+  const id = (e.target as HTMLElement).closest("button")?.id;
+  if (id === "filter-clear-all") clearFilters();
+  else if (id === "hidden-clear") setFilter({ hidden: [] });
+  else if (id === "date-clear") setFilter({ date: "", from: "", to: "" });
+  else if (id === "series-clear") setFilter({ series: null });
+});
+// The empty list's Clear filters: focus lands on the list.
+$("meeting-list").addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement).closest("#no-matches-clear")) return;
+  clearFilters();
+  $("meeting-list").querySelector<HTMLElement>('[tabindex="0"]')?.focus();
+});
+document.addEventListener("keydown", (e) => {
+  if (!e.ctrlKey || !e.shiftKey || e.key.toLowerCase() !== "f" || $("list-view").hidden || !$("first-run").hidden) return;
+  e.preventDefault();
+  openFilterMenu();
 });
 
 let deleting: Meeting | null = null;

@@ -1,3 +1,5 @@
+import type { ListFilter } from "./meetings";
+
 export interface Settings {
   libraryPath: string | null;
   summaryModel: string;
@@ -5,6 +7,8 @@ export interface Settings {
   /** Exclude series (D17): keyed by join URL; the subject names it in Settings. */
   excludedSeries: { joinUrl: string; subject: string }[];
   appearance: string;
+  /** The meeting list's Filter, kept across restarts. */
+  listFilter: ListFilter;
 }
 
 export function libraryLabel(path: string | null): string {

@@ -68,7 +68,8 @@ Excluded series are listed in [Settings](settings.md), each with **Remove**.
 ## Show all in this series
 
 Filters the list to the meetings that share this meeting's Teams link, upcoming first, then earlier ones, under a
-chip "Series: <subject> ×". Press × to show all meetings again. [Search](search.md) works inside the filter.
+chip "Series: <subject> ×". Press × to show all meetings again. [Search](search.md) works inside the filter. It is the
+same series filter as the list's [Filter](meeting-list.md#filtering-the-list) menu, and like it stays on after a restart.
 
 ## Copy summary and Copy actions
 

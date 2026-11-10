@@ -14,6 +14,19 @@ pub struct Settings {
     pub excluded_series: Vec<Series>,
     /// `system`, `light` or `dark` (D46).
     pub appearance: String,
+    /// The meeting list's Filter, kept across restarts; the page alone reads it.
+    pub list_filter: ListFilter,
+}
+
+/// The Filter's state: unticked Show groups, the date preset ("" for any time) with a custom range's ends, the series.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ListFilter {
+    pub hidden: Vec<String>,
+    pub date: String,
+    pub from: String,
+    pub to: String,
+    pub series: Option<Series>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
@@ -38,6 +51,7 @@ impl Default for Settings {
             start_at_logon: true,
             excluded_series: vec![],
             appearance: "system".into(),
+            list_filter: ListFilter::default(),
         }
     }
 }
@@ -144,6 +158,26 @@ mod tests {
         assert_eq!(proposed_library(None, None), None, "no Documents folder: nothing offered, the user picks");
         // A test standing in for Documents on a dev instance: no in-memory dev library, so first run is the installed copy's.
         assert_eq!(for_dev(Settings::default(), Path::new(r"C:\dev\one"), false).library_path, None);
+    }
+
+    #[test]
+    fn the_list_filter_round_trips_and_an_older_file_without_it_loads() {
+        let dir = std::env::temp_dir().join(format!("mc-settings-filter-{}", std::process::id()));
+        let filter = ListFilter {
+            hidden: vec!["skip".into()],
+            date: "7d".into(),
+            series: Some(Series { join_url: "https://teams.example/j/1".into(), subject: "Backlog Refinement".into() }),
+            ..ListFilter::default()
+        };
+        save(&dir, &Settings { list_filter: filter.clone(), ..Settings::default() }).unwrap();
+        let on_disk: serde_json::Value = serde_json::from_str(&fs::read_to_string(dir.join(FILE)).unwrap()).unwrap();
+        assert_eq!(on_disk["listFilter"]["hidden"][0], "skip");
+        assert_eq!(load(&dir).list_filter, filter);
+        fs::write(dir.join(FILE), r#"{"libraryPath":"D:/lib","summaryModel":"opus","startAtLogon":false,"excludedSeries":[],"appearance":"dark"}"#).unwrap();
+        let old = load(&dir);
+        assert_eq!(old.summary_model, "opus", "the file still loads, not first-run defaults");
+        assert_eq!(old.list_filter, ListFilter::default());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

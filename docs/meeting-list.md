@@ -11,7 +11,7 @@ The left pane lists your meetings; click one to open it on the right.
 - Day headers stay pinned while you scroll through their day.
 - The line under the search box says when the calendar was last refreshed ("Updated 14:00"), or why the refresh
   failed and what to do about it. The round arrow beside it (**Refresh calendar**) refreshes now.
-- The top bar has [Search](search.md), **Import** ([Importing](importing.md)) and **Settings** ([Settings](settings.md)).
+- The top bar has [Search](search.md), **Filter** ([below](#filtering-the-list)), **Import** ([Importing](importing.md)) and **Settings** ([Settings](settings.md)).
 
 Each row has a **...** button (or right-click the row) with the meeting's actions: see
 [Meeting actions](meeting-actions.md).
@@ -28,6 +28,24 @@ Each row has a **...** button (or right-click the row) with the meeting's action
 
 If an event couldn't be read, or is in a time zone the app can't convert, the status line says so, for example
 "Updated 14:00 · 1 event couldn't be read".
+
+## Filtering the list
+
+**Filter** (the funnel beside the search box, or Ctrl+Shift+F) opens a menu:
+
+- **Show**: tick or untick Needs attention (any failure), In flight (in progress, awaiting or fetching a transcript,
+  transcript ready, summarising), Summary ready, Upcoming and Skipped. Each shows how many meetings it holds.
+- **Date**: Any time, Today, Last 7 days, Last 30 days, or Custom range... (two dates, Apply). The date limits Earlier
+  meetings only; upcoming ones stay unless you untick Upcoming.
+- **Series**: one Teams series. The row's **Show all in this series** sets the same filter.
+- **Clear filters**.
+
+Space ticks an item and keeps the menu open; Esc closes it. Each filter on shows a chip above the list ("Hidden:
+Skipped", "Last 7 days", "Series: <subject>") with × to remove it, **Clear all** when two or more are on, and "n of
+total" on the right. Search works within the filters. When nothing is left, the list says how many search matches
+the filters hide and offers **Clear filters**.
+
+The filters are saved and stay on after a restart. A saved series that no meeting has any more is dropped.
 
 ## Meeting states
 

@@ -1303,7 +1303,59 @@ button.chip:hover {
 
 /* ---- Show all in this series: the filter chip at the top of the list (D17) ---- */
 .sfilter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   padding: 2px 14px 6px 16px;
+}
+.fcount {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--mc-txt3);
+}
+
+/* ---- the Filter button and menu: Show, Date, Series, Clear filters ---- */
+#filter-button {
+  position: relative;
+}
+#filter-button.on {
+  background: var(--mc-accsoft);
+  color: var(--mc-acctxt);
+}
+.fmenu {
+  min-width: 240px;
+}
+.fmenu [role="group"] {
+  display: flex;
+  flex-direction: column;
+}
+.mh {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mc-txt3);
+}
+.mi .ck {
+  width: 14px;
+  font: 12px "Segoe Fluent Icons", "Segoe MDL2 Assets";
+}
+.mi[aria-checked="true"] .ck::before {
+  content: "\E73E";
+}
+.mi:disabled {
+  color: var(--mc-dis);
+}
+.frange {
+  gap: 8px;
+  padding: 10px;
+}
+.frange label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
 }
 .schip {
   /* inline-block, not flex: the chip reads as one line of text, "Series: <subject> ×" */

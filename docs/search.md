@@ -19,7 +19,7 @@ No hits reads `No matches for "<query>"`. Press **Esc** in the box, or the **X**
 
 Notes:
 
-- Search works inside the series filter too ([Show all in this series](meeting-actions.md#show-all-in-this-series)).
+- Search works inside the list's filters too ([Filtering the list](meeting-list.md#filtering-the-list)).
 - The app's own headings are never hits (the summary's title, date line and section headings, and the transcript's
   Corrections applied list).
 - A meeting that was never summarised has no readable transcript yet, so only its notes and details are searched.

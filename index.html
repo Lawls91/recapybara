@@ -14,6 +14,7 @@
             <input id="search" placeholder="Search meetings" aria-label="Search meetings" />
             <button id="search-clear" class="ib sm" title="Clear search" tabindex="-1" hidden><i aria-hidden="true" class="ic">&#xE711;</i></button>
           </label>
+          <button id="filter-button" class="ib" title="Filter" aria-haspopup="menu" aria-expanded="false" aria-controls="filter-menu"><i aria-hidden="true" class="ic">&#xE71C;</i><span id="filter-badge" class="bdg" aria-hidden="true" hidden></span></button>
           <span id="dev-badge" class="devbadge" title="A dev instance: its state is apart from the installed copy's" hidden>DEV</span>
           <button id="import-button" class="ib" title="Import transcript" aria-haspopup="menu" aria-expanded="false" aria-controls="import-menu"><i aria-hidden="true" class="ic">&#xE896;</i></button>
           <button id="glossary-button" class="ib" title="Glossary"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="glossary-badge" class="bdg" aria-hidden="true" hidden></span></button>
@@ -164,6 +165,13 @@
     <p id="notice" class="notice" role="status" aria-live="polite"></p>
     <p id="sr-status" class="sr" role="status" aria-live="polite"></p>
     <div id="row-menu" class="menu" role="menu" hidden></div>
+    <div id="filter-menu" class="menu fmenu" role="menu" aria-label="Filter" hidden></div>
+    <div id="filter-series-menu" class="menu fmenu" role="menu" aria-label="Series" hidden></div>
+    <div id="filter-range" class="menu frange" role="dialog" aria-label="Custom range" hidden>
+      <label>From <input type="date" id="range-from" /></label>
+      <label>To <input type="date" id="range-to" /></label>
+      <button class="btn" id="range-apply">Apply</button>
+    </div>
     <div id="import-menu" class="menu" role="menu" aria-label="Import transcript" hidden>
       <button class="mi" id="import-file" role="menuitem"><i aria-hidden="true" class="ic">&#xE8E5;</i><span>Transcript file…</span></button>
       <button class="mi" id="import-teams" role="menuitem"><i aria-hidden="true" class="ic">&#xE787;</i><span>From Teams…</span></button>

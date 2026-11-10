@@ -56,6 +56,67 @@ export const STATES: Record<State, { family: string; label: string }> = {
   skipped: { family: "skip", label: "Skipped" },
 };
 
+/** The Filter's Show groups (G3), each the STATES families it holds; a fetch running counts as In flight. `dot` is the
+ * family its menu item's dot is drawn in. */
+export const GROUPS = [
+  { id: "fail", label: "Needs attention", dot: "fail", families: ["fail"] },
+  { id: "flight", label: "In flight", dot: "work", families: ["live", "wait", "ready", "work"] },
+  { id: "done", label: "Summary ready", dot: "done", families: ["done"] },
+  { id: "up", label: "Upcoming", dot: "up", families: ["up"] },
+  { id: "skip", label: "Skipped", dot: "skip", families: ["skip"] },
+] as const;
+
+export const groupOf = (m: Meeting) => {
+  const family = m.fetching ? "work" : STATES[m.state].family;
+  return GROUPS.find((g) => (g.families as readonly string[]).includes(family))!.id;
+};
+
+/** The list's filter, saved in settings.json so it lasts across restarts. `hidden`: GROUPS ids unticked; `date`: "" (any
+ * time), "today", "7d", "30d" or "custom" (`from`..`to`, local yyyy-mm-dd, inclusive, either open); `series`: D17's one
+ * series, by join URL. */
+export interface ListFilter {
+  hidden: string[];
+  date: string;
+  from: string;
+  to: string;
+  series: { joinUrl: string; subject: string } | null;
+}
+export const NO_FILTER: ListFilter = { hidden: [], date: "", from: "", to: "", series: null };
+
+export const DATES: Record<string, string> = { "": "Any time", today: "Today", "7d": "Last 7 days", "30d": "Last 30 days", custom: "Custom range…" };
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const ymdOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const daysAgo = (now: Date, n: number) => ymdOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - n));
+
+/** The filter's chips, one per kind on: Hidden, the date, the series. */
+export function filterChips(f: ListFilter): { kind: "hidden" | "date" | "series"; label: string }[] {
+  const chips: { kind: "hidden" | "date" | "series"; label: string }[] = [];
+  const hidden = GROUPS.filter((g) => f.hidden.includes(g.id)).map((g) => g.label);
+  if (hidden.length) chips.push({ kind: "hidden", label: `Hidden: ${hidden.join(", ")}` });
+  if (f.date) {
+    const short = (s: string) => dayFmt.format(new Date(`${s}T12:00`)).replace(",", "");
+    const range = f.from && f.to ? `${short(f.from)} – ${short(f.to)}` : f.from ? `From ${short(f.from)}` : f.to ? `Until ${short(f.to)}` : "Any time";
+    chips.push({ kind: "date", label: f.date === "custom" ? range : DATES[f.date] });
+  }
+  if (f.series) chips.push({ kind: "series", label: `Series: ${f.series.subject}` });
+  return chips;
+}
+
+/** Whether the filter keeps this meeting: its series, its Show group, and the date, which holds for Earlier meetings
+ * only (an upcoming one stays unless Upcoming is unticked). */
+export function passes(m: Meeting, f: ListFilter, now: Date): boolean {
+  if (f.series && m.joinUrl !== f.series.joinUrl) return false;
+  if (f.hidden.includes(groupOf(m))) return false;
+  if (!f.date || isAhead(m, now)) return true;
+  if (!m.start) return false;
+  const day = ymdOf(new Date(m.start));
+  const today = ymdOf(now);
+  const [from, to] =
+    f.date === "today" ? [today, today] : f.date === "7d" ? [daysAgo(now, 6), today] : f.date === "30d" ? [daysAgo(now, 29), today] : [f.from || "0000", f.to || "9999"];
+  return day >= from && day <= to;
+}
+
 /** D49: states whose detail pane is a state card, with its sentence. */
 export const STATE_CARDS: Partial<Record<State, string>> = {
   scheduled: "Captures when the call ends",
@@ -97,6 +158,9 @@ export interface DayGroup {
   section?: "Upcoming" | "Earlier";
 }
 
+/** In the Upcoming section: not yet ended, or still in progress (a call running over its scheduled end). */
+const isAhead = (m: Meeting, now: Date) => m.state === "inCall" || (!!m.start && new Date(m.end ?? m.start).getTime() > now.getTime());
+
 /** The list's layout: an Upcoming section of the meetings not yet ended or still in progress (a call running over its
  * scheduled end), in time order (one in progress first, the next one after it), then Earlier: the ended ones, newest first; each grouped by local day under "Today", "Yesterday",
  * "Tomorrow" or the date. Meetings with no date go last. */
@@ -106,7 +170,7 @@ export function dayGroups(meetings: Meeting[], now: Date): DayGroup[] {
     named.set(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + off)), name);
   }
   const t = (iso: string | null) => (iso ? new Date(iso).getTime() : -Infinity);
-  const ahead = (m: Meeting) => m.state === "inCall" || (!!m.start && t(m.end ?? m.start) > now.getTime());
+  const ahead = (m: Meeting) => isAhead(m, now);
   const upcoming = meetings.filter(ahead).sort((a, b) => t(a.start) - t(b.start));
   const ended = meetings.filter((m) => !ahead(m)).sort((a, b) => t(b.start) - t(a.start));
   const byDay = (list: Meeting[]) => {
