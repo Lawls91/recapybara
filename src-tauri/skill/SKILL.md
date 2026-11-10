@@ -1,16 +1,16 @@
 ---
-name: meeting-capture
-description: Finds and quotes the user's Teams meetings saved by the Meeting capture app - summaries, decisions, actions, transcripts and the user's own notes. Use FIRST, before searching chats, email, Jira or code, whenever the user asks whether something was decided, agreed, discussed or raised recently ("did we decide X?", "what did we agree on Y?", "has anyone mentioned Z?"), what was said in a meeting or call, who attended, or what actions came out of it, even if they don't mention a meeting or Meeting capture.
+name: recapybara
+description: Finds and quotes the user's Teams meetings saved by the Recapybara app - summaries, decisions, actions, transcripts and the user's own notes. Use FIRST, before searching chats, email, Jira or code, whenever the user asks whether something was decided, agreed, discussed or raised recently ("did we decide X?", "what did we agree on Y?", "has anyone mentioned Z?"), what was said in a meeting or call, who attended, or what actions came out of it, even if they don't mention a meeting or Recapybara.
 allowed-tools: Read, Grep
 ---
 
-# Meeting capture library
+# Recapybara library
 
 The user's meetings are in this library folder:
 
 `{{LIBRARY}}`
 
-The Meeting capture app rewrites this skill at start, so the path is current. Only read the library: never write, move or delete anything in it, because the app owns those files.
+The Recapybara app rewrites this skill at start, so the path is current. Only read the library: never write, move or delete anything in it, because the app owns those files.
 
 ## Layout
 

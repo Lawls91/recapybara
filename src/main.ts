@@ -1741,7 +1741,7 @@ listen("install-update", installUpdate); // the tray's Restart and update to ver
 
 // ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------
 
-/** The library first run will save: the one offered (a dev instance's own, else Documents\Meeting capture) until one is chosen. */
+/** The library first run will save: the one offered (a dev instance's own, else Documents\Recapybara) until one is chosen. */
 let firstLibrary: string | null = null;
 function paintFirstLibrary() {
   $("first-library").textContent = firstLibrary ?? "No folder chosen yet";

@@ -19,7 +19,7 @@ describe("settings", () => {
   it("a dev instance never starts at logon: the toggle is off and disabled, with a note, and the Run key is untouched", async () => {
     // Read only: the value as it stands (the installed copy's, or none), compared after.
     const runKey = () => {
-      const r = spawnSync("reg", ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "com.lawls91.meetingcapture"], { encoding: "utf8" });
+      const r = spawnSync("reg", ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "Recapybara"], { encoding: "utf8" });
       return `${r.status}:${r.stdout}`;
     };
     const before = runKey();
@@ -57,7 +57,7 @@ describe("settings", () => {
     await browser.reloadSession(); // quits and relaunches the app with the same folders
     await $("#settings-button").click();
     await expect($("#library-path")).toHaveText(chosen);
-    // ...and it lives in the MEETING_CAPTURE_DATA_DIR folder, not the real app data.
+    // ...and it lives in the RECAPYBARA_DATA_DIR folder, not the real app data.
     const onDisk = JSON.parse(fs.readFileSync(root("data", "settings.json"), "utf8"));
     expect(onDisk.libraryPath).toBe(chosen);
   });

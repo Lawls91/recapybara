@@ -4,9 +4,9 @@ import path from "node:path";
 import { calendar, event, invoke, refreshCalendar, root, scenario } from "../helpers.mjs";
 
 // The docs pages' screenshots (npm run docs:screenshots, never part of npm run check). Every meeting, person, ticket
-// and line of text here is made up, and the library is <MC_DOCS_ROOT>\Meeting capture, a path that names nobody.
+// and line of text here is made up, and the library is <MC_DOCS_ROOT>\Recapybara, a path that names nobody.
 const OUT = path.resolve("docs", "images");
-const LIB = root("Meeting capture");
+const LIB = root("Recapybara");
 const MIN = 60e3;
 const iso = (ms) => new Date(ms).toISOString();
 const dayAt = (days, hh, mm = 0) => {

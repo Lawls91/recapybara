@@ -18,5 +18,5 @@ Esc, goes back. Every change saves at once.
 - **Excluded series**: the series you excluded with [Exclude series](meeting-actions.md#exclude-series). **Remove**
   includes a series again.
 
-Settings are kept in `%APPDATA%\com.lawls91.meetingcapture\settings.json`, apart from your library, and survive an
+Settings are kept in `%APPDATA%\com.lawls91.recapybara\settings.json`, apart from your library, and survive an
 uninstall or an update.

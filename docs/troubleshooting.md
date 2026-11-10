@@ -31,7 +31,7 @@ the Recycle Bin.
 
 ## The data folder
 
-Apart from your library, the app keeps its own files in `%APPDATA%\com.lawls91.meetingcapture`:
+Apart from your library, the app keeps its own files in `%APPDATA%\com.lawls91.recapybara`:
 
 | File | What it holds |
 | --- | --- |

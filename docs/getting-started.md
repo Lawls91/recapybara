@@ -27,7 +27,7 @@ Until a library folder is chosen, the window opens on a Welcome page instead of 
 
 - **Claude Code** says which version was found, or, in red, "Claude Code not found. Install it or add it to PATH, then
   restart the app." You can still press Finish, but fetches and summaries fail until Claude Code is installed.
-- **Library folder** offers `Documents\Meeting capture` (wherever your Documents folder is, OneDrive included). Press
+- **Library folder** offers `Documents\Recapybara` (wherever your Documents folder is, OneDrive included). Press
   **Choose library folder** to pick another. The folder is made when you press Finish, not before. Pick a folder
   the app can keep to itself: it owns the files in it.
 - **Start when I log in** is ticked. Untick it if you'd rather start the app yourself.
@@ -38,10 +38,10 @@ Nothing is fetched or summarised before you press Finish.
 
 ## The tray
 
-Meeting capture lives in the Windows tray. Closing the window only hides it there, so meetings are still captured.
+Recapybara lives in the Windows tray. Closing the window only hides it there, so meetings are still captured.
 The tray menu has:
 
-- **Open Meeting capture**
+- **Open Recapybara**
 - **Settings**
 - **Refresh calendar now**
 - **Start at logon** (a tick)

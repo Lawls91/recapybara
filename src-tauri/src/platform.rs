@@ -18,10 +18,10 @@ pub fn toast(title: &str, body: &str, on_click: impl Fn() + Send + 'static) {
 }
 
 /// `toast` with buttons, each `(content, action)`: `on_activated` gets the pressed button's action, or none for a
-/// click on the body. A debug build also appends each toast to `MEETING_CAPTURE_TOAST_LOG` (the E2E suite's only way
+/// click on the body. A debug build also appends each toast to `RECAPYBARA_TOAST_LOG` (the E2E suite's only way
 /// to see one).
 pub fn toast_with(title: &str, body: &str, buttons: &[(&str, &str)], on_activated: impl Fn(Option<String>) + Send + 'static) {
-    if let Some(log) = crate::update::debug_only(cfg!(debug_assertions), std::env::var_os("MEETING_CAPTURE_TOAST_LOG")) {
+    if let Some(log) = crate::update::debug_only(cfg!(debug_assertions), std::env::var_os("RECAPYBARA_TOAST_LOG")) {
         use std::io::Write;
         let line = serde_json::json!({ "title": title, "body": body, "buttons": buttons.iter().map(|b| b.0).collect::<Vec<_>>() });
         let _ = std::fs::OpenOptions::new().create(true).append(true).open(log).and_then(|mut f| writeln!(f, "{line}"));

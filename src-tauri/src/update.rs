@@ -16,7 +16,7 @@ pub const START_DELAY: Duration = Duration::from_secs(10);
 pub const POLL: Duration = Duration::from_secs(60 * 60);
 pub const DAILY: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// A debug-only override (`MEETING_CAPTURE_UPDATE_URL`, `MEETING_CAPTURE_UPDATE_PUBKEY`, `MEETING_CAPTURE_DOCUMENTS`):
+/// A debug-only override (`RECAPYBARA_UPDATE_URL`, `RECAPYBARA_UPDATE_PUBKEY`, `RECAPYBARA_DOCUMENTS`):
 /// the E2E suite points the app at a local server, a throwaway key and a temp Documents folder. A release build
 /// ignores it, so it can't redirect a real install.
 pub fn debug_only(debug: bool, value: Option<OsString>) -> Option<String> {
@@ -176,7 +176,7 @@ mod tests {
     fn the_app_checks_the_github_release_with_the_real_key() {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let u = &conf["plugins"]["updater"];
-        assert_eq!(u["endpoints"], serde_json::json!(["https://github.com/Lawls91/meeting-capture/releases/latest/download/latest.json"]));
+        assert_eq!(u["endpoints"], serde_json::json!(["https://github.com/Lawls91/recapybara/releases/latest/download/latest.json"]));
         // The minisign public key file's contents, base64: "untrusted comment: minisign public key: 12A0DD3E5DD63A64".
         assert!(u["pubkey"].as_str().unwrap().starts_with("dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQTBERDNFNURENjNBNjQK"));
         assert_eq!(u["requireSignedVersion"], true, "the unsigned manifest can't pair a new version with an old package");
@@ -187,14 +187,14 @@ mod tests {
         let args = install_args(
             4242,
             Path::new(r"C:\Windows\System32\msiexec.exe"),
-            Path::new(r"C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi"),
-            Path::new(r"C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe"),
-            Path::new(r"C:\Users\A B\AppData\Roaming\com.lawls91.meetingcapture\update-result.txt"),
+            Path::new(r"C:\Users\A B\AppData\Local\Temp\Recapybara-0.2.0.msi"),
+            Path::new(r"C:\Users\A B\AppData\Local\Programs\com.lawls91.recapybara\recapybara.exe"),
+            Path::new(r"C:\Users\A B\AppData\Roaming\com.lawls91.recapybara\update-result.txt"),
             "0.2.0",
         );
         assert_eq!(
             args,
-            r#"-NoProfile -NonInteractive -Command "Wait-Process -Id 4242 -Timeout 30 -ErrorAction SilentlyContinue; & 'C:\Windows\System32\msiexec.exe' /i 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' /passive /norestart | Out-Null; Set-Content -LiteralPath 'C:\Users\A B\AppData\Roaming\com.lawls91.meetingcapture\update-result.txt' -Value '0.2.0',$LASTEXITCODE; Remove-Item -LiteralPath 'C:\Users\A B\AppData\Local\Temp\Meeting capture-0.2.0.msi' -ErrorAction SilentlyContinue; & 'C:\Users\A B\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe'""#
+            r#"-NoProfile -NonInteractive -Command "Wait-Process -Id 4242 -Timeout 30 -ErrorAction SilentlyContinue; & 'C:\Windows\System32\msiexec.exe' /i 'C:\Users\A B\AppData\Local\Temp\Recapybara-0.2.0.msi' /passive /norestart | Out-Null; Set-Content -LiteralPath 'C:\Users\A B\AppData\Roaming\com.lawls91.recapybara\update-result.txt' -Value '0.2.0',$LASTEXITCODE; Remove-Item -LiteralPath 'C:\Users\A B\AppData\Local\Temp\Recapybara-0.2.0.msi' -ErrorAction SilentlyContinue; & 'C:\Users\A B\AppData\Local\Programs\com.lawls91.recapybara\recapybara.exe'""#
         );
         assert!(is_msi(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0]));
         assert!(!is_msi(b"MZ an exe"), "an NSIS installer or anything else isn't run");
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn the_notice_and_the_tray_item_name_the_update() {
-        assert_eq!(restarting("Meeting capture"), "Meeting capture will restart in a few seconds.");
+        assert_eq!(restarting("Recapybara"), "Recapybara will restart in a few seconds.");
         assert_eq!(tray_label(None), "Check for updates");
         assert_eq!(tray_label(Some("0.2.0")), "Restart and update to version 0.2.0");
     }

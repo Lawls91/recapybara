@@ -13,7 +13,7 @@ const appProcesses = () =>
     ).trim(),
   );
 
-// Launched by run.mjs WITHOUT MEETING_CAPTURE_DEV: the installed copy's path.
+// Launched by run.mjs WITHOUT RECAPYBARA_DEV: the installed copy's path.
 describe("single instance", () => {
   it("without dev mode nothing is marked DEV and Start at logon can be changed", async () => {
     const conf = JSON.parse(fs.readFileSync(path.resolve("src-tauri", "tauri.conf.json"), "utf8"));
@@ -45,12 +45,12 @@ describe("single instance", () => {
   it("dev instances run beside it, without bringing it forward, and beside each other", async () => {
     await invoke("plugin:window|minimize", { label: "main" });
     await browser.waitUntil(() => invoke("plugin:window|is_minimized", { label: "main" }));
-    // No MEETING_CAPTURE_DATA_DIR, which would win over the dev dir. --autostart keeps them in the tray.
-    const { MEETING_CAPTURE_DATA_DIR: _, ...env } = process.env;
+    // No RECAPYBARA_DATA_DIR, which would win over the dev dir. --autostart keeps them in the tray.
+    const { RECAPYBARA_DATA_DIR: _, ...env } = process.env;
     const [a, b] = [root("dev-a"), root("dev-b")];
     const devs = [
       spawn(process.env.MC_APP, ["--autostart", "--dev", a], { env, stdio: "ignore" }),
-      spawn(process.env.MC_APP, ["--autostart"], { env: { ...env, MEETING_CAPTURE_DEV: b }, stdio: "ignore" }),
+      spawn(process.env.MC_APP, ["--autostart"], { env: { ...env, RECAPYBARA_DEV: b }, stdio: "ignore" }),
     ];
     try {
       // Each is up once its start-up calendar refresh has run claude from its own runs folder.

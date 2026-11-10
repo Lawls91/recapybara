@@ -23,7 +23,7 @@ pub mod update;
 use settings::Settings;
 
 /// Run-key value name, frozen (D50). Never derive it from productName.
-pub const RUN_KEY_NAME: &str = "com.lawls91.meetingcapture";
+pub const RUN_KEY_NAME: &str = "Recapybara";
 
 /// The Run value, quoted as the MSI writes it, so an exe path with a space (a profile "First Last") still starts.
 pub fn run_value(exe: &Path) -> String {
@@ -44,7 +44,7 @@ fn logon_at_start(first: bool, dev: bool, logon: bool) -> Option<bool> {
     (!first && !dev).then_some(logon)
 }
 /// Toast identity, frozen (D50): the MSI's Start-menu shortcut carries it.
-pub const AUMID: &str = "com.lawls91.meetingcapture";
+pub const AUMID: &str = "com.lawls91.recapybara";
 
 struct AppState {
     data_dir: PathBuf,
@@ -96,7 +96,7 @@ fn install_skill(home: Option<&Path>, library: Option<&str>) {
     }
 }
 
-/// Dev mode, resolved only here: `--dev <dir>`, else `MEETING_CAPTURE_DEV` (empty counts as unset). All state goes
+/// Dev mode, resolved only here: `--dev <dir>`, else `RECAPYBARA_DEV` (empty counts as unset). All state goes
 /// under that dir, and the instance runs beside the installed copy.
 pub fn dev_dir(args: &[String], env: Option<OsString>) -> Option<PathBuf> {
     let flag = args.windows(2).find(|w| w[0] == "--dev").map(|w| OsString::from(&w[1]));
@@ -471,7 +471,7 @@ fn fetch_due(app: &AppHandle) {
 /// without transcription raises its notification, whose Skip this meeting skips it (D17) and whose body opens it.
 fn check_chats(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let overridden = std::env::var_os("MEETING_CAPTURE_CLAUDE").is_some_and(|v| !v.is_empty());
+    let overridden = std::env::var_os("RECAPYBARA_CLAUDE").is_some_and(|v| !v.is_empty());
     if first_running(app) || !chat::checks_on(state.dev, overridden) {
         return;
     }
@@ -697,10 +697,10 @@ fn is_dev(state: State<AppState>) -> bool {
 fn updater(app: &AppHandle) -> tauri_plugin_updater::Result<tauri_plugin_updater::Updater> {
     let env = |v: &str| update::debug_only(cfg!(debug_assertions), std::env::var_os(v));
     let mut b = app.updater_builder().timeout(std::time::Duration::from_secs(120));
-    if let Some(url) = env("MEETING_CAPTURE_UPDATE_URL") {
+    if let Some(url) = env("RECAPYBARA_UPDATE_URL") {
         b = b.endpoints(vec![url.parse()?])?;
     }
-    if let Some(key) = env("MEETING_CAPTURE_UPDATE_PUBKEY") {
+    if let Some(key) = env("RECAPYBARA_UPDATE_PUBKEY") {
         b = b.pubkey(key);
     }
     b.build()
@@ -882,7 +882,7 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>
 }
 
 pub fn run() {
-    let dev = dev_dir(&std::env::args().collect::<Vec<_>>(), std::env::var_os("MEETING_CAPTURE_DEV"));
+    let dev = dev_dir(&std::env::args().collect::<Vec<_>>(), std::env::var_os("RECAPYBARA_DEV"));
     let mut builder = tauri::Builder::default();
     match &dev {
         // A dev instance takes neither the installed copy's single-instance lock nor its Run key. Its WebView2
@@ -908,14 +908,14 @@ pub fn run() {
                 Some(dir) => dir.join("data"),
                 None => app.path().app_data_dir()?,
             };
-            let data_dir = dir_from_env("MEETING_CAPTURE_DATA_DIR", real_data);
-            let home = dir_from_env("MEETING_CAPTURE_HOME", app.path().home_dir()?);
+            let data_dir = dir_from_env("RECAPYBARA_DATA_DIR", real_data);
+            let home = dir_from_env("RECAPYBARA_HOME", app.path().home_dir()?);
             let mut s = settings::load(&data_dir);
             // First run until a library is saved, a dev instance's included (its default is offered, not chosen).
             let first = s.library_path.is_none();
             // A debug build's stand-in for the Documents known folder: E2E drives the installed copy's default on a
             // dev instance (so never the Run key), in place of the dev dir's own library.
-            let test_documents = update::debug_only(cfg!(debug_assertions), std::env::var_os("MEETING_CAPTURE_DOCUMENTS")).map(PathBuf::from);
+            let test_documents = update::debug_only(cfg!(debug_assertions), std::env::var_os("RECAPYBARA_DOCUMENTS")).map(PathBuf::from);
             let own_dev = dev.as_deref().filter(|_| test_documents.is_none());
             let proposed_library = settings::proposed_library(own_dev, test_documents.or_else(|| app.path().document_dir().ok()).as_deref());
             if let Some(dir) = &dev {
@@ -926,7 +926,7 @@ pub fn run() {
             }
             claude::sweep_captures(&data_dir.join("runs"));
             claude::sweep_project(&home, &data_dir.join("runs"));
-            let skill_home = skill_home(dev.is_some(), std::env::var_os("MEETING_CAPTURE_HOME").is_some_and(|v| !v.is_empty()), &home);
+            let skill_home = skill_home(dev.is_some(), std::env::var_os("RECAPYBARA_HOME").is_some_and(|v| !v.is_empty()), &home);
             install_skill(skill_home.as_deref(), s.library_path.as_deref());
             if let Some(lib) = &s.library_path {
                 library::recover(std::path::Path::new(lib));
@@ -1039,16 +1039,16 @@ mod tests {
     #[test]
     fn identifier_is_the_frozen_literal() {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert_eq!(conf["identifier"], "com.lawls91.meetingcapture");
-        assert_eq!(RUN_KEY_NAME, "com.lawls91.meetingcapture");
-        assert_eq!(AUMID, "com.lawls91.meetingcapture");
+        assert_eq!(conf["identifier"], "com.lawls91.recapybara");
+        assert_eq!(RUN_KEY_NAME, "Recapybara");
+        assert_eq!(AUMID, "com.lawls91.recapybara");
         // The MSI's frozen layer (D50): changing any of these breaks upgrades, toasts or uninstall.
         let wxs = include_str!("../../installer/wix/Package.wxs");
         for frozen in [
             r#"UpgradeCode="{6D924D52-CF86-41C9-8AD5-364EF36A2E0D}""#,
-            r#"<Directory Id="INSTALLFOLDER" Name="com.lawls91.meetingcapture" />"#,
-            r#"<ShortcutProperty Key="System.AppUserModel.ID" Value="com.lawls91.meetingcapture" />"#,
-            r#"Name="com.lawls91.meetingcapture" Type="string""#,
+            r#"<Directory Id="INSTALLFOLDER" Name="com.lawls91.recapybara" />"#,
+            r#"<ShortcutProperty Key="System.AppUserModel.ID" Value="com.lawls91.recapybara" />"#,
+            r#"Name="Recapybara" Type="string""#,
         ] {
             assert!(wxs.contains(frozen), "Package.wxs lost frozen identifier: {frozen}");
         }
@@ -1069,10 +1069,10 @@ mod tests {
 
     #[test]
     fn the_run_value_is_quoted_like_the_msis() {
-        let exe = Path::new(r"C:\Users\First Last\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe");
-        assert_eq!(run_value(exe), r#""C:\Users\First Last\AppData\Local\Programs\com.lawls91.meetingcapture\meeting-capture.exe" --autostart"#);
+        let exe = Path::new(r"C:\Users\First Last\AppData\Local\Programs\com.lawls91.recapybara\recapybara.exe");
+        assert_eq!(run_value(exe), r#""C:\Users\First Last\AppData\Local\Programs\com.lawls91.recapybara\recapybara.exe" --autostart"#);
         let wxs = include_str!("../../installer/wix/Package.wxs");
-        assert!(wxs.contains(r#"Value="&quot;[INSTALLFOLDER]meeting-capture.exe&quot; --autostart""#), "the MSI's own value, same shape");
+        assert!(wxs.contains(r#"Value="&quot;[INSTALLFOLDER]recapybara.exe&quot; --autostart""#), "the MSI's own value, same shape");
     }
 
     #[test]
@@ -1094,7 +1094,7 @@ mod tests {
         let home = Path::new(r"C:\Users\u");
         assert_eq!(skill_home(false, false, home).as_deref(), Some(home), "the installed copy: the real home");
         assert_eq!(skill_home(false, true, home).as_deref(), Some(home));
-        assert_eq!(skill_home(true, true, home).as_deref(), Some(home), "dev with MEETING_CAPTURE_HOME (E2E, run-dev -Claude)");
+        assert_eq!(skill_home(true, true, home).as_deref(), Some(home), "dev with RECAPYBARA_HOME (E2E, run-dev -Claude)");
         assert_eq!(skill_home(true, false, home), None, "dev on the real home: leave the installed copy's skill alone");
     }
 

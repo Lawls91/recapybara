@@ -1,18 +1,18 @@
 <#
-run-dev.ps1: launches a dev instance of Meeting capture beside the installed copy (docs/development.md, "Dev instances").
+run-dev.ps1: launches a dev instance of Recapybara beside the installed copy (docs/development.md, "Dev instances").
 
   pwsh -File scripts\run-dev.ps1 [-StateDir <dir>] [-Build] [-Claude <exe>] [-Scenario <file>]
 
-All its state lives under -StateDir (default %LOCALAPPDATA%\MeetingCapture-dev\default). It runs a copy of the
+All its state lives under -StateDir (default %LOCALAPPDATA%\Recapybara-dev\default). It runs a copy of the
 debug exe from <StateDir>\bin, so the build output stays unlocked, and prints
 {pid, stateDir} as JSON. Re-running it replaces that dir's previous instance, stopped by its recorded PID and only
 when that PID still runs the copy: never by name, so the installed copy and other dirs' instances are left alone.
--Claude and -Scenario point it at the fake claude (MEETING_CAPTURE_CLAUDE, FAKE_CLAUDE_SCENARIO); -Claude also sets
-MEETING_CAPTURE_HOME to <StateDir>\home unless it is set, so a fake run stays out of your ~/.claude.
+-Claude and -Scenario point it at the fake claude (RECAPYBARA_CLAUDE, FAKE_CLAUDE_SCENARIO); -Claude also sets
+RECAPYBARA_HOME to <StateDir>\home unless it is set, so a fake run stays out of your ~/.claude.
 #>
 [CmdletBinding()]
 param(
-    [string]$StateDir = (Join-Path $env:LOCALAPPDATA 'MeetingCapture-dev\default'),
+    [string]$StateDir = (Join-Path $env:LOCALAPPDATA 'Recapybara-dev\default'),
     [switch]$Build,
     [string]$Claude,
     [string]$Scenario
@@ -22,7 +22,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $StateDir = [IO.Path]::GetFullPath($StateDir)
 
 $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $repo 'target' }
-$built = Join-Path $target 'debug\meeting-capture.exe'
+$built = Join-Path $target 'debug\recapybara.exe'
 if ($Build -or -not (Test-Path -LiteralPath $built)) {
     $env:PATH = "$HOME\.cargo\bin;$env:PATH"
     Push-Location $repo
@@ -35,7 +35,7 @@ if ($Build -or -not (Test-Path -LiteralPath $built)) {
 
 # Which build runs, so a stale exe in another target dir is seen before a test of new code is read wrongly.
 [Console]::Error.WriteLine("run-dev: running $built (built $((Get-Item -LiteralPath $built).LastWriteTime.ToString('yyyy-MM-dd HH:mm')))")
-$exe = Join-Path $StateDir 'bin\meeting-capture.exe'
+$exe = Join-Path $StateDir 'bin\recapybara.exe'
 $pidFile = Join-Path $StateDir 'dev.pid'
 $oldId = 0
 # A missing or corrupt dev.pid means no previous instance.
@@ -55,11 +55,11 @@ foreach ($i in 1..20) {
     catch { if ($i -eq 20) { throw }; Start-Sleep -Milliseconds 250 }
 }
 
-$env:MEETING_CAPTURE_DEV = $StateDir
+$env:RECAPYBARA_DEV = $StateDir
 if ($Claude) {
-    $env:MEETING_CAPTURE_CLAUDE = [IO.Path]::GetFullPath($Claude)
+    $env:RECAPYBARA_CLAUDE = [IO.Path]::GetFullPath($Claude)
     # A fake claude writes its project folder under the home's .claude: keep that in the state dir too.
-    if (-not $env:MEETING_CAPTURE_HOME) { $env:MEETING_CAPTURE_HOME = Join-Path $StateDir 'home' }
+    if (-not $env:RECAPYBARA_HOME) { $env:RECAPYBARA_HOME = Join-Path $StateDir 'home' }
 }
 if ($Scenario) { $env:FAKE_CLAUDE_SCENARIO = [IO.Path]::GetFullPath($Scenario) }
 # The debug exe is a console app: its console is hidden. No redirects: they make the app inherit this script's

@@ -64,7 +64,7 @@ export function bump(version, dir = REPO) {
     ["package-lock.json", top],
     ["package-lock.json", /("packages": \{\s*"": \{[^}]*?"version": ")[^"]+(")/],
     ["src-tauri/Cargo.toml", /^(\[package\][^[]*?^version = ")[^"]+(")/m],
-    ["Cargo.lock", /(^name = "meeting-capture"\r?\nversion = ")[^"]+(")/m],
+    ["Cargo.lock", /(^name = "recapybara"\r?\nversion = ")[^"]+(")/m],
   ]) {
     const text = read(dir, file);
     if (!re.test(text)) throw new Error(`No app version found in ${file}.`);

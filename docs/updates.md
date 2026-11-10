@@ -14,7 +14,7 @@ signature doesn't match is refused ("Update refused: ..."), and nothing is insta
 
 - it is refused while a transcript is being fetched, a summary written or an import from Teams runs, with the reason on
   the banner: try again once that has finished;
-- otherwise the app saves your notes, says "Meeting capture will restart in a few seconds.", quits, installs the new
+- otherwise the app saves your notes, says "Recapybara will restart in a few seconds.", quits, installs the new
   version (no admin prompt) and starts again.
 
 Your settings, your library and your start-at-logon choice are kept.

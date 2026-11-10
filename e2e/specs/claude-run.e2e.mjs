@@ -8,9 +8,9 @@ describe("claude run cleanup", () => {
     await refreshCalendar(); // the tray's Refresh calendar now
 
     const rec = lastClaudeRecord();
-    // The fake made the folder (its slug comes from observed names) inside MEETING_CAPTURE_HOME...
+    // The fake made the folder (its slug comes from observed names) inside RECAPYBARA_HOME...
     expect(rec.projectDir.toLowerCase().startsWith(root("home", ".claude", "projects").toLowerCase())).toBe(true);
-    // ...and ran in the runs folder inside MEETING_CAPTURE_DATA_DIR.
+    // ...and ran in the runs folder inside RECAPYBARA_DATA_DIR.
     expect(rec.cwd.toLowerCase()).toBe(root("data", "runs").toLowerCase());
     expect(fs.existsSync(rec.projectDir)).toBe(false);
     expect(fs.existsSync(root("home", ".claude", "projects", "sibling-project", "keep.txt"))).toBe(true);

@@ -1,4 +1,4 @@
-use meeting_capture_lib::{calendar, claude};
+use recapybara_lib::{calendar, claude};
 use serde_json::Value;
 use std::{fs, path::PathBuf};
 
@@ -24,7 +24,7 @@ fn run_within(name: &str, scenario_json: &str, capture: &'static [&'static str],
     let scenario = dir.join("scenario.json");
     fs::write(&scenario, scenario_json).unwrap();
     std::env::set_var("FAKE_CLAUDE_SCENARIO", &scenario);
-    std::env::set_var("MEETING_CAPTURE_HOME", dir.join("home"));
+    std::env::set_var("RECAPYBARA_HOME", dir.join("home"));
     std::env::set_var("ANTHROPIC_API_KEY", "sk-should-not-leak");
     // As when the app was started from a Claude Code session.
     std::env::set_var("CLAUDECODE", "1");

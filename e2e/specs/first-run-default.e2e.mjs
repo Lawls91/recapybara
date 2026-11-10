@@ -2,14 +2,14 @@ import { $, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { root } from "../helpers.mjs";
 
-// First run's default library: the installed copy's `<Documents>\Meeting capture`. e2e/run.mjs runs this spec as a
-// dev instance (so the Run key is never touched) with no settings and the debug-only MEETING_CAPTURE_DOCUMENTS
+// First run's default library: the installed copy's `<Documents>\Recapybara`. e2e/run.mjs runs this spec as a
+// dev instance (so the Run key is never touched) with no settings and the debug-only RECAPYBARA_DOCUMENTS
 // standing in for the Documents known folder, which also stands the dev dir's own default aside.
 const settingsOnDisk = () => JSON.parse(fs.readFileSync(root("data", "settings.json"), "utf8"));
-const proposed = root("OneDrive - Example", "Documents", "Meeting capture");
+const proposed = root("OneDrive - Example", "Documents", "Recapybara");
 
 describe("first run's default library", () => {
-  it("proposes Documents\\Meeting capture with its full path, Finish is ready, and nothing is made before Finish", async () => {
+  it("proposes Documents\\Recapybara with its full path, Finish is ready, and nothing is made before Finish", async () => {
     await expect($("#first-run")).toBeDisplayed();
     await expect($("#first-library")).toHaveText(proposed);
     await expect($("#first-library")).toHaveAttribute("title", proposed);

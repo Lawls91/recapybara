@@ -1,8 +1,8 @@
 # Development
 
 Tauri 2, a Rust backend (`src-tauri/src`) and a vanilla TypeScript page (`src/`). The frozen identifiers never change:
-the Tauri identifier `com.lawls91.meetingcapture`, the skill folder `meeting-capture`, the `MEETING_CAPTURE_*` env vars
-and the Run-key value name. The product name is the single `productName` value in `src-tauri/tauri.conf.json`.
+the Tauri identifier `com.lawls91.recapybara`, the skill folder `recapybara`, the `RECAPYBARA_*` env vars
+and the Run-key value name `Recapybara` (the exe is `recapybara.exe`). The product name is the single `productName` value in `src-tauri/tauri.conf.json`.
 
 Tests never call the real Claude: they use the fake `claude` (`fake-claude/`). Test fixtures are synthetic; no real
 meeting content goes in the repo.
@@ -15,7 +15,7 @@ Needs Node 20+, Rust stable (MSVC) with `~/.cargo/bin` on PATH, and WebView2.
 npm install
 npx tauri dev                        # iterate
 npm run msi                          # installer: out/<productName>-<version>.msi
-npx tauri build --debug --no-bundle  # what the E2E suite runs: <target>/debug/meeting-capture.exe
+npx tauri build --debug --no-bundle  # what the E2E suite runs: <target>/debug/recapybara.exe
 cargo build -p fake-claude           # the fake claude: <target>/debug/fake-claude.exe
 ```
 
@@ -31,19 +31,19 @@ pwsh -File scripts\run-dev.ps1 [-StateDir <dir>] [-Build] [-Claude <exe>] [-Scen
 
 It builds the debug exe if missing (or with `-Build`), copies it to `<StateDir>\bin` so the build output stays
 unlocked, stops that dir's previous instance (by its recorded PID), launches the copy with
-`MEETING_CAPTURE_DEV=<StateDir>` and prints `{"pid":…,"stateDir":"…"}`. The default dir is
-`%LOCALAPPDATA%\MeetingCapture-dev\default`. Stop it by that PID, never by name: that would stop the installed copy
+`RECAPYBARA_DEV=<StateDir>` and prints `{"pid":…,"stateDir":"…"}`. The default dir is
+`%LOCALAPPDATA%\Recapybara-dev\default`. Stop it by that PID, never by name: that would stop the installed copy
 too. `-Claude` and `-Scenario` point it at the fake claude (and give it its own home, so it writes nothing under your
 `~/.claude`); without them it runs the real `claude` and captures your real meetings into the dev library.
 
-Dev mode is `--dev <dir>` or `MEETING_CAPTURE_DEV=<dir>` (the flag wins). In dev mode:
+Dev mode is `--dev <dir>` or `RECAPYBARA_DEV=<dir>` (the flag wins). In dev mode:
 
 - All state is under the dir: settings and `runs` in `<dir>\data`, the WebView2 profile in `<dir>\webview`, the
-  library by default in `<dir>\library`. `MEETING_CAPTURE_DATA_DIR` and `MEETING_CAPTURE_HOME` still win. The skill is
-  installed only with `MEETING_CAPTURE_HOME` set, so a dev instance never points the installed skill at its library.
+  library by default in `<dir>\library`. `RECAPYBARA_DATA_DIR` and `RECAPYBARA_HOME` still win. The skill is
+  installed only with `RECAPYBARA_HOME` set, so a dev instance never points the installed skill at its library.
 - No single-instance lock, so give each dev instance its own dir.
 - It never reads or writes the Run key: Start at logon is off and disabled.
-- The window title and tray say "Meeting capture (DEV)", and the list has a DEV badge.
+- The window title and tray say "Recapybara (DEV)", and the list has a DEV badge.
 - Updates are off.
 - Toasts show under the installed copy's AUMID (so only with the MSI installed); a click goes to the process that
   raised it.
@@ -63,19 +63,19 @@ folders, as a dev instance, against the fake claude. `node e2e/run.mjs <name>` r
 different ports (`MC_E2E_PORT`) can go at once.
 
 Exceptions: `single-instance`, `real-folders` and `update` run without dev mode (they test the installed copy's path),
-so close Meeting capture before running them. The `first-run` specs start with no `settings.json`.
+so close Recapybara before running them. The `first-run` specs start with no `settings.json`.
 
 Test-only env vars:
 
 | Var | Effect |
 | --- | --- |
-| `MEETING_CAPTURE_DEV` | dev mode: all state under that dir; `--dev <dir>` wins over it |
-| `MEETING_CAPTURE_DATA_DIR` | replaces `%APPDATA%\com.lawls91.meetingcapture` (settings, `runs`) |
-| `MEETING_CAPTURE_HOME` | replaces the home used for `~/.claude` |
-| `MEETING_CAPTURE_CLAUDE` | the claude CLI to run (default: `claude` on PATH) |
-| `MEETING_CAPTURE_DOCUMENTS` | debug build only: replaces the Documents folder for first run's offered library (on a dev instance too) |
-| `MEETING_CAPTURE_TOAST_LOG` | debug build only: each toast raised is also appended there as `{title, body, buttons}` |
-| `MEETING_CAPTURE_UPDATE_URL`, `MEETING_CAPTURE_UPDATE_PUBKEY` | debug build only: the update address and key |
+| `RECAPYBARA_DEV` | dev mode: all state under that dir; `--dev <dir>` wins over it |
+| `RECAPYBARA_DATA_DIR` | replaces `%APPDATA%\com.lawls91.recapybara` (settings, `runs`) |
+| `RECAPYBARA_HOME` | replaces the home used for `~/.claude` |
+| `RECAPYBARA_CLAUDE` | the claude CLI to run (default: `claude` on PATH) |
+| `RECAPYBARA_DOCUMENTS` | debug build only: replaces the Documents folder for first run's offered library (on a dev instance too) |
+| `RECAPYBARA_TOAST_LOG` | debug build only: each toast raised is also appended there as `{title, body, buttons}` |
+| `RECAPYBARA_UPDATE_URL`, `RECAPYBARA_UPDATE_PUBKEY` | debug build only: the update address and key |
 | `MC_E2E_PORT` | the E2E tauri-driver port (default 4444) |
 | `FAKE_CLAUDE_SCENARIO` | the fake claude's scenario file |
 
@@ -142,9 +142,9 @@ Reading a failure:
 `npm run msi` (needs PowerShell 7 and the .NET SDK) builds the release app, then a per-user MSI with the WiX 5 dotnet
 tool (installed from NuGet if missing): `out/<productName>-<version>.msi`. Tauri's own bundler is off.
 
-- Installs `%LOCALAPPDATA%\Programs\com.lawls91.meetingcapture\meeting-capture.exe`, a Start-menu shortcut named
-  after `productName` (AUMID `com.lawls91.meetingcapture`, the toast identity) and the HKCU Run value
-  `com.lawls91.meetingcapture`, written quoted as `"<exe>" --autostart`.
+- Installs `%LOCALAPPDATA%\Programs\com.lawls91.recapybara\recapybara.exe`, a Start-menu shortcut named
+  after `productName` (AUMID `com.lawls91.recapybara`, the toast identity) and the HKCU Run value
+  `Recapybara`, written quoted as `"<exe>" --autostart`.
 - Renaming: change `productName` only and rebuild. The fixed UpgradeCode makes it an in-place upgrade with settings
   kept. An upgrade writes the Run value only if it was already there.
 - An upgrade installs the new version before removing the old one (`MajorUpgrade Schedule="afterInstallExecute"`), so
@@ -156,7 +156,7 @@ tool (installed from NuGet if missing): `out/<productName>-<version>.msi`. Tauri
 
 ## Releases and updates
 
-The app reads `https://github.com/Lawls91/meeting-capture/releases/latest/download/latest.json` (`plugins.updater` in
+The app reads `https://github.com/Lawls91/recapybara/releases/latest/download/latest.json` (`plugins.updater` in
 `tauri.conf.json`) through tauri-plugin-updater, checks the MSI's minisign signature against the public key in
 `tauri.conf.json` (the signature must also name the announced version), and installs only on Restart and update.
 

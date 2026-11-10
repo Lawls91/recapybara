@@ -990,7 +990,7 @@ name = "fake-claude"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "meeting-capture",
+ "recapybara",
  "serde_json",
 ]
 
@@ -2095,25 +2095,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "meeting-capture"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-dialog",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tauri-winrt-notification",
- "windows-registry",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2876,6 +2857,25 @@ name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
+
+[[package]]
+name = "recapybara"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-dialog",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tauri-winrt-notification",
+ "windows-registry",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "redox_syscall"

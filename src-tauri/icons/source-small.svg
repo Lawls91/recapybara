@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
+  <!-- Recapybara icon, concept 4 "peeking over a document" (hand-simplified drawing for 16 and 24 px). -->
+  <defs>
+    <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B98350"/><stop offset="1" stop-color="#8E5C32"/></linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E8EBF4"/></linearGradient>
+  </defs>
+    <g transform="translate(24 18) scale(.8) translate(-24 -25)">
+    <ellipse cx="13" cy="9.5" rx="3.6" ry="3.2" fill="#6B4426"/><ellipse cx="35" cy="9.5" rx="3.6" ry="3.2" fill="#6B4426"/>
+    <path d="M10 18C10 11 14 8 20 8H28C34 8 38 11 38 18V33C38 39 34 42 28 42H20C14 42 10 39 10 33Z" fill="url(#fur)"/>
+    <path d="M13 29C13 25 16 23 20 23H28C32 23 35 25 35 29V35C35 39.5 32 42 28 42H20C16 42 13 39.5 13 35Z" fill="#7C4F2C"/>
+    <path d="M19 26.8L20.6 29.6M29 26.8L27.4 29.6" stroke="#24160C" stroke-width="3.4" stroke-linecap="round"/>
+    
+    <circle cx="15.5" cy="16.5" r="2.8" fill="#24160C"/><circle cx="32.5" cy="16.5" r="2.8" fill="#24160C"/>
+    </g>
+    <rect x="7" y="22" width="34" height="23" rx="4.5" fill="url(#paper)" stroke="#C9CEDC" stroke-width="1"/>
+    <path d="M13 31H35M13 38H27" stroke="#4556C4" stroke-width="3.2" stroke-linecap="round"/>
+    <ellipse cx="15" cy="22.5" rx="3.6" ry="2.6" fill="#8E5C32"/><ellipse cx="33" cy="22.5" rx="3.6" ry="2.6" fill="#8E5C32"/>
+</svg>

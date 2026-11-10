@@ -22,7 +22,7 @@ describe("release", () => {
     expect(versions(dir)).toEqual({ "src-tauri/tauri.conf.json": "7.8.9", "src-tauri/Cargo.toml": "7.8.9", "package.json": "7.8.9" });
     const lock = JSON.parse(fs.readFileSync(path.join(dir, "package-lock.json"), "utf8"));
     expect([lock.version, lock.packages[""].version]).toEqual(["7.8.9", "7.8.9"]);
-    expect(fs.readFileSync(path.join(dir, "Cargo.lock"), "utf8")).toMatch(/name = "meeting-capture"\r?\nversion = "7.8.9"/);
+    expect(fs.readFileSync(path.join(dir, "Cargo.lock"), "utf8")).toMatch(/name = "recapybara"\r?\nversion = "7.8.9"/);
     // Only the version lines changed: each file has as many lines, and only the expected ones differ.
     for (const f of FILES) {
       const [a, b] = [fs.readFileSync(f, "utf8").split("\n"), fs.readFileSync(path.join(dir, f), "utf8").split("\n")];
@@ -46,8 +46,8 @@ describe("release", () => {
     expect(check("v0.4.2", dir)).toEqual({
       version: "0.4.2",
       prerelease: false,
-      msi: "out/Meeting capture-0.4.2.msi",
-      asset: "Meeting-capture-0.4.2.msi",
+      msi: "out/Recapybara-0.4.2.msi",
+      asset: "Recapybara-0.4.2.msi",
     });
     expect(check("v0.4.2-test.1", dir)).toMatchObject({ version: "0.4.2", prerelease: true });
   });
@@ -67,21 +67,21 @@ describe("release", () => {
   it("manifest is latest.json pointing at the release asset", () => {
     const m = manifest({
       version: "0.4.2",
-      asset: "Meeting-capture-0.4.2.msi",
+      asset: "Recapybara-0.4.2.msi",
       tag: "v0.4.2",
       signature: "dW50cnVzdGVk\n",
-      repo: "Lawls91/meeting-capture",
-      notes: "Meeting capture 0.4.2",
+      repo: "Lawls91/recapybara",
+      notes: "Recapybara 0.4.2",
       pubDate: "2026-11-08T10:00:00.000Z",
     });
     expect(m).toEqual({
       version: "0.4.2",
-      notes: "Meeting capture 0.4.2",
+      notes: "Recapybara 0.4.2",
       pub_date: "2026-11-08T10:00:00.000Z",
       platforms: {
         "windows-x86_64": {
           signature: "dW50cnVzdGVk",
-          url: "https://github.com/Lawls91/meeting-capture/releases/download/v0.4.2/Meeting-capture-0.4.2.msi",
+          url: "https://github.com/Lawls91/recapybara/releases/download/v0.4.2/Recapybara-0.4.2.msi",
         },
       },
     });

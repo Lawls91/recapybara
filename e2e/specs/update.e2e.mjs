@@ -5,8 +5,8 @@ import http from "node:http";
 import path from "node:path";
 import { freshFixture, invoke, root, scenario } from "../helpers.mjs";
 
-// Launched by run.mjs WITHOUT MEETING_CAPTURE_DEV (a dev instance never checks), with the debug build's overrides
-// pointing the app at this spec's server (MEETING_CAPTURE_UPDATE_URL) and a throwaway key (MEETING_CAPTURE_UPDATE_PUBKEY).
+// Launched by run.mjs WITHOUT RECAPYBARA_DEV (a dev instance never checks), with the debug build's overrides
+// pointing the app at this spec's server (RECAPYBARA_UPDATE_URL) and a throwaway key (RECAPYBARA_UPDATE_PUBKEY).
 const conf = JSON.parse(fs.readFileSync(path.resolve("src-tauri", "tauri.conf.json"), "utf8"));
 const CURRENT = conf.version;
 const port = Number(process.env.E2E_UPDATE_PORT);
@@ -59,7 +59,7 @@ const checkInBackground = async () => {
 };
 /** What Restart and update's script leaves in the data folder for the app it starts again: the version it tried, then
  * msiexec's exit code (its Set-Content writes a line each). */
-const resultFile = path.join(process.env.MEETING_CAPTURE_DATA_DIR, "update-result.txt");
+const resultFile = path.join(process.env.RECAPYBARA_DATA_DIR, "update-result.txt");
 const relaunch = (version, code) => {
   fs.writeFileSync(resultFile, `${version}\r\n${code}\r\n`);
   return browser.reloadSession();
@@ -80,9 +80,9 @@ describe("self-update", () => {
     goodSig = sign(pkg, NEWER);
     serve(manifest(NEWER, goodSig));
     // A dev instance beside it, pointed at its own path on this server: it must never ask (criterion 2).
-    const { MEETING_CAPTURE_DATA_DIR: _, ...env } = process.env;
+    const { RECAPYBARA_DATA_DIR: _, ...env } = process.env;
     dev = spawn(process.env.MC_APP, ["--autostart"], {
-      env: { ...env, MEETING_CAPTURE_DEV: root("dev-u"), MEETING_CAPTURE_UPDATE_URL: `${base}/dev/latest.json` },
+      env: { ...env, RECAPYBARA_DEV: root("dev-u"), RECAPYBARA_UPDATE_URL: `${base}/dev/latest.json` },
       stdio: "ignore",
     });
     devStarted = Date.now();

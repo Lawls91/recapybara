@@ -196,7 +196,7 @@ pub fn clicked(action: Option<&str>) -> Click {
 }
 
 /// Chat checks run in the installed copy, and in a dev instance only against a stand-in claude
-/// (`MEETING_CAPTURE_CLAUDE`, the fake): a dev instance on the real claude would pay for every check twice.
+/// (`RECAPYBARA_CLAUDE`, the fake): a dev instance on the real claude would pay for every check twice.
 pub fn checks_on(dev: bool, claude_overridden: bool) -> bool {
     !dev || claude_overridden
 }

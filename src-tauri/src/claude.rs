@@ -49,10 +49,10 @@ pub fn find_on(path: &std::ffi::OsStr, pathext: &str) -> Option<std::path::PathB
         .find(|p| p.is_file())
 }
 
-/// `MEETING_CAPTURE_CLAUDE` if set, else `claude` found on PATH (D36). Unfound, plain `claude`: the spawn
+/// `RECAPYBARA_CLAUDE` if set, else `claude` found on PATH (D36). Unfound, plain `claude`: the spawn
 /// then fails as not found.
 pub fn program() -> OsString {
-    if let Some(p) = std::env::var_os("MEETING_CAPTURE_CLAUDE").filter(|p| !p.is_empty()) {
+    if let Some(p) = std::env::var_os("RECAPYBARA_CLAUDE").filter(|p| !p.is_empty()) {
         return p;
     }
     let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());

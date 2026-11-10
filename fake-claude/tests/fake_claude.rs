@@ -44,7 +44,7 @@ fn prints_result_records_input_and_runs_the_post_tool_use_hook() {
         .args(["-p", "summarise", "--settings", &settings.to_string()])
         .current_dir(&dir)
         .env("FAKE_CLAUDE_SCENARIO", &scenario)
-        .env("MEETING_CAPTURE_HOME", dir.join("home"))
+        .env("RECAPYBARA_HOME", dir.join("home"))
         .env("FAKE_MARKER", "present")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -91,7 +91,7 @@ fn structured_output_is_printed_in_the_real_result_shape() {
         .args(["-p", "x"])
         .current_dir(&dir)
         .env("FAKE_CLAUDE_SCENARIO", &scenario)
-        .env("MEETING_CAPTURE_HOME", dir.join("home"))
+        .env("RECAPYBARA_HOME", dir.join("home"))
         .output()
         .unwrap();
     let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -100,7 +100,7 @@ fn structured_output_is_printed_in_the_real_result_shape() {
     assert_eq!(printed["result"], r#"{"overview":"Synthetic"}"#);
     fs::write(&scenario, r#"{"stdout":"{not json"}"#).unwrap();
     let out = Command::new(FAKE).args(["-p", "x"]).current_dir(&dir).env("FAKE_CLAUDE_SCENARIO", &scenario)
-        .env("MEETING_CAPTURE_HOME", dir.join("home")).output().unwrap();
+        .env("RECAPYBARA_HOME", dir.join("home")).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "{not json");
     fs::remove_dir_all(dir).unwrap();
 }
@@ -116,7 +116,7 @@ fn a_read_the_prompt_lists_as_already_read_is_not_fired_and_each_run_records_whe
     let prompt = r#"Call outlook_calendar_search. Skip these events too, already read: "calendar:///events/A" start 2026-11-05T14:00:00Z end 2026-11-05T15:00:00Z. Reply DONE."#;
     for p in ["Call read_resource on calendar:///events/A.", prompt] {
         let out = Command::new(FAKE).args(["-p", p, "--settings", &settings]).current_dir(&dir).env("FAKE_CLAUDE_SCENARIO", &scenario)
-            .env("MEETING_CAPTURE_HOME", dir.join("home")).output().unwrap();
+            .env("RECAPYBARA_HOME", dir.join("home")).output().unwrap();
         assert!(out.status.success());
     }
     let fired = |r: &Value| r["fired"].as_array().unwrap().iter().map(|h| h["uri"].as_str().unwrap_or("search").to_string()).collect::<Vec<_>>();
@@ -143,7 +143,7 @@ fn runs_that_overlap_each_leave_one_whole_record_line() {
                 .args(["-p", &format!("run {n}")])
                 .current_dir(&dir)
                 .env("FAKE_CLAUDE_SCENARIO", &scenario)
-                .env("MEETING_CAPTURE_HOME", dir.join("home"))
+                .env("RECAPYBARA_HOME", dir.join("home"))
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
                 .spawn()

@@ -75,11 +75,11 @@ pub fn for_dev(mut s: Settings, dev: &Path, own_library: bool) -> Settings {
 }
 
 /// The library first run offers (D25), so Finish works without a pick: a dev instance's own `<dir>\library`, else
-/// `<Documents>\Meeting capture`, Documents being the known folder (OneDrive-redirected or not). None without either.
+/// `<Documents>\Recapybara`, Documents being the known folder (OneDrive-redirected or not). None without either.
 pub fn proposed_library(dev: Option<&Path>, documents: Option<&Path>) -> Option<String> {
     match dev {
         Some(dev) => Some(dev_library(dev)),
-        None => documents.map(|d| d.join("Meeting capture").to_string_lossy().into_owned()),
+        None => documents.map(|d| d.join("Recapybara").to_string_lossy().into_owned()),
     }
 }
 
@@ -151,9 +151,9 @@ mod tests {
     }
 
     #[test]
-    fn first_run_proposes_the_dev_dirs_library_else_documents_meeting_capture() {
+    fn first_run_proposes_the_dev_dirs_library_else_documents_recapybara() {
         let docs = Path::new(r"C:\Users\someone\OneDrive - Example\Documents");
-        assert_eq!(proposed_library(None, Some(docs)).as_deref(), Some(r"C:\Users\someone\OneDrive - Example\Documents\Meeting capture"));
+        assert_eq!(proposed_library(None, Some(docs)).as_deref(), Some(r"C:\Users\someone\OneDrive - Example\Documents\Recapybara"));
         assert_eq!(proposed_library(Some(Path::new(r"C:\dev\one")), Some(docs)).as_deref(), Some(r"C:\dev\one\library"), "a dev instance keeps its own");
         assert_eq!(proposed_library(None, None), None, "no Documents folder: nothing offered, the user picks");
         // A test standing in for Documents on a dev instance: no in-memory dev library, so first run is the installed copy's.

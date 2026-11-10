@@ -8,7 +8,7 @@ import { body, calendar, event, fetchesOf, pickerAnswers, refreshCalendar, root,
 const settingsOnDisk = () => JSON.parse(fs.readFileSync(root("data", "settings.json"), "utf8"));
 // Read only: the value as it stands (the installed copy's, or none), compared after.
 const runKey = () => {
-  const r = spawnSync("reg", ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "com.lawls91.meetingcapture"], { encoding: "utf8" });
+  const r = spawnSync("reg", ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "Recapybara"], { encoding: "utf8" });
   return `${r.status}:${r.stdout}`;
 };
 /** Library folders holding a meeting for event `e` (by its event id). */

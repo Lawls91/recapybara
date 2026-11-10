@@ -1,4 +1,4 @@
-# Meeting capture
+# Recapybara
 
 The plan lives outside this repo, in the owner's Obsidian vault; its paths are in CLAUDE.local.md (not committed). Read it before working on a ticket.
 
@@ -6,8 +6,8 @@ Rules that hold for every ticket:
 
 - **No real meeting content in the repo** (D34). Test fixtures are synthetic VTT. Real transcripts are
   used only in live checks on Jack's machine.
-- **Frozen identifiers never change** (D50): Tauri identifier `com.lawls91.meetingcapture`, skill
-  folder `meeting-capture`, `MEETING_CAPTURE_*` env vars, the Run-key value name. The product name is
+- **Frozen identifiers never change** (D50): Tauri identifier `com.lawls91.recapybara`, skill
+  folder `recapybara`, `RECAPYBARA_*` env vars, the Run-key value name `Recapybara`, the exe `recapybara.exe`. The product name is
   the single `productName` value.
 - **Automation first** (Testing Decisions): every behaviour not tied to something external gets an
   automated test (`cargo test`, Vitest, WebdriverIO E2E with the fake `claude`). `(live)` criteria are

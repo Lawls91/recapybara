@@ -1,5 +1,5 @@
-//! With MEETING_CAPTURE_CLAUDE unset the app runs `claude` from PATH (D36), as a real install does.
-use meeting_capture_lib::{calendar, claude};
+//! With RECAPYBARA_CLAUDE unset the app runs `claude` from PATH (D36), as a real install does.
+use recapybara_lib::{calendar, claude};
 use serde_json::Value;
 use std::{fs, path::PathBuf};
 
@@ -16,13 +16,13 @@ fn the_default_claude_is_found_as_claude_exe_on_path() {
     let scenario = dir.join("scenario.json");
     fs::write(&scenario, r#"{"structuredOutput":{"overview":"from PATH"}}"#).unwrap();
 
-    std::env::remove_var("MEETING_CAPTURE_CLAUDE");
+    std::env::remove_var("RECAPYBARA_CLAUDE");
     let path = std::env::var_os("PATH").unwrap_or_default();
     let mut parts = vec![bin.clone()];
     parts.extend(std::env::split_paths(&path));
     std::env::set_var("PATH", std::env::join_paths(parts).unwrap());
     std::env::set_var("FAKE_CLAUDE_SCENARIO", &scenario);
-    std::env::set_var("MEETING_CAPTURE_HOME", dir.join("home"));
+    std::env::set_var("RECAPYBARA_HOME", dir.join("home"));
 
     let run = claude::ClaudeRun { ..calendar::run_for(chrono::Utc::now(), &[]) };
     let out = claude::run(&claude::program(), &dir.join("data").join("runs"), &dir.join("home"), &run);

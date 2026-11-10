@@ -1,4 +1,4 @@
-//! Fake `claude` for tests (D36). Never ships; the app finds it through MEETING_CAPTURE_CLAUDE.
+//! Fake `claude` for tests (D36). Never ships; the app finds it through RECAPYBARA_CLAUDE.
 //!
 //! Scenario file (FAKE_CLAUDE_SCENARIO), all fields optional:
 //!   { "result": <json printed on stdout>, "exitCode": 0, "version": "2.1.318 (Claude Code)",
@@ -106,7 +106,7 @@ fn main() {
         record["stdin"] = json!(stdin);
 
         // Like the real CLI: a project folder holding a persisted tool result, even with --no-session-persistence.
-        let home = env::var_os("MEETING_CAPTURE_HOME").or(env::var_os("USERPROFILE")).or(env::var_os("HOME")).unwrap();
+        let home = env::var_os("RECAPYBARA_HOME").or(env::var_os("USERPROFILE")).or(env::var_os("HOME")).unwrap();
         let project = Path::new(&home).join(".claude").join("projects").join(observed_slug(&cwd.to_string_lossy()));
         fs::create_dir_all(project.join("fake-session").join("tool-results")).unwrap();
         fs::write(project.join("fake-session").join("tool-results").join("toolu_fake.json"), "{}").unwrap();

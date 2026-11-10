@@ -32,13 +32,13 @@ $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path 
 Push-Location $repo
 try {
     # An incremental build can keep stale embedded frontend assets; rebuild the app crate itself.
-    cargo clean -p meeting-capture --release
+    cargo clean -p recapybara --release
     Write-Host "==> tauri build --no-bundle ($name $version)"
     npx tauri build --no-bundle
     if ($LASTEXITCODE -ne 0) { throw 'tauri build failed' }
 } finally { Pop-Location }
 
-$exe = Join-Path $target 'release\meeting-capture.exe'
+$exe = Join-Path $target 'release\recapybara.exe'
 if (-not (Test-Path $exe)) { throw "app exe not produced: $exe" }
 $payload = Join-Path $repo 'out\payload'
 Remove-Item $payload -Recurse -Force -ErrorAction SilentlyContinue

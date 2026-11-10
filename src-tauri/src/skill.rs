@@ -5,7 +5,7 @@ const TEMPLATE: &str = include_str!("../skill/SKILL.md");
 
 /// The skill folder name is frozen (D50).
 pub fn dir(home: &Path) -> PathBuf {
-    home.join(".claude").join("skills").join("meeting-capture")
+    home.join(".claude").join("skills").join("recapybara")
 }
 
 /// Writes `SKILL.md` for `library` when it is missing or differs, atomically, and nothing else. True when it wrote.
@@ -33,7 +33,7 @@ mod tests {
     }
 
     fn skill(home: &Path) -> String {
-        fs::read_to_string(home.join(r".claude\skills\meeting-capture\SKILL.md")).unwrap()
+        fs::read_to_string(home.join(r".claude\skills\recapybara\SKILL.md")).unwrap()
     }
 
     #[test]
@@ -41,7 +41,7 @@ mod tests {
         let home = temp("install");
         assert!(install(&home, r"D:\Meetings").unwrap());
         let s = skill(&home);
-        assert!(s.starts_with("---\nname: meeting-capture\n") || s.starts_with("---\r\nname: meeting-capture\r\n"), "{s}");
+        assert!(s.starts_with("---\nname: recapybara\n") || s.starts_with("---\r\nname: recapybara\r\n"), "{s}");
         assert!(s.contains(r"`D:\Meetings`"), "{s}");
         assert!(!s.contains("{{LIBRARY}}"));
         for layout in ["`YYYY-MM-DD HHmm <Subject>`", "`meeting.json`", "`summary.md`", "`transcript.md`", "`notes.md`", "`glossary.md`"] {
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn writes_nothing_under_dot_claude_outside_its_skill_folder() {
         let home = temp("sandbox");
-        let seeded = [r".claude\settings.json", r".claude\projects\other\keep.jsonl", r".claude\skills\other\SKILL.md", r".claude\skills\meeting-capture-old\SKILL.md"];
+        let seeded = [r".claude\settings.json", r".claude\projects\other\keep.jsonl", r".claude\skills\other\SKILL.md", r".claude\skills\recapybara-old\SKILL.md"];
         for f in seeded {
             fs::create_dir_all(home.join(f).parent().unwrap()).unwrap();
             fs::write(home.join(f), f).unwrap();
@@ -94,7 +94,7 @@ mod tests {
         let mut found = vec![];
         files(&home, &mut found, &home);
         found.sort();
-        let mut want: Vec<String> = seeded.iter().map(|s| s.to_string()).chain([r".claude\skills\meeting-capture\SKILL.md".into()]).collect();
+        let mut want: Vec<String> = seeded.iter().map(|s| s.to_string()).chain([r".claude\skills\recapybara\SKILL.md".into()]).collect();
         want.sort();
         assert_eq!(found, want, "no temp file left, nothing else written");
         for f in seeded {

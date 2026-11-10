@@ -57,8 +57,8 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'msi-extract'
           $log = Join-Path $env:RUNNER_TEMP 'msi-extract.log'
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList '/a', "`"$msi`"", '/qn', "TARGETDIR=`"$dir`"", '/l*v', "`"$log`""
-          $exe = Get-ChildItem $dir -Recurse -Filter meeting-capture.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          $built = (Get-FileHash out/payload/meeting-capture.exe).Hash # what build-msi.ps1 packed
+          $exe = Get-ChildItem $dir -Recurse -Filter recapybara.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $built = (Get-FileHash out/payload/recapybara.exe).Hash # what build-msi.ps1 packed
           $got = if ($exe) { (Get-FileHash $exe.FullName).Hash }
           if ($p.ExitCode -ne 0 -or $got -ne $built) {
             Get-Content $log -Tail 40 -ErrorAction SilentlyContinue

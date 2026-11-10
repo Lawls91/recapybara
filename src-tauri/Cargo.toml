@@ -1,11 +1,12 @@
 [package]
-name = "meeting-capture"
+name = "recapybara"
 version = "0.1.0"
 edition = "2021"
-default-run = "meeting-capture"
+license = "MIT"
+default-run = "recapybara"
 
 [lib]
-name = "meeting_capture_lib"
+name = "recapybara_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

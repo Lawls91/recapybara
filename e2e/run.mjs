@@ -1,6 +1,6 @@
 // Runs each E2E spec in its own wdio process, so each gets its own temp library,
 // app-data and home folders through the D37 env vars (tauri-driver inherits the launcher's env),
-// and runs as a dev instance (MEETING_CAPTURE_DEV), so an installed or running real copy can't collide with it.
+// and runs as a dev instance (RECAPYBARA_DEV), so an installed or running real copy can't collide with it.
 // Needs a debug build first: `npx tauri build --debug --no-bundle`.
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..");
 // Debug build (shares artifacts with cargo test): `npx tauri build --debug --no-bundle`.
 const release = path.join(process.env.CARGO_TARGET_DIR ?? path.join(repo, "target"), "debug");
-const app = path.join(release, "meeting-capture.exe");
+const app = path.join(release, "recapybara.exe");
 const fake = path.join(release, "fake-claude.exe");
 for (const f of [app, fake]) {
   if (!fs.existsSync(f)) {
@@ -100,43 +100,43 @@ for (const spec of specs) {
     PATH,
     E2E_ROOT: root,
     MC_APP: app,
-    MEETING_CAPTURE_CLAUDE: fake,
+    RECAPYBARA_CLAUDE: fake,
     FAKE_CLAUDE_SCENARIO: scenario,
-    MEETING_CAPTURE_DATA_DIR: data,
-    MEETING_CAPTURE_HOME: home,
+    RECAPYBARA_DATA_DIR: data,
+    RECAPYBARA_HOME: home,
     // Its own WebView2 profile and no single-instance lock or Run key. Apart from root\data, so the specs show that
-    // MEETING_CAPTURE_DATA_DIR still wins over the dev dir.
-    MEETING_CAPTURE_DEV: path.join(root, "dev"),
+    // RECAPYBARA_DATA_DIR still wins over the dev dir.
+    RECAPYBARA_DEV: path.join(root, "dev"),
     // The app must strip it from every claude it runs (D6); the fake's record shows whether it did.
     ANTHROPIC_API_KEY: "sk-e2e-parent-key-must-not-leak",
     // A debug build's update check (slice 19) goes here, never to GitHub: nothing listens, so it fails, logged.
-    MEETING_CAPTURE_UPDATE_URL: "http://127.0.0.1:9/latest.json",
+    RECAPYBARA_UPDATE_URL: "http://127.0.0.1:9/latest.json",
     // A debug build appends each toast it raises here (title, body, buttons): dev builds show none (D47).
-    MEETING_CAPTURE_TOAST_LOG: path.join(root, "toasts.jsonl"),
+    RECAPYBARA_TOAST_LOG: path.join(root, "toasts.jsonl"),
   };
   // Claude Code not installed: nothing at the path it is run from.
-  if (name === "first-run-no-claude") env.MEETING_CAPTURE_CLAUDE = path.join(root, "not-installed", "claude.exe");
+  if (name === "first-run-no-claude") env.RECAPYBARA_CLAUDE = path.join(root, "not-installed", "claude.exe");
   // The installed copy's default library, on a dev instance: a debug build's stand-in for the Documents known folder
   // (a OneDrive-redirected one, by its name), not yet there.
-  // The docs shots' first run offers <root>\Meeting capture.
-  if (docs) env.MEETING_CAPTURE_DOCUMENTS = root;
-  if (name === "first-run-default") env.MEETING_CAPTURE_DOCUMENTS = path.join(root, "OneDrive - Example", "Documents");
+  // The docs shots' first run offers <root>\Recapybara.
+  if (docs) env.RECAPYBARA_DOCUMENTS = root;
+  if (name === "first-run-default") env.RECAPYBARA_DOCUMENTS = path.join(root, "OneDrive - Example", "Documents");
   // These two test the installed copy's own path, so they run without dev mode.
-  if (name === "real-folders" || name === "single-instance") delete env.MEETING_CAPTURE_DEV;
+  if (name === "real-folders" || name === "single-instance") delete env.RECAPYBARA_DEV;
   // Updates run only in the installed copy's path, against the spec's own server and a throwaway key made here (never
   // committed): the app reads both at launch.
   if (name === "update") {
-    delete env.MEETING_CAPTURE_DEV;
+    delete env.RECAPYBARA_DEV;
     const key = path.join(root, "updater.key");
     execFileSync(process.execPath, [tauriCli, "signer", "generate", "--ci", "-p", "", "-w", key, "-f"], { stdio: "ignore" });
     env.E2E_UPDATE_KEY = key;
     env.E2E_UPDATE_PORT = String(await freePort());
-    env.MEETING_CAPTURE_UPDATE_URL = `http://127.0.0.1:${env.E2E_UPDATE_PORT}/latest.json`;
-    env.MEETING_CAPTURE_UPDATE_PUBKEY = fs.readFileSync(`${key}.pub`, "utf8").trim();
+    env.RECAPYBARA_UPDATE_URL = `http://127.0.0.1:${env.E2E_UPDATE_PORT}/latest.json`;
+    env.RECAPYBARA_UPDATE_PUBKEY = fs.readFileSync(`${key}.pub`, "utf8").trim();
   }
   if (name === "real-folders") {
-    delete env.MEETING_CAPTURE_DATA_DIR;
-    delete env.MEETING_CAPTURE_HOME;
+    delete env.RECAPYBARA_DATA_DIR;
+    delete env.RECAPYBARA_HOME;
   }
   if (!(await portFree(DRIVER_PORT))) {
     console.error(`\ne2e: port ${DRIVER_PORT} is already taken, so this spec's tauri-driver couldn't start and a session`);
