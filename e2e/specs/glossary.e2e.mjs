@@ -95,4 +95,18 @@ describe("the glossary page", () => {
     await expect($("#corr-0")).toBeDisplayed();
     await expect($("#corr-show")).toHaveText("Hide");
   });
+
+  it("Reject all asks first; Cancel changes nothing, Reject all keeps a copy in each summary.json", async () => {
+    await $("#glossary-button").click();
+    await $("#review-reject-all").click();
+    await expect($("#reject-confirm-title")).toHaveText("Reject all 1 correction?");
+    await $("#reject-cancel").click();
+    await expect($("#reject-confirm")).not.toBeDisplayed();
+    await expect($("#review-count")).toHaveText("1");
+    await $("#review-reject-all").click();
+    await $("#reject-yes").click();
+    await expect($("#review-count")).toHaveText("0");
+    const a = JSON.parse(fs.readFileSync(root("library", A, "summary.json"), "utf8"));
+    expect([a.corrections.map((c) => c.from), a.rejected.map((c) => c.from)]).toEqual([["felter"], ["Katia"]]);
+  });
 });

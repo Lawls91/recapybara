@@ -11,7 +11,9 @@ The page has two lists, one under the other:
   meeting's Transcript). **Add to glossary** adds it to the glossary as a hint for later summaries. **Reject** says it
   was wrong in the meetings listed: it is taken out of them, so their Transcript shows what Teams heard (the summary
   text stays as written). Nothing is sent to later summaries, so if a later meeting makes the same correction it shows
-  here again. **Add all to glossary** and **Reject all** do the same for every row.
+  here again. **Add all to glossary** and **Reject all** do the same for every row; Reject all asks first. A rejected
+  correction is not shown anywhere, but a copy stays in the meeting's `summary.json` (its `rejected` list) until the
+  summary is re-run.
 - **Glossary**: your entries. **Add entry** adds one of your own ("Heard as" and "Correct to"), **Edit** changes one
   and **Remove** takes it out. Each side must be one line, and can't contain `->`.
 

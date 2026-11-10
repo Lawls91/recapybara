@@ -665,7 +665,8 @@ pub fn add_to_glossary(library: &Path, c: &Correction) -> Result<(), String> {
     edit_glossary(library, None, Some(c))
 }
 
-/// Reject on To review: the correction was wrong in these meetings only. It leaves each one's `summary.json`, and
+/// Reject on To review: the correction was wrong in these meetings only. It moves to each one's `summary.json`
+/// `rejected` list (until a re-run writes a new summary.json), and
 /// `transcript.md` is written again without it, so its Transcript tab shows what Teams heard. Nothing is sent to later
 /// summaries: a later meeting making the same correction shows it for review again. The summary text stays as written.
 /// A meeting whose summary is running is refused untouched (its run would write over the change, or this over its run).
@@ -680,12 +681,17 @@ pub fn reject(library: &Path, ids: &[String], c: &Correction) -> Result<(), Stri
         let Ok(bytes) = fs::read(dir.join(SUMMARY_JSON)) else { continue };
         let mut raw: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{id}: {e}"))?;
         let Some(list) = raw.get_mut("corrections").and_then(|v| v.as_array_mut()) else { continue };
-        let before = list.len();
-        list.retain(|v| !serde_json::from_value::<Correction>(v.clone()).is_ok_and(|x| same(&x, c)));
-        if list.len() == before {
+        let (gone, kept): (Vec<_>, Vec<_>) = list.drain(..).partition(|v| serde_json::from_value::<Correction>(v.clone()).is_ok_and(|x| same(&x, c)));
+        *list = kept;
+        if gone.is_empty() {
             continue;
         }
         let left: Vec<Correction> = serde_json::from_value(serde_json::Value::Array(list.clone())).unwrap_or_default();
+        // Kept, not deleted: a reject made by mistake can be put back by hand (nothing on screen reads this list).
+        match raw.get_mut("rejected").and_then(|v| v.as_array_mut()) {
+            Some(r) => r.extend(gone),
+            None => raw["rejected"] = serde_json::Value::Array(gone),
+        }
         let vtt = fs::read_to_string(dir.join(VTT)).map_err(|e| format!("{id}: {e}"))?;
         write_atomic(&dir.join(SUMMARY_JSON), &serde_json::to_vec_pretty(&raw).unwrap())
             .and_then(|_| write_atomic(&dir.join(TRANSCRIPT_MD), transcript_md(&transcript(&vtt, &left)).as_bytes()))
@@ -1077,8 +1083,9 @@ Ask Robin about the 403
         );
         // Reject felter in B only: B's summary.json and transcript.md lose it, A keeps it, and nothing reaches the glossary.
         reject(&lib, &["B".into()], &fix(" felter", "filter", "")).unwrap();
-        let b_json = fs::read_to_string(lib.join("B").join(SUMMARY_JSON)).unwrap();
-        assert!(!b_json.contains("felter") && b_json.contains("Prya") && b_json.contains("\"overview\""), "{b_json}");
+        let b_json: serde_json::Value = serde_json::from_slice(&fs::read(lib.join("B").join(SUMMARY_JSON)).unwrap()).unwrap();
+        let froms = |k: &str| b_json[k].as_array().unwrap().iter().map(|c| c["from"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!((froms("corrections"), froms("rejected"), &b_json["overview"]), (vec!["Prya".into(), "cash".into()], vec!["felter".into()], &serde_json::json!("x")));
         let b_md = fs::read_to_string(lib.join("B").join(TRANSCRIPT_MD)).unwrap();
         assert!(b_md.contains("The felter, then the felter again") && b_md.contains("Priya"), "{b_md}");
         let felter = review(&lib).into_iter().find(|r| r.correction.from == "felter").unwrap();

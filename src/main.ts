@@ -1327,12 +1327,22 @@ $("review-add-all").onclick = () =>
   glossaryEdit(["entry-list"], async () => {
     for (const r of glossary.review) await invoke("add_to_glossary", { from: r.from, to: r.to });
   });
-$("review-reject-all").onclick = () =>
+// Reject all asks first: a reject can't be undone on screen. Cancel or Esc: the dialog gives focus back to the button.
+const rejectDialog = $<HTMLDialogElement>("reject-confirm");
+rejectDialog.onkeydown = (e) => e.key === "Escape" && e.stopPropagation(); // Esc closes the dialog, not the page
+$("reject-cancel").onclick = () => rejectDialog.close();
+$("review-reject-all").onclick = () => {
+  $("reject-confirm-title").textContent = `Reject all ${plural(glossary.review.length, "correction", "corrections")}?`;
+  rejectDialog.showModal();
+};
+$("reject-yes").onclick = () => {
+  rejectDialog.close();
   glossaryEdit(["review-list"], async () => {
     const n = glossary.review.length;
     for (const r of glossary.review) await reject(r);
     notify(`Rejected ${n}. A later summary that makes one shows it here again.`);
   });
+};
 
 // ---------- wiring ----------
 
