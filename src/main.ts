@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { firstLogonBox, libraryLabel, type Settings } from "./settings";
+import { firstLogonBox, libraryLabel, notesLines, type Settings } from "./settings";
 import {
   awaitingLine,
   calendarLine,
@@ -1678,53 +1678,82 @@ invoke<boolean>("is_dev").then((dev) => {
 
 // ---------- updates (slice 19): checked at start and daily by the backend; installed only on Restart and update ----------
 
-/** A live region written while the window is still opening goes unread (NVDA spoke a start's "didn't install" banner
- * on 1 start in 4), so the banner's announcements wait until this long after the page began loading. */
+/** A live region written while the window is still opening goes unread (NVDA spoke a start's "didn't install" message
+ * on 1 start in 4), so the update's announcements wait until this long after the page began loading. */
 const SETTLE_MS = 2000;
-/** The banner's text, announced in the polite live region when it changes, or `always` (a refusal said again). */
-function updateBanner(text: string, always = false) {
-  $("update-banner").hidden = !text;
-  const changed = $("update-text").textContent !== text;
-  $("update-text").textContent = text;
+/** The update's news, said in the polite live region when it changes, or `always` (a refusal said again). */
+let updateSaid = "";
+function announceUpdate(text: string, always = false) {
+  const changed = updateSaid !== text;
+  updateSaid = text;
   if (!text || !(changed || always)) return;
   const say = () => {
-    if ($("update-text").textContent === text) $("sr-status").textContent = text; // not if the banner moved on
+    if (updateSaid === text) $("sr-status").textContent = text; // not if the news moved on
   };
   const wait = SETTLE_MS - performance.now();
   if (wait > 0) window.setTimeout(say, wait);
   else say();
 }
-/** The banner: the version found, or that the last Restart and update of it didn't install (then its button is Try
- * again), plus why Restart and update was refused, if it was. The button shows only while an update is ready. */
+/** The pill (shown only while an update is staged) and What's new: the version's notes as plain text, and a status
+ * line saying the last Restart and update of it didn't install, or why Restart and update was refused. */
 let updateVersion: string | null = null;
+let updateNotes = "";
 let updateFailed: [string, string] | null = null; // this start follows a failed install: [version, message]
-function paintUpdate(version: string | null, refused = "") {
-  updateVersion = version;
+const whatsNew = $<HTMLDialogElement>("whats-new");
+function paintUpdate(version: string | null, notes = "", refused = "") {
+  [updateVersion, updateNotes] = [version, notes];
   const failed = updateFailed && (!version || version === updateFailed[0]) ? updateFailed[1] : "";
+  const pill = $("update-pill");
+  pill.hidden = !version;
+  pill.title = version ? `Version ${version} ready: see what's new` : "";
+  $("whats-new-title").textContent = `What's new in ${version}`;
+  const box = $("whats-new-notes");
+  box.replaceChildren();
+  let ul: HTMLUListElement | null = null;
+  for (const line of notesLines(notes)) {
+    const el = document.createElement(line.bullet ? "li" : "p");
+    el.textContent = line.text; // never HTML: the notes come from the release
+    if (!line.bullet) ul = null;
+    else if (!ul) box.append((ul = document.createElement("ul")));
+    (ul ?? box).append(el);
+  }
+  const status = [failed, refused].filter(Boolean).join(" ");
+  $("whats-new-status").textContent = status;
+  $("whats-new-status").hidden = !status;
+  $<HTMLButtonElement>("whats-new-install").disabled = false;
+  if (!version && whatsNew.open) whatsNew.close();
   const text = failed || (version ? `Version ${version} is available.` : "");
-  const install = $<HTMLButtonElement>("update-install");
-  install.disabled = false;
-  install.hidden = !version;
-  install.textContent = failed ? "Try again" : "Restart and update";
-  updateBanner(text && `${text}${refused ? ` ${refused}` : ""}`, !!refused);
+  announceUpdate(text && `${text}${refused ? ` ${refused}` : ""}`, !!refused);
 }
+const openWhatsNew = () => updateVersion && !whatsNew.open && whatsNew.showModal(); // focus: Restart and update
+$("update-pill").onclick = openWhatsNew;
+$("whats-new-later").onclick = () => whatsNew.close(); // the pill stays
+whatsNew.onkeydown = (e) => e.key === "Escape" && e.stopPropagation(); // Esc is Later, and closes nothing else
 invoke<[string, string] | null>("update_failed").then((f) => {
   updateFailed = f;
-  paintUpdate(updateVersion);
+  if (f) {
+    // Seen in Settings until the check finds the version again; What's new says it too.
+    $("update-status").textContent = f[1];
+    $("update-status").classList.add("err");
+  }
+  paintUpdate(updateVersion, updateNotes);
 });
-listen<string | null>("update-ready", (e) => paintUpdate(e.payload));
+listen<[string, string] | null>("update-ready", (e) => paintUpdate(e.payload?.[0] ?? null, e.payload?.[1]));
 // Restart and update went ahead: "will restart in a few seconds" until the window closes.
 listen<string>("update-restarting", (e) => {
-  $<HTMLButtonElement>("update-install").disabled = true;
-  updateBanner(e.payload);
+  $<HTMLButtonElement>("whats-new-install").disabled = true;
+  $("whats-new-status").textContent = e.payload;
+  $("whats-new-status").hidden = false;
+  announceUpdate(e.payload);
 });
-invoke<string | null>("update_ready").then((v) => paintUpdate(v));
+invoke<[string, string] | null>("update_ready").then((u) => paintUpdate(u?.[0] ?? null, u?.[1]));
 async function checkUpdates() {
   const status = $("update-status");
   status.textContent = "Checking for updates…";
   status.classList.remove("err");
   try {
     status.textContent = await invoke<string>("check_updates");
+    openWhatsNew(); // an update is staged: its update-ready came first
   } catch (e) {
     status.textContent = String(e);
     status.classList.add("err");
@@ -1733,10 +1762,11 @@ async function checkUpdates() {
 $("check-updates").onclick = checkUpdates;
 listen("check-updates", checkUpdates); // the tray's Check for updates, after it opened Settings
 async function installUpdate() {
+  openWhatsNew(); // the tray's runs it too: a refusal shows here
   await flushNotes(); // saved before the backend goes ahead (it quits as the tray's Quit does, which saves again)
-  await invoke("install_update").catch((e) => paintUpdate(updateVersion, String(e)));
+  await invoke("install_update").catch((e) => paintUpdate(updateVersion, updateNotes, String(e)));
 }
-$("update-install").onclick = installUpdate;
+$("whats-new-install").onclick = installUpdate;
 listen("install-update", installUpdate); // the tray's Restart and update to version X
 
 // ---------- first run (D25, D31): what the app does, Claude Code, the library, Start when I log in ----------

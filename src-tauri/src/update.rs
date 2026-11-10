@@ -109,7 +109,7 @@ pub fn install_args(pid: u32, msiexec: &Path, msi: &Path, exe: &Path, result: &P
 /// Restart and update's outcome, in the app's data folder: the version it tried, then msiexec's exit code, a line each.
 pub const RESULT_FILE: &str = "update-result.txt";
 
-/// What the banner says on the start after Restart and update failed (`result` is RESULT_FILE's text): the version it
+/// What the page says on the start after Restart and update failed (`result` is RESULT_FILE's text): the version it
 /// tried and the message. None for a success (0, or 3010: installed, a reboot pending) and for anything unreadable.
 pub fn install_failed(result: &str) -> Option<(String, String)> {
     let mut lines = result.trim_start_matches('\u{feff}').lines().map(str::trim);

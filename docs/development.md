@@ -169,13 +169,16 @@ own install isn't used because it relaunches the app only through a custom actio
 
 Cutting a release:
 
-1. On an up-to-date `main`: `pwsh -File scripts\release.ps1 0.2.0`. It sets the version in `tauri.conf.json`,
+1. Write the release notes in `release-notes/v0.2.0.md` and commit them: a line each, `- ` for a bullet, plain text
+   (What's new shows them as written, and they are the GitHub release's body). Without the file, latest.json's notes
+   are "Recapybara 0.2.0" and the release body is GitHub's generated notes.
+2. On an up-to-date `main`: `pwsh -File scripts\release.ps1 0.2.0`. It sets the version in `tauri.conf.json`,
    `src-tauri/Cargo.toml`, `package.json` and both lock files, commits "Release v0.2.0" and tags `v0.2.0`.
-2. `git push origin main v0.2.0`. The tag runs `.github/workflows/release.yml`: it fails at once unless the tag
+3. `git push origin main v0.2.0`. The tag runs `.github/workflows/release.yml`: it fails at once unless the tag
    matches all three versions, builds the MSI, signs it with the `TAURI_SIGNING_PRIVATE_KEY` and
    `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets, writes `latest.json` and publishes a GitHub Release with the MSI, its
    `.sig` and `latest.json`. It can also be run by hand (Actions, Release, Run workflow) with a version.
-3. A tag with a suffix (`v0.2.0-test`) builds a **pre-release**, which the app never offers: a dry run. Delete it
+4. A tag with a suffix (`v0.2.0-test`) builds a **pre-release**, which the app never offers: a dry run. Delete it
    afterwards (`gh release delete v0.2.0-test --cleanup-tag`).
 
 Pull requests never run the release workflow, so they never see the secrets. Tests use a throwaway key made at run

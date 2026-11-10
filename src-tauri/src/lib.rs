@@ -68,11 +68,12 @@ struct AppState {
     first_run: Mutex<bool>,
     /// The library first run offers (settings::proposed_library), made at Finish if it isn't there.
     proposed_library: Option<String>,
-    /// The newer version found and verified, ready to install; the lock also keeps checks one at a time.
-    update: tauri::async_runtime::Mutex<Option<(String, Vec<u8>)>>,
+    /// The newer version found and verified, ready to install: its version, notes (What's new) and package. The lock
+    /// also keeps checks one at a time.
+    update: tauri::async_runtime::Mutex<Option<(String, String, Vec<u8>)>>,
     /// The last check that got an answer, for the daily check.
     last_check: Mutex<Option<SystemTime>>,
-    /// Started again after Restart and update failed: the version it tried and what the banner says (update::install_failed).
+    /// Started again after Restart and update failed: the version it tried and what the page says (update::install_failed).
     update_failed: Option<(String, String)>,
 }
 
@@ -707,8 +708,8 @@ fn updater(app: &AppHandle) -> tauri_plugin_updater::Result<tauri_plugin_updater
 }
 
 /// One check: the manifest, then a newer version's package, downloaded and verified now, so a bad signature is refused
-/// here and Restart and update installs at once. Returns the version ready to install, if any; the page hears it as
-/// update-ready, and the tray's update item names it. A dev instance never checks.
+/// here and Restart and update installs at once. Returns the version ready to install, if any; the page hears it and
+/// its notes as update-ready, and the tray's update item names it. A dev instance never checks.
 async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
     let state = app.state::<AppState>();
     if state.dev {
@@ -719,10 +720,10 @@ async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
         let found = async { updater(app)?.check().await }.await.map_err(|e| update::check_failed(None, &e))?;
         match found {
             None => *ready = None,
-            Some(u) if ready.as_ref().is_some_and(|(v, _)| *v == u.version) => {}
+            Some(u) if ready.as_ref().is_some_and(|(v, ..)| *v == u.version) => {}
             Some(u) => {
                 let bytes = u.download(|_, _| {}, || {}).await.map_err(|e| update::check_failed(Some(&u.version), &e))?;
-                *ready = Some((u.version, bytes));
+                *ready = Some((u.version, u.body.unwrap_or_default(), bytes));
             }
         }
         *state.last_check.lock().unwrap() = Some(SystemTime::now());
@@ -731,8 +732,8 @@ async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
     .await;
     // Told even when the check failed: a page loaded during it (update_ready answers None meanwhile) still learns of
     // an update found earlier.
-    let version = ready.as_ref().map(|(v, _)| v.clone());
-    let _ = app.emit("update-ready", &version);
+    let version = ready.as_ref().map(|(v, ..)| v.clone());
+    let _ = app.emit("update-ready", ready.as_ref().map(|(v, n, _)| (v, n)));
     if let Some(item) = state.update_item.lock().unwrap().as_ref() {
         let _ = item.set_text(update::tray_label(version.as_deref()));
     }
@@ -748,14 +749,14 @@ async fn check_updates(app: AppHandle) -> Result<String, String> {
     })
 }
 
-/// The version ready to install, for a page (re)loaded after the check found it. None while a check is going: its
-/// update-ready follows.
+/// The version ready to install and its notes, for a page (re)loaded after the check found it. None while a check is
+/// going: its update-ready follows.
 #[tauri::command]
-fn update_ready(state: State<AppState>) -> Option<String> {
-    state.update.try_lock().ok()?.as_ref().map(|(v, _)| v.clone())
+fn update_ready(state: State<AppState>) -> Option<(String, String)> {
+    state.update.try_lock().ok()?.as_ref().map(|(v, n, _)| (v.clone(), n.clone()))
 }
 
-/// The update this start follows that didn't install, if any: its version and the banner's message.
+/// The update this start follows that didn't install, if any: its version and the message the page shows.
 #[tauri::command]
 fn update_failed(state: State<AppState>) -> Option<(String, String)> {
     state.update_failed.clone()
@@ -789,7 +790,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     if let Some(why) = busy() {
         return Err(why.into()); // one started while the notice showed
     }
-    let (version, bytes) = ready.as_ref().unwrap();
+    let (version, _, bytes) = ready.as_ref().unwrap();
     if !update::is_msi(bytes) {
         return Err("Couldn't update: the download isn't an installer".into());
     }
@@ -846,7 +847,7 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>
                 show_main(app);
                 let _ = app.emit("open-settings", ());
             }
-            // Restart and update to version X once one is ready (the page runs it, as its banner's button), else a check.
+            // Restart and update to version X once one is ready (the page runs it, as What's new's button), else a check.
             "updates" => {
                 show_main(app);
                 if update_ready(app.state()).is_some() {

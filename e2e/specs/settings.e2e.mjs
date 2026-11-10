@@ -45,7 +45,7 @@ describe("settings", () => {
       const outcome = await browser.execute((c) => window.__TAURI_INTERNALS__.invoke(c).then(() => "done", String), cmd);
       expect(outcome).toBe("Updates are off in a dev instance");
     }
-    await expect($("#update-banner")).not.toBeDisplayed();
+    await expect($("#update-pill")).not.toBeDisplayed();
   });
 
   it("a library path set in settings is still shown after the app restarts", async () => {

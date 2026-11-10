@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { bump, check, manifest, versions } from "./release.mjs";
+import { bump, check, manifest, releaseNotes, versions } from "./release.mjs";
 
 const FILES = ["src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "package.json", "package-lock.json", "Cargo.lock"];
 /** A copy of the repo's version files, to bump without touching the checkout. */
@@ -85,5 +85,14 @@ describe("release", () => {
         },
       },
     });
+  });
+
+  it("releaseNotes reads release-notes/<tag>.md, and is empty without one", () => {
+    const dir = copy();
+    expect(releaseNotes("v0.4.2", dir)).toBe("");
+    fs.mkdirSync(path.join(dir, "release-notes"));
+    fs.writeFileSync(path.join(dir, "release-notes", "v0.4.2.md"), "- One synthetic change\r\n- Another\r\n\r\n");
+    expect(releaseNotes("v0.4.2", dir)).toBe("- One synthetic change\r\n- Another");
+    expect(releaseNotes("v0.4.3", dir)).toBe("");
   });
 });

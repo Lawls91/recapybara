@@ -91,5 +91,8 @@ jobs:
         run: |
           $pre = if ('${{ steps.release.outputs.prerelease }}' -eq 'true') { '--prerelease' } else { '--latest' }
           $assets = (Get-ChildItem out/release).FullName # pwsh expands no wildcard for a native command
-          gh release create $env:TAG @assets --target $env:GITHUB_SHA --title $env:TAG --generate-notes $pre
+          # The body is release-notes/<tag>.md when there is one, as What's new shows it; else GitHub's own.
+          $notes = "release-notes/$env:TAG.md"
+          $body = if (Test-Path $notes) { '--notes-file', $notes } else { '--generate-notes' }
+          gh release create $env:TAG @assets --target $env:GITHUB_SHA --title $env:TAG @body $pre
           if ($LASTEXITCODE -ne 0) { exit 1 }

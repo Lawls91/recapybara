@@ -2,7 +2,8 @@
 //   node scripts/release.mjs bump <X.Y.Z>          sets the app version in every place it is kept
 //   node scripts/release.mjs check <tag>            fails unless the tag (vX.Y.Z, or vX.Y.Z-suffix for a pre-release)
 //                                                   matches the app version; prints name=value lines for GITHUB_OUTPUT
-//   node scripts/release.mjs manifest <tag> <sig> <repo>   prints latest.json for the tag's release
+//   node scripts/release.mjs manifest <tag> <sig> <repo>   prints latest.json for the tag's release, its notes from
+//                                                   release-notes/<tag>.md if there is one (What's new in the app)
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,12 @@ export function manifest({ version, asset, tag, signature, repo, notes, pubDate 
   };
 }
 
+/** The tag's release notes, release-notes/<tag>.md (What's new shows them), or "" when there is none. */
+export function releaseNotes(tag, dir = REPO) {
+  const file = path.join(dir, "release-notes", `${tag}.md`);
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
+}
+
 /** Sets `version` in tauri.conf.json, the app crate, package.json and both lock files, leaving their layout alone. */
 export function bump(version, dir = REPO) {
   if (!SEMVER.test(version)) throw new Error(`Version "${version}" isn't X.Y.Z.`);
@@ -82,8 +89,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     } else if (cmd === "manifest") {
       const [tag, sig, repo] = args;
       const r = check(tag);
-      const notes = `${JSON.parse(read(REPO, "src-tauri/tauri.conf.json")).productName} ${r.version}`;
-      const m = manifest({ ...r, tag, signature: fs.readFileSync(sig, "utf8"), repo, notes, pubDate: new Date().toISOString() });
+      const m = manifest({ ...r, tag, signature: fs.readFileSync(sig, "utf8"), repo, notes: releaseNotes(tag) || `${JSON.parse(read(REPO, "src-tauri/tauri.conf.json")).productName} ${r.version}`, pubDate: new Date().toISOString() });
       console.log(JSON.stringify(m, null, 2));
     } else throw new Error("usage: node scripts/release.mjs bump <X.Y.Z> | check <tag> | manifest <tag> <sig file> <owner/repo>");
   } catch (e) {
