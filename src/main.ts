@@ -569,8 +569,8 @@ function openMenu(m: Meeting, x: number, y: number, from: string | null) {
     .map(
       (i) =>
         (i.sep ? `<div class="msep"></div>` : "") +
-        `<button class="mi${i.bold ? " pri" : ""}${i.danger ? " dng" : ""}${i.later ? " dis" : ""}" id="menu-${i.id}" role="menuitem"${i.later ? " disabled" : ""}>
-          <i aria-hidden="true" class="ic">${i.icon}</i><span>${i.label}</span><span class="k">${i.later ? "Later" : (i.key ?? "")}</span></button>`,
+        `<button class="mi${i.bold ? " pri" : ""}${i.danger ? " dng" : ""}" id="menu-${i.id}" role="menuitem">
+          <i aria-hidden="true" class="ic">${i.icon}</i><span>${i.label}</span><span class="k">${i.key ?? ""}</span></button>`,
     )
     .join("");
   placeMenu(menu, x, y);

@@ -224,7 +224,6 @@ export interface MenuItem {
   key?: string;
   bold?: boolean;
   danger?: boolean;
-  later?: boolean;
   sep?: boolean;
 }
 
@@ -253,7 +252,6 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (group.length) group[0].sep = true;
   items.push(...group);
   if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "" });
-  items.push({ id: "export", label: "Export to vault", icon: "", later: true, sep: true });
   return items;
 }
 

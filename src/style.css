@@ -425,22 +425,12 @@ button {
 .mi.dng {
   color: var(--st-failtxt);
 }
-.mi.dis {
-  color: var(--mc-dis);
-}
 .mi .k {
   margin-left: auto;
   font-size: 11px;
   color: var(--mc-txt3);
   padding-left: 16px;
   font-weight: 400;
-}
-.mi.dis .k {
-  color: var(--mc-dis);
-  border: 1px solid var(--mc-stroke);
-  border-radius: 4px;
-  padding: 0 5px;
-  line-height: 15px;
 }
 .msep {
   height: 1px;
