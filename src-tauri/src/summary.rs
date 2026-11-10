@@ -334,7 +334,8 @@ Every item cites the transcript: citations[].at is the hh:mm:ss start of a cue i
 \"felter\"). Set inferred to true for anything nobody said outright. ticketKeys: ticket keys the item mentions, such as \
 PROJ-123. Look up every ticket key you mention in Jira with getJiraIssue (getAccessibleAtlassianResources gives \
 its cloudId), and never guess a key. corrections: words Teams misheard (names from the attendee list, terms from the glossary, ticket keys, \
-jargon), as whole words, each with a short reason; never make one listed under \"Never make these corrections\", the user rejected it. \
+jargon), as whole words, each with a short reason; a glossary entry is a hint, not a rule: correct a word only where the \
+context shows it was misheard, never where the speaker meant the word as transcribed; never make one listed under \"Never make these corrections\", the user rejected it. \
 Never invent attendees, owners or tickets.";
 
 /// The summary run (D18): the summary model, `--json-schema`, attendees, glossary and transcript on stdin (D19).

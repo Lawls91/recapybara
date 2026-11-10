@@ -29,7 +29,7 @@ Until a library folder is chosen, the window opens on a Welcome page instead of 
   restart the app." You can still press Finish, but fetches and summaries fail until Claude Code is installed.
 - **Library folder** offers `Documents\Meeting capture` (wherever your Documents folder is, OneDrive included). Press
   **Choose library folder** to pick another. The folder is made when you press Finish, not before. Pick a folder
-  outside any notes vault: the app owns the files in it.
+  the app can keep to itself: it owns the files in it.
 - **Start when I log in** is ticked. Untick it if you'd rather start the app yourself.
 
 Press **Finish** to save these and open the meeting list. You can change all three later in [Settings](settings.md).
