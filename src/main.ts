@@ -897,9 +897,44 @@ interface Transcript {
   /** `speaker` and `text` raw, as the citation check read them (D20); the parts corrected (D22). */
   turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
   minutes: number;
-  corrections: { from: string; to: string; reason: string; count: number; inGlossary: boolean }[];
-  /** Rejected on the Glossary page for this meeting: listed with Restore, not applied. */
-  rejected: { from: string; to: string; reason: string }[];
+  corrections: Fix[];
+  /** Rejected on the Glossary page for this meeting: listed with Restore, not applied. Places: where Teams' word shows. */
+  rejected: Fix[];
+}
+/** One place a correction marked: its turn and about five words either side. */
+interface Place {
+  turn: number;
+  before: string;
+  word: string;
+  after: string;
+}
+interface Fix {
+  from: string;
+  to: string;
+  reason: string;
+  count: number;
+  places: Place[];
+  inGlossary: boolean;
+  /** Kept for this meeting only: right here, not for the glossary. */
+  kept: boolean;
+}
+
+// A correction's quote: its place's words, the word marked; Next place steps through them (`c0` applied, `r0` rejected).
+const quoteText = (p: Place) => `${p.before}${p.word}${p.after}`;
+const quoteHtml = (p: Place) => `${esc(p.before)}<mark>${esc(p.word)}</mark>${esc(p.after)}`;
+const nextText = (k: number, n: number) => `${k + 1} of ${n}`;
+function placeHtml(key: string, ps: Place[], attr = "quote", val = key) {
+  if (!ps.length) return "";
+  const n = ps.length;
+  const next = n > 1 ? `<button class="lnk" id="next-${key}" data-next="${key}" aria-label="Next place, ${nextText(0, n)}">${nextText(0, n)} ›</button>` : "";
+  return `<div class="cq"><button class="lnk qt" id="quote-${key}" data-${attr}="${val}" data-at="0" aria-label="${esc(`Go to: ${quoteText(ps[0])}`)}">${quoteHtml(ps[0])}</button>${next}</div>`;
+}
+/** Highlights turn `i` as a search hit does and scrolls to it. */
+function goTurn(i: number) {
+  document.querySelectorAll(".turn.hl").forEach((e) => e.classList.remove("hl"));
+  const el = document.getElementById(`turn-${i}`);
+  el?.classList.add("hl");
+  el?.scrollIntoView({ block: "center" });
 }
 
 // A corrected word: dotted accent underline, "Was: <wrong>" tooltip (D45); a search hit's `q` marked.
@@ -1078,13 +1113,19 @@ function transcriptBody(t: Transcript | null, q: string) {
         .map(
           (c, i) =>
             `<div class="crow" id="corr-${i}"><span class="w">${esc(c.from)} → <b>${esc(c.to)}</b></span><span class="r">${esc(c.reason)}, ${c.count} ${c.count === 1 ? "place" : "places"}</span>` +
-            `<button class="lnk" id="glossary-${i}" data-corr="${i}"${c.inGlossary ? " disabled" : ""}>${c.inGlossary ? "In glossary" : "Add to glossary"}</button></div>`,
+            (c.kept && !c.inGlossary ? `<span class="kp" id="kept-${i}">Kept</span>` : "") +
+            `<button class="lnk" id="glossary-${i}" data-corr="${i}"${c.inGlossary ? " disabled" : ""}>${c.inGlossary ? "In glossary" : "Add to glossary"}</button>` +
+            (c.inGlossary || c.kept
+              ? ""
+              : `<button class="lnk" id="keep-${i}" data-keep="${i}" aria-label="Keep ${esc(c.from)} → ${esc(c.to)}">Keep</button>` +
+                `<button class="lnk" id="reject-${i}" data-reject="${i}" aria-label="Reject ${esc(c.from)} → ${esc(c.to)}">Reject</button>`) +
+            `${placeHtml(`c${i}`, c.places)}</div>`,
         )
         .join("")}${t.rejected
         .map(
           (c, j) =>
             `<div class="crow" id="rej-${j}"><span class="w">${esc(c.from)} → <s class="muted">${esc(c.to)}</s></span><span class="r">Rejected${c.reason ? `, ${esc(c.reason)}` : ""}</span>` +
-            `<button class="lnk" id="restore-${j}" data-restore="${j}" aria-label="Restore ${esc(c.from)} → ${esc(c.to)}">Restore</button></div>`,
+            `<button class="lnk" id="restore-${j}" data-restore="${j}" aria-label="Restore ${esc(c.from)} → ${esc(c.to)}">Restore</button>${placeHtml(`r${j}`, c.places)}</div>`,
         )
         .join("")}</div></div>`
     : "";
@@ -1180,6 +1221,38 @@ async function renderDetail() {
         loadGlossary();
       }),
   );
+  // Keep, Reject: this meeting only, as on To review; focus on the row's Add to glossary, else Show/Hide.
+  for (const [attr, cmd] of [["keep", "keep_correction"], ["reject", "reject_correction"]])
+    det.querySelectorAll<HTMLButtonElement>(`[data-${attr}]`).forEach(
+      (b) =>
+        (b.onclick = async () => {
+          const i = Number(b.dataset[attr]);
+          const c = t!.corrections[i];
+          $("corr-show").focus();
+          b.disabled = true;
+          await invoke(cmd, { ids: [m.id], from: c.from, to: c.to }).catch(failed);
+          await renderDetail();
+          document.getElementById(`glossary-${i}`)?.focus();
+          loadGlossary();
+        }),
+    );
+  const placesOf = (key: string) => (key[0] === "c" ? t!.corrections : t!.rejected)[Number(key.slice(1))].places;
+  det.querySelectorAll<HTMLElement>("[data-quote]").forEach((b) => (b.onclick = () => goTurn(placesOf(b.dataset.quote!)[Number(b.dataset.at)].turn)));
+  det.querySelectorAll<HTMLElement>("[data-next]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const key = b.dataset.next!;
+        const ps = placesOf(key);
+        const q = $(`quote-${key}`);
+        const k = (Number(q.dataset.at) + 1) % ps.length;
+        q.dataset.at = String(k);
+        q.innerHTML = quoteHtml(ps[k]);
+        q.setAttribute("aria-label", `Go to: ${quoteText(ps[k])}`);
+        b.textContent = `${nextText(k, ps.length)} ›`;
+        b.setAttribute("aria-label", `Next place, ${nextText(k, ps.length)}`);
+        goTurn(ps[k].turn);
+      }),
+  );
   // Restore: the rejected correction applies again; focus on the next rejected row's Restore, else Show/Hide.
   det.querySelectorAll<HTMLButtonElement>("[data-restore]").forEach(
     (b) =>
@@ -1221,7 +1294,7 @@ interface Pair {
 }
 interface Glossary {
   /** Corrections summaries made that are not in the glossary, grouped across meetings: [folder id, subject] each. */
-  review: (Pair & { reason: string; places: number; meetings: [string, string][] })[];
+  review: (Pair & { reason: string; places: number; meetings: [string, string][]; place: Place | null })[];
   entries: Pair[];
 }
 let glossary: Glossary = { review: [], entries: [] };
@@ -1253,17 +1326,18 @@ async function loadGlossary() {
 function drawGlossary() {
   const { review, entries } = glossary;
   $("review-count").textContent = String(review.length);
-  $("review-add-all").hidden = $("review-reject-all").hidden = !review.length;
+  $("review-add-all").hidden = $("review-keep-all").hidden = $("review-reject-all").hidden = !review.length;
   $("review-list").innerHTML = `<div class="exl">${
     review
       .map(
         (r, i) =>
           `<div class="qr"><div class="qm"><div class="qw">${pairHtml(r)}</div><div class="qs">${esc(r.reason)} · ${plural(r.places, "place", "places")} in ${r.meetings
             .map(([id, subject]) => `<button class="lnk" data-meeting="${esc(id)}" title="${esc(id)}">${esc(subject || id)}</button>`)
-            .join(", ")}</div></div>` +
-          `<div class="qa"><button class="lnk" id="review-add-${i}" data-add="${i}">Add to glossary</button><button class="lnk q" id="review-reject-${i}" data-reject="${i}">Reject</button></div></div>`,
+            .join(", ")}</div>${r.place ? placeHtml(`review-${i}`, [r.place], "goto", String(i)) : ""}</div>` +
+          `<div class="qa"><button class="lnk" id="review-add-${i}" data-add="${i}">Add to glossary</button><button class="lnk q" id="review-keep-${i}" data-keep="${i}">Keep</button>` +
+          `<button class="lnk q" id="review-reject-${i}" data-reject="${i}">Reject</button></div></div>`,
       )
-      .join("") || `<div class="gempty">Nothing to review. Corrections from new summaries show here until you add or reject them.</div>`
+      .join("") || `<div class="gempty">Nothing to review. Corrections from new summaries show here until you add, keep or reject them.</div>`
   }</div>`;
   $("entry-count").textContent = String(entries.length);
   const input = (id: string, label: string, value: string) => `<input id="${id}" aria-label="${label}" placeholder="${label}" value="${esc(value)}" />`;
@@ -1288,6 +1362,18 @@ function drawGlossary() {
     show("list");
     open(b.dataset.meeting!, "transcript");
   });
+  // A quote opens its meeting's Transcript at that turn, highlighted.
+  on("goto", (i) => {
+    scrollToTurn = review[i].place!.turn;
+    show("list");
+    open(review[i].meetings[0][0], "transcript");
+  });
+  on("keep", (i) =>
+    glossaryEdit([`review-keep-${i}`, `review-keep-${i - 1}`, "review-list"], async () => {
+      await keep(review[i]);
+      notify(`Kept in ${plural(review[i].meetings.length, "meeting", "meetings")}. It stays corrected there.`);
+    }),
+  );
   on("add", (i) => glossaryEdit([`review-add-${i}`, `review-add-${i - 1}`, "review-list"], () => invoke("add_to_glossary", { from: review[i].from, to: review[i].to })));
   on("reject", (i) =>
     glossaryEdit([`review-reject-${i}`, `review-reject-${i - 1}`, "review-list"], async () => {
@@ -1330,6 +1416,9 @@ function drawGlossary() {
 /** Reject: the correction leaves the meetings listed under it only; their transcripts show what Teams heard again. */
 const reject = (r: Glossary["review"][number]) => invoke("reject_correction", { ids: r.meetings.map(([id]) => id), from: r.from, to: r.to });
 
+/** Keep: right in the meetings listed under it, not for the glossary; it leaves To review and stays corrected there. */
+const keep = (r: Glossary["review"][number]) => invoke("keep_correction", { ids: r.meetings.map(([id]) => id), from: r.from, to: r.to });
+
 /** Runs a glossary change, reloads and redraws, then focuses the first of `focus` drawn (the pressed button may be gone). */
 async function glossaryEdit(focus: string[], change: () => Promise<unknown>) {
   await change().catch((e) => notify(String(e)));
@@ -1348,6 +1437,13 @@ $("entry-add").onclick = () => {
 $("review-add-all").onclick = () =>
   glossaryEdit(["entry-list"], async () => {
     for (const r of glossary.review) await invoke("add_to_glossary", { from: r.from, to: r.to });
+  });
+// Keep all needs no confirm: the transcripts stay as they are.
+$("review-keep-all").onclick = () =>
+  glossaryEdit(["review-list"], async () => {
+    const n = glossary.review.length;
+    for (const r of glossary.review) await keep(r);
+    notify(`Kept ${n}. They stay corrected where they are.`);
   });
 // Reject all asks first: a reject can't be undone on screen. Cancel or Esc: the dialog gives focus back to the button.
 const rejectDialog = $<HTMLDialogElement>("reject-confirm");

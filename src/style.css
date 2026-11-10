@@ -750,6 +750,7 @@ button {
 }
 .corr .crow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   font-size: 13px;
@@ -761,7 +762,7 @@ button {
   white-space: nowrap;
 }
 .corr .crow .r {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   color: var(--mc-txt2);
   white-space: nowrap;
@@ -1222,7 +1223,27 @@ button.chip:hover {
   font-weight: 600;
   color: var(--tr-warn);
 }
-.tx mark {
+/* a correction's quote under its row (strip and To review), the word marked */
+.cq {
+  flex-basis: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+.cq .qt {
+  display: block; /* not .lnk's flex: the marked word stays inline */
+  min-width: 0;
+  font-weight: 400;
+  color: var(--mc-txt2);
+  text-align: left;
+  white-space: normal;
+}
+.corr .kp {
+  color: var(--mc-txt2);
+}
+.tx mark,
+.cq mark {
   background: var(--mc-mark);
   color: var(--mc-markink);
   border-radius: 2px;

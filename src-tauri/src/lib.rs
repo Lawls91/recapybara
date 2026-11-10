@@ -229,12 +229,13 @@ fn get_transcript(app: AppHandle, id: String) -> Result<library::Transcript, Str
     let lib = library_path(&app)?;
     let dir = library::meeting_dir(&lib, &id)?;
     let vtt = std::fs::read_to_string(dir.join(library::VTT)).map_err(|e| e.to_string())?;
-    let (fixes, rejected) = summary::load(&dir).map(|s| (s.corrections, s.rejected)).unwrap_or_default();
+    let (fixes, rejected, kept) = summary::load(&dir).map(|s| (s.corrections, s.rejected, s.kept)).unwrap_or_default();
     let mut t = library::transcript(&vtt, &fixes);
-    t.rejected = rejected;
+    t.rejected = library::heard(&t.turns, &rejected);
     let glossary = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
     for a in &mut t.corrections {
         a.in_glossary = library::in_glossary(&glossary, &a.correction);
+        a.kept = kept.iter().any(|k| library::same(k, &a.correction));
     }
     Ok(t)
 }
@@ -310,6 +311,12 @@ fn edit_glossary(app: AppHandle, old: Option<library::Correction>, new: Option<l
 #[tauri::command]
 fn reject_correction(app: AppHandle, ids: Vec<String>, from: String, to: String) -> Result<(), String> {
     library::reject(&library_path(&app)?, &ids, &library::Correction { from, to, reason: String::new() })
+}
+
+/// Keep on To review or a Transcript tab: right in these meetings, not for the glossary (library::keep).
+#[tauri::command]
+fn keep_correction(app: AppHandle, ids: Vec<String>, from: String, to: String) -> Result<(), String> {
+    library::keep(&library_path(&app)?, &ids, &library::Correction { from, to, reason: String::new() })
 }
 
 /// Restore on a Transcript tab's rejected row (library::restore).
@@ -992,6 +999,7 @@ pub fn run() {
             get_glossary,
             edit_glossary,
             reject_correction,
+            keep_correction,
             restore_correction,
             get_notes,
             save_notes,

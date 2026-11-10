@@ -131,3 +131,95 @@ describe("the glossary page", () => {
     await expect($("#review-list")).toHaveText(expect.stringContaining("Katia → Katya"));
   });
 });
+
+// A third meeting (synthetic): "cash" heard in two turns, a typo and a misheard word in between.
+const C = "2026-11-04 1000 Cache sync";
+const kept = (id) => (JSON.parse(fs.readFileSync(root("library", id, "summary.json"), "utf8")).kept ?? []).map((c) => c.from);
+const hl = () => browser.execute(() => [...document.querySelectorAll(".turn.hl")].map((e) => e.id));
+
+describe("a correction's context, and Keep", () => {
+  before(async () => {
+    seed(C, { subject: "Cache sync", start: "2026-11-04T10:00:00Z", end: "2026-11-04T11:00:00Z", state: "done" }, {
+      "transcript.vtt":
+        "WEBVTT\n\n00:00:03.000 --> 00:00:08.000\n<v Sam>We moved the cash layer behind the gatway last week.</v>\n\n" +
+        "00:00:09.000 --> 00:00:12.000\n<v Lee>Good, the old notes all say nothing here.</v>\n\n" +
+        "00:00:13.000 --> 00:00:16.000\n<v Sam>Then the cash stays warm.</v>\n",
+      "summary.md": "# Cache sync\n",
+      "summary.json": summary([
+        { from: "cash", to: "cache", reason: "domain term" },
+        { from: "gatway", to: "gateway", reason: "typo" },
+        { from: "notes", to: "nodes", reason: "domain term" },
+      ]),
+    });
+    await browser.refresh();
+    await expect($(`.row[data-id="${C}"]`)).toBeDisplayed();
+  });
+
+  it("To review quotes a correction's first place, as its Transcript reads; the quote opens that turn, highlighted", async () => {
+    await $("#glossary-button").click();
+    await expect($("#review-list .qr")).toHaveText(expect.stringContaining("cash → cache"));
+    await expect($("#quote-review-0")).toHaveText("We moved the cache layer behind the gateway last…");
+    await expect($("#quote-review-0 mark")).toHaveText("cache");
+    await $("#quote-review-0").click();
+    await expect($("#list-view")).toBeDisplayed();
+    await expect($("#tab-transcript")).toHaveAttribute("aria-selected", "true");
+    await expect($("#detail-title")).toHaveText("Cache sync");
+    expect(await hl()).toEqual(["turn-0"]);
+  });
+
+  it("the strip quotes each correction's place; Next place steps through them, jumping to each turn", async () => {
+    if ((await $("#corr-show").getText()) === "Show") await $("#corr-show").click();
+    await expect($("#corr-line")).toHaveText("3 corrections in this transcript · 3 to review");
+    await expect($("#quote-c0")).toHaveText("We moved the cache layer behind the gateway last…");
+    await expect($("#next-c0")).toHaveText("1 of 2 ›");
+    await expect($("#next-c1")).not.toBeExisting(); // one place: no Next
+    await $("#next-c0").click();
+    await expect($("#next-c0")).toHaveText("2 of 2 ›");
+    await expect($("#next-c0")).toHaveAttribute("aria-label", "Next place, 2 of 2");
+    await expect($("#quote-c0")).toHaveText("Then the cache stays warm.");
+    expect(await hl()).toEqual(["turn-2"]);
+    expect(await browser.execute(() => document.activeElement.id)).toBe("next-c0");
+    await $("#quote-c1").click();
+    expect(await hl()).toEqual(["turn-0"]);
+    await $("#next-c0").click(); // wraps round
+    await expect($("#next-c0")).toHaveText("1 of 2 ›");
+  });
+
+  it("Reject on the strip undoes it in this meeting; its rejected row quotes the heard word", async () => {
+    await $("#reject-2").click();
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 2 to review · 1 rejected");
+    await expect($("#quote-r0")).toHaveText("Good, the old notes all say nothing here.");
+    await expect($("#quote-r0 mark")).toHaveText("notes");
+    await $("#quote-r0").click();
+    expect(await hl()).toEqual(["turn-1"]);
+  });
+
+  it("Keep on the strip: it stays corrected, shows Kept with Add to glossary, and leaves To review", async () => {
+    await $("#keep-1").click();
+    await expect($("#kept-1")).toHaveText("Kept");
+    await expect($("#glossary-1")).toHaveText("Add to glossary");
+    await expect($("#keep-1")).not.toBeExisting();
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · 1 to review · 1 rejected");
+    await expect($("#turn-0")).toHaveText(expect.stringContaining("gateway"));
+    expect(kept(C)).toEqual(["gatway"]);
+    await expect($("#glossary-button")).toHaveAttribute("aria-label", "Glossary, 2 corrections to review");
+  });
+
+  it("Keep on To review says so and leaves the list; Keep all needs no confirm", async () => {
+    await $("#glossary-button").click();
+    await expect($("#review-list .qr")).toHaveText(expect.stringContaining("cash → cache"));
+    await $("#review-keep-0").click();
+    await expect($("#notice")).toHaveText("Kept in 1 meeting. It stays corrected there.");
+    await expect($("#review-count")).toHaveText("1");
+    expect(kept(C)).toEqual(["gatway", "cash"]);
+    await $("#review-keep-all").click();
+    await expect($("#review-count")).toHaveText("0");
+    await expect($("#review-keep-all")).not.toBeDisplayed();
+    expect(kept(A)).toEqual(["Katia"]);
+    expect(glossary()).toBe("Orbit\nfelter -> filter\nHelix -> Helix CI\n");
+    await $("#glossary-back").click();
+    await $(`.row[data-id="${C}"]`).click();
+    await $("#tab-transcript").click();
+    await expect($("#corr-line")).toHaveText("2 corrections in this transcript · none to review · 1 rejected");
+  });
+});

@@ -60,4 +60,7 @@ test("the corrections strip counts what is left to review", () => {
   expect(corrLine([c(true)])).toBe("1 correction in this transcript · all in glossary");
   expect(corrLine([c(false), c(true)], 1)).toBe("2 corrections in this transcript · 1 to review · 1 rejected");
   expect(corrLine([], 2)).toBe("0 corrections in this transcript · 2 rejected");
+  const kept = { inGlossary: false, kept: true };
+  expect(corrLine([c(false), kept, c(true)], 1)).toBe("3 corrections in this transcript · 1 to review · 1 rejected");
+  expect(corrLine([kept, c(true)])).toBe("2 corrections in this transcript · none to review");
 });

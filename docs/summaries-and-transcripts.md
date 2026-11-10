@@ -67,10 +67,13 @@ Transcription mishears names and terms. Each summary run also lists the correcti
 
 - A corrected word has a dotted underline; hover it to see what Teams wrote ("Was: cash").
 - A strip above the first turn says how many corrections the transcript has and how many are still to review ("2
-  corrections in this transcript · 1 to review", or "all in glossary"). **Show** lists each correction with its
-  reason and how many places it changed.
+  corrections in this transcript · 1 to review", "all in glossary", or "none to review" once the rest are kept).
+  **Show** lists each correction with its reason, how many places it changed and a quote of about ten words around
+  its first place, the word marked. Click the quote to go to that turn, highlighted; with more than one place, **1 of
+  3 ›** steps to the next. A correction still to review also has **Keep** (right in this meeting, not for the
+  glossary: it stays corrected and is marked Kept) and **Reject** (this meeting only), as on the Glossary page.
 - Corrections you rejected on the [Glossary](glossary.md) page are listed there too, marked Rejected and not applied
-  (the strip counts them: "· 1 rejected"). **Restore** applies one again and puts it back in the Glossary page's To
+  (the strip counts them: "· 1 rejected"), with a quote of where Teams' word shows. **Restore** applies one again and puts it back in the Glossary page's To
   review.
 
 Corrections never change the raw transcript (`transcript.vtt`), and citations are always checked against the raw

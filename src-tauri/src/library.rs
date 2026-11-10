@@ -322,14 +322,28 @@ pub struct Turn {
     pub parts: Vec<Part>,
 }
 
-/// A correction that changed at least one word, with how many places (D22, D45).
+/// One place a correction marked: its turn and about five words either side of the word, for the
+/// Transcript tab's strip and To review to quote.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Place {
+    pub turn: usize,
+    pub before: String,
+    pub word: String,
+    pub after: String,
+}
+
+/// A correction that changed at least one word, with how many places (D22, D45). A rejected one's
+/// places are where Teams' word still shows (`heard`).
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Applied {
     #[serde(flatten)]
     pub correction: Correction,
     pub count: usize,
+    pub places: Vec<Place>,
     pub in_glossary: bool,
+    /// In summary.json's `kept` (library::keep): right in this meeting, not for the glossary.
+    pub kept: bool,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -339,8 +353,8 @@ pub struct Transcript {
     /// Length from the last cue's end, in whole minutes (D44 "40 min").
     pub minutes: u32,
     pub corrections: Vec<Applied>,
-    /// summary.json's `rejected` (library::reject): listed on the Transcript tab, never applied.
-    pub rejected: Vec<Correction>,
+    /// summary.json's `rejected` (library::reject): listed on the Transcript tab, never applied (`heard`).
+    pub rejected: Vec<Applied>,
 }
 
 /// `hh:mm:ss.ttt`, `mm:ss.ttt` or `hh:mm:ss` to milliseconds.
@@ -461,13 +475,56 @@ pub fn transcript(vtt: &str, fixes: &[Correction]) -> Transcript {
             }
         }
     }
+    let mut places = vec![vec![]; fixes.len()];
+    for (i, t) in turns.iter().enumerate() {
+        mark(&mut places, i, &t.speaker_parts, fixes, false);
+        mark(&mut places, i, &t.parts, fixes, false);
+    }
     let corrections = fixes
         .iter()
         .zip(used)
-        .filter(|(_, n)| *n > 0)
-        .map(|(f, count)| Applied { correction: f.clone(), count, in_glossary: false })
+        .zip(places)
+        .filter(|((_, n), _)| *n > 0)
+        .map(|((f, count), places)| Applied { correction: f.clone(), count, places, in_glossary: false, kept: false })
         .collect();
     Transcript { turns, minutes: end.div_ceil(60), corrections, rejected: vec![] }
+}
+
+/// `rejected` as the Transcript tab lists them: each with the places its heard word shows in `turns`.
+pub fn heard(turns: &[Turn], rejected: &[Correction]) -> Vec<Applied> {
+    let mut places = vec![vec![]; rejected.len()];
+    let mut used = vec![0; rejected.len()];
+    for (i, t) in turns.iter().enumerate() {
+        mark(&mut places, i, &correct(&joined(&t.parts), rejected, &mut used), rejected, true);
+    }
+    rejected
+        .iter()
+        .zip(places)
+        .map(|(c, places)| Applied { correction: c.clone(), count: places.len(), places, in_glossary: false, kept: false })
+        .collect()
+}
+
+/// Adds a place to `out[k]` for each of `ps` (turn `turn`) that fix `k` marked: the word as corrected, or as heard.
+fn mark(out: &mut [Vec<Place>], turn: usize, ps: &[Part], fixes: &[Correction], heard: bool) {
+    for (p, part) in ps.iter().enumerate() {
+        let Some(was) = &part.was else { continue };
+        let Some(k) = fixes.iter().position(|f| &f.from == was) else { continue };
+        let word = if heard { was } else { &part.text };
+        out[k].push(Place { turn, before: words(&joined(&ps[..p]), true), word: word.clone(), after: words(&joined(&ps[p + 1..]), false) });
+    }
+}
+
+/// The last (`end`) or first five words of `s`, with "…" where it was cut.
+fn words(s: &str, end: bool) -> String {
+    let ws: Vec<(usize, char)> = s.char_indices().filter(|(_, c)| c.is_whitespace()).collect();
+    match (end, ws.len() > 5) {
+        (true, true) => {
+            let (i, c) = ws[ws.len() - 6];
+            format!("…{}", &s[i + c.len_utf8()..])
+        }
+        (false, true) => format!("{}…", &s[..ws[5].0]),
+        _ => s.to_string(),
+    }
 }
 
 fn joined(parts: &[Part]) -> String {
@@ -602,7 +659,7 @@ fn pair(line: &str) -> Option<(&str, &str)> {
     (!from.is_empty() && !to.is_empty()).then_some((from, to))
 }
 
-fn same(a: &Correction, b: &Correction) -> bool {
+pub fn same(a: &Correction, b: &Correction) -> bool {
     (a.from.trim(), a.to.trim()) == (b.from.trim(), b.to.trim())
 }
 
@@ -677,6 +734,21 @@ pub fn reject(library: &Path, ids: &[String], c: &Correction) -> Result<(), Stri
     shift(library, ids, c, "corrections", "rejected", "Reject it there")
 }
 
+/// Keep on To review or a Transcript tab: the correction is right in these meetings but not for the glossary. It stays
+/// applied there and a copy goes to summary.json's `kept` list (until a re-run writes a new summary.json), which To
+/// review skips. Refused while a meeting's summary runs, as `reject` is.
+pub fn keep(library: &Path, ids: &[String], c: &Correction) -> Result<(), String> {
+    each(library, ids, "Keep it", |raw| {
+        let is = |v: &&serde_json::Value| serde_json::from_value::<Correction>((*v).clone()).is_ok_and(|x| same(&x, c));
+        let Some(found) = raw["corrections"].as_array().and_then(|l| l.iter().find(is)).cloned() else { return false };
+        match raw.get_mut("kept").and_then(|v| v.as_array_mut()) {
+            Some(k) => k.push(found),
+            None => raw["kept"] = serde_json::Value::Array(vec![found]),
+        }
+        true
+    })
+}
+
 /// Restore on a Transcript tab's rejected row: the reverse of `reject` for that one meeting.
 pub fn restore(library: &Path, id: &str, c: &Correction) -> Result<(), String> {
     shift(library, &[id.to_string()], c, "rejected", "corrections", "Restore it")
@@ -684,6 +756,24 @@ pub fn restore(library: &Path, id: &str, c: &Correction) -> Result<(), String> {
 
 /// Moves `c` from summary.json's `out` list to its `into` list and writes transcript.md again from `corrections`.
 fn shift(library: &Path, ids: &[String], c: &Correction, out: &str, into: &str, then: &str) -> Result<(), String> {
+    each(library, ids, then, |raw| {
+        let Some(list) = raw.get_mut(out).and_then(|v| v.as_array_mut()) else { return false };
+        let (gone, kept): (Vec<_>, Vec<_>) = list.drain(..).partition(|v| serde_json::from_value::<Correction>(v.clone()).is_ok_and(|x| same(&x, c)));
+        *list = kept;
+        if gone.is_empty() {
+            return false;
+        }
+        match raw.get_mut(into).and_then(|v| v.as_array_mut()) {
+            Some(r) => r.extend(gone),
+            None => raw[into] = serde_json::Value::Array(gone),
+        }
+        true
+    })
+}
+
+/// Runs `change` on each meeting's summary.json and, where it changed something, writes it and transcript.md again.
+/// A meeting whose summary is running is left untouched and named in the error.
+fn each(library: &Path, ids: &[String], then: &str, change: impl Fn(&mut serde_json::Value) -> bool) -> Result<(), String> {
     let mut busy = vec![];
     for id in ids {
         let dir = meeting_dir(library, id)?;
@@ -693,15 +783,8 @@ fn shift(library: &Path, ids: &[String], c: &Correction, out: &str, into: &str, 
         }
         let Ok(bytes) = fs::read(dir.join(SUMMARY_JSON)) else { continue };
         let mut raw: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{id}: {e}"))?;
-        let Some(list) = raw.get_mut(out).and_then(|v| v.as_array_mut()) else { continue };
-        let (gone, kept): (Vec<_>, Vec<_>) = list.drain(..).partition(|v| serde_json::from_value::<Correction>(v.clone()).is_ok_and(|x| same(&x, c)));
-        *list = kept;
-        if gone.is_empty() {
+        if !change(&mut raw) {
             continue;
-        }
-        match raw.get_mut(into).and_then(|v| v.as_array_mut()) {
-            Some(r) => r.extend(gone),
-            None => raw[into] = serde_json::Value::Array(gone),
         }
         let left: Vec<Correction> = serde_json::from_value(raw["corrections"].clone()).unwrap_or_default();
         let vtt = fs::read_to_string(dir.join(VTT)).map_err(|e| format!("{id}: {e}"))?;
@@ -723,6 +806,8 @@ pub struct Review {
     pub correction: Correction,
     pub places: usize,
     pub meetings: Vec<(String, String)>,
+    /// Its first place in the first meeting listed, for the row's quote.
+    pub place: Option<Place>,
 }
 
 /// The Glossary page's To review: every meeting's `summary.json` corrections that changed a word in its transcript
@@ -732,15 +817,17 @@ pub fn review(library: &Path) -> Vec<Review> {
     #[serde(default)]
     struct Fixes {
         corrections: Vec<Correction>,
+        kept: Vec<Correction>,
     }
     let glossary = fs::read_to_string(library.join(GLOSSARY)).unwrap_or_default();
     let mut out: Vec<Review> = vec![];
     for l in list(library) {
         let dir = library.join(&l.id);
         let Some(fixes) = fs::read(dir.join(SUMMARY_JSON)).ok().and_then(|b| serde_json::from_slice::<Fixes>(&b).ok()) else { continue };
-        let pending: Vec<Correction> = fixes.corrections.into_iter().filter(|c| !in_glossary(&glossary, c)).collect();
-        let Some(vtt) = (!pending.is_empty()).then(|| fs::read_to_string(dir.join(VTT)).ok()).flatten() else { continue };
-        for a in transcript(&vtt, &pending).corrections {
+        let pending = |c: &Correction| !in_glossary(&glossary, c) && !fixes.kept.iter().any(|k| same(k, c));
+        let Some(vtt) = fixes.corrections.iter().any(pending).then(|| fs::read_to_string(dir.join(VTT)).ok()).flatten() else { continue };
+        // All of them applied, so a quote reads as the Transcript tab does.
+        for a in transcript(&vtt, &fixes.corrections).corrections.into_iter().filter(|a| pending(&a.correction)) {
             let (from, to) = (a.correction.from.trim(), a.correction.to.trim());
             match out.iter_mut().find(|r| (r.correction.from.as_str(), r.correction.to.as_str()) == (from, to)) {
                 Some(r) if r.meetings.iter().any(|m| m.0 == l.id) => r.places += a.count,
@@ -752,6 +839,7 @@ pub fn review(library: &Path) -> Vec<Review> {
                     correction: Correction { from: from.into(), to: to.into(), reason: a.correction.reason },
                     places: a.count,
                     meetings: vec![(l.id.clone(), l.meeting.subject.clone())],
+                    place: a.places.into_iter().next(),
                 }),
             }
         }
@@ -1122,6 +1210,43 @@ Ask Robin about the 403
         assert!(fs::read_to_string(lib.join("B").join(SUMMARY_JSON)).unwrap().contains("\"rejected\""));
         fs::write(lib.join(GLOSSARY), "cash -> cache\nfelter -> filter\nKatia -> Katya\nPrya -> Priya\n").unwrap();
         assert!(review(&lib).is_empty());
+    }
+
+    #[test]
+    fn places_quote_five_words_either_side_and_heard_marks_rejected_words() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Prya>one two three four five six felter seven eight nine ten eleven twelve</v>\n\n\
+                   00:00:03.000 --> 00:00:04.000\n<v Sam>The felter, and cash.</v>\n";
+        let t = transcript(vtt, &[fix("felter", "filter", ""), fix("Prya", "Priya", "")]);
+        let place = |turn: usize, before: &str, word: &str, after: &str| Place { turn, before: before.into(), word: word.into(), after: after.into() };
+        assert_eq!(
+            t.corrections[0].places,
+            [place(0, "…two three four five six ", "filter", " seven eight nine ten eleven…"), place(1, "The ", "filter", ", and cash.")]
+        );
+        assert_eq!(t.corrections[1].places, [place(0, "", "Priya", "")]);
+        let r = heard(&t.turns, &[fix("cash", "cache", ""), fix("never", "x", "")]);
+        assert_eq!((&r[0].places, r[0].count, r[1].count), (&vec![place(1, "The filter, and ", "cash", ".")], 1, 0));
+    }
+
+    #[test]
+    fn keep_leaves_the_correction_applied_and_out_of_review_and_waits_for_a_running_summary() {
+        let lib = temp("keep");
+        for (id, start) in [("A", "2026-11-02T10:00:00Z"), ("B", "2026-11-03T10:00:00Z")] {
+            let dir = lib.join(id);
+            fs::create_dir_all(&dir).unwrap();
+            save(&dir, &Meeting { subject: id.into(), start: Some(DateTime::parse_from_rfc3339(start).unwrap()), ..Meeting::default() }).unwrap();
+            fs::write(dir.join(VTT), FELTER).unwrap();
+            fs::write(dir.join(SUMMARY_JSON), serde_json::json!({ "corrections": [{ "from": "felter", "to": "filter", "reason": "term" }] }).to_string()).unwrap();
+        }
+        let r = review(&lib);
+        assert_eq!(r[0].place, Some(Place { turn: 0, before: "We keep the ".into(), word: "filter".into(), after: " rule as it is. The…".into() }));
+        keep(&lib, &["B".into()], &fix("felter", "filter", "")).unwrap();
+        let b: serde_json::Value = serde_json::from_slice(&fs::read(lib.join("B").join(SUMMARY_JSON)).unwrap()).unwrap();
+        assert_eq!((b["corrections"][0]["from"].as_str(), b["kept"][0]["from"].as_str(), b["kept"][0]["reason"].as_str()), (Some("felter"), Some("felter"), Some("term")));
+        assert!(fs::read_to_string(lib.join("B").join(TRANSCRIPT_MD)).unwrap().contains("We keep the filter rule"));
+        assert_eq!(review(&lib)[0].meetings, [("A".to_string(), "A".to_string())]);
+        save(&lib.join("A"), &Meeting { subject: "A".into(), state: State::Summarising, ..Meeting::default() }).unwrap();
+        assert_eq!(keep(&lib, &["A".into()], &fix("felter", "filter", "")).unwrap_err(), "A summary is running for A. Keep it when it finishes.");
+        assert!(!fs::read_to_string(lib.join("A").join(SUMMARY_JSON)).unwrap().contains("kept"));
     }
 
     /// Meeting A and B, as a capture and the notes tab would leave them.

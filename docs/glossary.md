@@ -7,11 +7,15 @@ The **Glossary** button (the book, beside Import transcript) opens a page for ev
 The page has two lists, one under the other:
 
 - **To review**: corrections summaries made that are not in your glossary. The same correction in several meetings
-  is one row, with its reason, how many places it changed in all of them, and a link to each meeting (it opens that
-  meeting's Transcript). **Add to glossary** adds it to the glossary as a hint for later summaries. **Reject** says it
+  is one row, with its reason, how many places it changed in all of them, a link to each meeting (it opens that
+  meeting's Transcript), and a quote of about ten words around its first place in the first meeting listed (it opens
+  that meeting's Transcript at that turn, highlighted). **Add to glossary** adds it to the glossary as a hint for later
+  summaries. **Keep** says it was right in the meetings listed but is not for the glossary: it stays corrected there and
+  leaves this page ("Kept in 2 meetings. It stays corrected there."). **Reject** says it
   was wrong in the meetings listed: it is taken out of them, so their Transcript shows what Teams heard (the summary
   text stays as written). Nothing is sent to later summaries, so if a later meeting makes the same correction it shows
-  here again. **Add all to glossary** and **Reject all** do the same for every row; Reject all asks first. A rejected
+  here again. **Add all to glossary**, **Keep all** and **Reject all** do the same for every row; only Reject all asks
+  first. A kept correction is kept in the meeting's `summary.json` (its `kept` list) until the summary is re-run. A rejected
   correction leaves this page; it is listed as Rejected on that meeting's Transcript, where **Restore** applies it again
   (and it shows here again). It is kept in the meeting's `summary.json` (its `rejected` list) until the summary is
   re-run.
