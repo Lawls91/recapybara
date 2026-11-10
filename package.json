@@ -29,5 +29,10 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4"
+  },
+  "overrides": {
+    "glob@^10.0.0": { "minimatch": "^11.0.1" },
+    "readdir-glob@^3.0.0": { "minimatch": "^11.0.1" },
+    "serialize-javascript": "^7.1.3"
   }
 }
