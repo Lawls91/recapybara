@@ -294,7 +294,7 @@ async fn get_glossary(app: AppHandle) -> Result<GlossaryPage, String> {
     let lib = library_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let text = std::fs::read_to_string(lib.join(library::GLOSSARY)).unwrap_or_default();
-        GlossaryPage { review: library::review(&lib), entries: library::entries(&text) }
+        GlossaryPage { review: library::review(&lib, chrono::Utc::now()), entries: library::entries(&text) }
     })
     .await
     .map_err(|e| e.to_string())

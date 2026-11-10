@@ -810,9 +810,16 @@ pub struct Review {
     pub place: Option<Place>,
 }
 
+// ponytail: fixed thresholds for To review; make them settings if they need tuning per user.
+/// A correction is to review once this many distinct meetings made it; a one-off stays on its Transcript strip only.
+pub const REVIEW_MIN_MEETINGS: usize = 2;
+/// A row ages out when its newest meeting started more than this many days before now (nothing is written).
+pub const REVIEW_MAX_AGE_DAYS: i64 = 14;
+
 /// The Glossary page's To review: every meeting's `summary.json` corrections that changed a word in its transcript
-/// and are not in the glossary. Its length is the glossary button's badge.
-pub fn review(library: &Path) -> Vec<Review> {
+/// and are not in the glossary, listed when `REVIEW_MIN_MEETINGS` meetings made the same one and the newest of them
+/// started within `REVIEW_MAX_AGE_DAYS` of `now`. Its length is the glossary button's badge.
+pub fn review(library: &Path, now: DateTime<chrono::Utc>) -> Vec<Review> {
     #[derive(Deserialize, Default)]
     #[serde(default)]
     struct Fixes {
@@ -821,7 +828,9 @@ pub fn review(library: &Path) -> Vec<Review> {
     }
     let glossary = fs::read_to_string(library.join(GLOSSARY)).unwrap_or_default();
     let mut out: Vec<Review> = vec![];
+    let mut starts = std::collections::HashMap::new();
     for l in list(library) {
+        starts.insert(l.id.clone(), l.meeting.start);
         let dir = library.join(&l.id);
         let Some(fixes) = fs::read(dir.join(SUMMARY_JSON)).ok().and_then(|b| serde_json::from_slice::<Fixes>(&b).ok()) else { continue };
         let pending = |c: &Correction| !in_glossary(&glossary, c) && !fixes.kept.iter().any(|k| same(k, c));
@@ -844,6 +853,10 @@ pub fn review(library: &Path) -> Vec<Review> {
             }
         }
     }
+    let since = now - chrono::Duration::days(REVIEW_MAX_AGE_DAYS);
+    // A meeting with no start (none is made without one) never ages a row out.
+    let recent = |id: &String| starts.get(id).copied().flatten().is_none_or(|s| s >= since);
+    out.retain(|r| r.meetings.len() >= REVIEW_MIN_MEETINGS && r.meetings.iter().any(|m| recent(&m.0)));
     out
 }
 
@@ -1149,9 +1162,14 @@ Ask Robin about the 403
         assert_eq!(read(), "Orbit\r\n");
     }
 
-    #[test]
-    fn review_groups_each_pending_pair_across_meetings_with_its_places() {
-        let lib = temp("review");
+    /// "Now" for To review: a week after meetings A (2 Nov) and B (3 Nov).
+    fn now() -> DateTime<chrono::Utc> {
+        "2026-11-10T00:00:00Z".parse().unwrap()
+    }
+
+    /// Meetings A and B both correct felter; each also has a one-off (Katia in A, Prya and cash in B).
+    fn review_library(name: &str) -> PathBuf {
+        let lib = temp(name);
         let meeting = |folder: &str, subject: &str, start: &str, vtt: &str, fixes: serde_json::Value| {
             let dir = lib.join(folder);
             fs::create_dir_all(&dir).unwrap();
@@ -1171,16 +1189,42 @@ Ask Robin about the 403
             { "from": "Prya", "to": "Priya", "reason": "attendee" },
             { "from": "cash", "to": "cache", "reason": "term" },
         ]));
+        lib
+    }
+
+    #[test]
+    fn review_skips_a_correction_made_in_one_meeting_only() {
+        let lib = review_library("review-one");
+        assert!(review(&lib, now()).iter().all(|r| !["Katia", "Prya", "cash"].contains(&r.correction.from.as_str())));
+    }
+
+    #[test]
+    fn review_lists_the_same_correction_in_two_meetings_once() {
+        let lib = review_library("review-two");
+        let r = review(&lib, now());
+        assert_eq!((r.len(), r[0].correction.from.as_str(), r[0].meetings.len()), (1, "felter", 2));
+    }
+
+    #[test]
+    fn review_drops_a_row_whose_meetings_are_all_older_than_14_days() {
+        let lib = review_library("review-old");
+        // A started 16 days before, B 15 days and a minute before.
+        assert!(review(&lib, "2026-11-18T10:01:00Z".parse().unwrap()).is_empty());
+    }
+
+    #[test]
+    fn review_lists_a_row_with_one_old_and_one_recent_meeting() {
+        let lib = review_library("review-mixed");
+        // A started 15 days before, B exactly 14.
+        assert_eq!(review(&lib, "2026-11-17T10:00:00Z".parse().unwrap()).len(), 1);
+    }
+
+    #[test]
+    fn review_groups_each_pending_pair_across_meetings_with_its_places() {
+        let lib = review_library("review");
         fs::write(lib.join(GLOSSARY), "cash -> cache\n").unwrap();
-        let got: Vec<_> = review(&lib).into_iter().map(|r| (r.correction.from, r.correction.to, r.places, r.meetings.into_iter().map(|m| m.1).collect::<Vec<_>>())).collect();
-        assert_eq!(
-            got,
-            [
-                ("felter".into(), "filter".into(), 3, vec!["Design sync".to_string(), "Felter review".into()]),
-                ("Prya".into(), "Priya".into(), 1, vec!["Design sync".into()]),
-                ("Katia".into(), "Katya".into(), 1, vec!["Felter review".into()]),
-            ]
-        );
+        let got: Vec<_> = review(&lib, now()).into_iter().map(|r| (r.correction.from, r.correction.to, r.places, r.meetings.into_iter().map(|m| m.1).collect::<Vec<_>>())).collect();
+        assert_eq!(got, [("felter".into(), "filter".into(), 3, vec!["Design sync".to_string(), "Felter review".into()])]);
         // Reject felter in B only: B's summary.json and transcript.md lose it, A keeps it, and nothing reaches the glossary.
         reject(&lib, &["B".into()], &fix(" felter", "filter", "")).unwrap();
         let b_json: serde_json::Value = serde_json::from_slice(&fs::read(lib.join("B").join(SUMMARY_JSON)).unwrap()).unwrap();
@@ -1188,8 +1232,7 @@ Ask Robin about the 403
         assert_eq!((froms("corrections"), froms("rejected"), &b_json["overview"]), (vec!["Prya".into(), "cash".into()], vec!["felter".into()], &serde_json::json!("x")));
         let b_md = fs::read_to_string(lib.join("B").join(TRANSCRIPT_MD)).unwrap();
         assert!(b_md.contains("The felter, then the felter again") && b_md.contains("Priya"), "{b_md}");
-        let felter = review(&lib).into_iter().find(|r| r.correction.from == "felter").unwrap();
-        assert_eq!(felter.meetings, [("A".to_string(), "Felter review".to_string())]);
+        assert!(review(&lib, now()).is_empty(), "felter is left in A only");
         assert_eq!(fs::read_to_string(lib.join(GLOSSARY)).unwrap(), "cash -> cache\n");
         // Refused untouched while A's summary runs.
         save(&lib.join("A"), &Meeting { subject: "Felter review".into(), state: State::Summarising, ..Meeting::default() }).unwrap();
@@ -1201,7 +1244,7 @@ Ask Robin about the 403
         let froms = |k: &str| b_json[k].as_array().unwrap().iter().map(|c| c["from"].as_str().unwrap().to_string()).collect::<Vec<_>>();
         assert_eq!((froms("corrections"), froms("rejected")), (vec!["Prya".to_string(), "cash".into(), "felter".into()], vec![]));
         assert!(fs::read_to_string(lib.join("B").join(TRANSCRIPT_MD)).unwrap().contains("The filter, then the filter again"));
-        let felter = review(&lib).into_iter().find(|r| r.correction.from == "felter").unwrap();
+        let felter = review(&lib, now()).into_iter().find(|r| r.correction.from == "felter").unwrap();
         assert_eq!(felter.meetings.len(), 2);
         // Restore is refused while the meeting's summary runs.
         reject(&lib, &["B".into()], &fix("felter", "filter", "")).unwrap();
@@ -1209,7 +1252,7 @@ Ask Robin about the 403
         assert_eq!(restore(&lib, "B", &fix("felter", "filter", "")).unwrap_err(), "A summary is running for B. Restore it when it finishes.");
         assert!(fs::read_to_string(lib.join("B").join(SUMMARY_JSON)).unwrap().contains("\"rejected\""));
         fs::write(lib.join(GLOSSARY), "cash -> cache\nfelter -> filter\nKatia -> Katya\nPrya -> Priya\n").unwrap();
-        assert!(review(&lib).is_empty());
+        assert!(review(&lib, now()).is_empty());
     }
 
     #[test]
@@ -1237,13 +1280,13 @@ Ask Robin about the 403
             fs::write(dir.join(VTT), FELTER).unwrap();
             fs::write(dir.join(SUMMARY_JSON), serde_json::json!({ "corrections": [{ "from": "felter", "to": "filter", "reason": "term" }] }).to_string()).unwrap();
         }
-        let r = review(&lib);
+        let r = review(&lib, now());
         assert_eq!(r[0].place, Some(Place { turn: 0, before: "We keep the ".into(), word: "filter".into(), after: " rule as it is. The…".into() }));
         keep(&lib, &["B".into()], &fix("felter", "filter", "")).unwrap();
         let b: serde_json::Value = serde_json::from_slice(&fs::read(lib.join("B").join(SUMMARY_JSON)).unwrap()).unwrap();
         assert_eq!((b["corrections"][0]["from"].as_str(), b["kept"][0]["from"].as_str(), b["kept"][0]["reason"].as_str()), (Some("felter"), Some("felter"), Some("term")));
         assert!(fs::read_to_string(lib.join("B").join(TRANSCRIPT_MD)).unwrap().contains("We keep the filter rule"));
-        assert_eq!(review(&lib)[0].meetings, [("A".to_string(), "A".to_string())]);
+        assert!(review(&lib, now()).is_empty(), "kept in B, so A's alone is a one-off");
         save(&lib.join("A"), &Meeting { subject: "A".into(), state: State::Summarising, ..Meeting::default() }).unwrap();
         assert_eq!(keep(&lib, &["A".into()], &fix("felter", "filter", "")).unwrap_err(), "A summary is running for A. Keep it when it finishes.");
         assert!(!fs::read_to_string(lib.join("A").join(SUMMARY_JSON)).unwrap().contains("kept"));
