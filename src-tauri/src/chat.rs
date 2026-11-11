@@ -107,7 +107,8 @@ pub fn run_for(uri: &str) -> ClaudeRun {
         allowed_tools: &[READ],
         capture: &[READ],
         args: vec![],
-        env: &[NO_TOOL_SEARCH],
+        // A channel meeting's page passes the default MCP output limit.
+        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000"), NO_TOOL_SEARCH],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -409,6 +410,13 @@ mod tests {
         assert_eq!(thread("https://teams.example/j/1"), None, "no meetup-join: no chat to read");
         assert_eq!(thread("https://teams.example/l/meetup-join/refinement"), None);
         assert_eq!(decode("a%3Ab%40c%zz%4"), "a:b@c%zz%4", "a broken escape is kept");
+    }
+
+    #[test]
+    fn the_chat_run_raises_the_mcp_output_limit() {
+        let r = run_for(&uri_());
+        assert_eq!(r.env, [("MAX_MCP_OUTPUT_TOKENS", "200000"), ("ENABLE_TOOL_SEARCH", "false")]);
+        assert!(r.prompt.contains(&uri_()));
     }
 
     #[test]
