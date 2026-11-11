@@ -74,6 +74,8 @@ ended**. Then:
 
 - a transcript that arrives at any attempt is saved and summarised;
 - still nothing after the last check: **No transcript**;
+- the meeting's chat (see below) shows no call by 30 minutes after the scheduled end: **No transcript** at once,
+  its card saying "The call never started.", with no more checks;
 - still failing after the last check: **Capture failed**;
 - a 403 (access refused): **Not reachable** at once, with no more attempts;
 - Teams sends a size-limit notice or something else that isn't a transcript: **Capture failed** at once, with a

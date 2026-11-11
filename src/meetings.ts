@@ -129,10 +129,10 @@ export const STATE_CARDS: Partial<Record<State, string>> = {
 
 export const needsTranscript = (s: State) => s === "noTranscript" || s === "notReachable" || s === "captureFailed";
 
-/** Why a capture failure state has no transcript, for its card: the state's own reason, and Capture failed's from the
- * recorded attempt. The card's actions are Try again and Import transcript. */
+/** Why a capture failure state has no transcript, for its card: the state's own reason, and Capture failed's (or No
+ * transcript's, when the call never started) from the recorded attempt. The card's actions are Try again and Import transcript. */
 export function failureReason(m: Meeting): string {
-  if (m.state === "noTranscript") return "Teams had no transcript for this meeting (transcription may have been off).";
+  if (m.state === "noTranscript") return m.fetchError || "Teams had no transcript for this meeting (transcription may have been off).";
   if (m.state === "notReachable")
     return "Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).";
   return m.fetchError || "The last attempt saved no transcript, and recorded no reason.";

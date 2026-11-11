@@ -298,6 +298,23 @@ pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, no
     Some(l.id)
 }
 
+pub const NO_CALL: &str = "The call never started.";
+
+/// The chat says folder `id`'s call never started (chat::tick): still on its schedule, it is No transcript now, saying
+/// so, its attempts left not run. Under the event's claim, as note_chat; while a fetch has it, nothing changes (the
+/// next tick tries again). Returns whether it changed.
+pub fn no_call(lib: &Path, e: &Event, id: &str) -> bool {
+    let Some(_one) = claim(lib, &e.id) else { return false };
+    let dir = lib.join(id);
+    let _note = noting();
+    let Ok(m) = library::load(&dir) else { return false };
+    if !matches!(m.state, State::Scheduled | State::AwaitingTranscript) || m.skipped || dir.join(library::VTT).exists() {
+        return false;
+    }
+    let m = Meeting { state: State::NoTranscript, next_attempt: None, fetch_error: Some(NO_CALL.into()), ..m };
+    library::save(&dir, &m).map_err(|err| eprintln!("chat: {id} not updated: {err}")).is_ok()
+}
+
 /// A meeting not yet captured, by its end: upcoming, Scheduled with its first attempt at the end; ended within
 /// the catch-up window, due now; ended before that, No transcript (its fix the manual import).
 fn schedule(end: Option<DateTime<Utc>>, now: DateTime<Utc>) -> (State, Option<DateTime<FixedOffset>>) {
@@ -392,7 +409,8 @@ pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meetin
     } else {
         schedule(end, now)
     };
-    let m = Meeting { state, next_attempt, skipped: false, ..m };
+    // A reason from before the skip no longer holds.
+    let m = Meeting { state, next_attempt, skipped: false, fetch_error: None, ..m };
     library::save(dir, &m).map_err(|e| e.to_string())?;
     Ok(m)
 }

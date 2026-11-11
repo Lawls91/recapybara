@@ -169,6 +169,7 @@ test("a meeting with a summary offers Copy summary and Copy actions; one without
 test("each capture failure's card says why: its state's reason, and Capture failed the recorded attempt's", () => {
   const failed = (state: Meeting["state"], fetchError?: string) => failureReason({ ...meeting(state), hasTranscript: false, hasSummary: false, fetchError });
   expect(failed("noTranscript")).toBe("Teams had no transcript for this meeting (transcription may have been off).");
+  expect(failed("noTranscript", "The call never started.")).toBe("The call never started.");
   expect(failed("notReachable")).toBe("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
   expect(failed("captureFailed", "Teams sent a size-limit notice instead of the transcript.")).toBe("Teams sent a size-limit notice instead of the transcript.");
   expect(failed("captureFailed")).toBe("The last attempt saved no transcript, and recorded no reason."); // a folder from before reasons were kept
