@@ -11,6 +11,7 @@ Each row's **...** button (or a right-click on the row) opens its menu. An open 
 | Import transcript | | No transcript, Not reachable or Capture failed (shown first, in bold). |
 | Re-run summary | | There is a summary and no summary is running. On Summary failed it is shown first, in bold (Run summary if there was never a summary). |
 | Replace transcript… | | There is a transcript and no summary is running. |
+| Fetch again from Teams | | A Teams meeting with a transcript, not skipped or excluded, and no summary or fetch running for it. |
 | Copy summary, Copy actions | | There is a summary. |
 | Open folder | | The meeting has a folder in the library. |
 | Skip | S | The meeting can still be fetched: Scheduled, In progress or Awaiting transcript. |
@@ -80,6 +81,15 @@ confirms the copy.
 
 Picks a `.vtt` file to use as the meeting's transcript instead of the one it has, then writes the summary again. It is
 refused while a summary is running, and on a skipped meeting (Unskip it first).
+
+## Fetch again from Teams
+
+Use it when a transcript misses part of the call. Teams splits a call's transcript into parts when transcription
+stops and starts again, and a meeting captured before every part was published has only the first. **Fetch again from
+Teams** reads the meeting's transcript from Teams once more, every part it has now, merged on one timeline. If that
+differs from the transcript the meeting has, it replaces it (My notes are left untouched) and the summary is written
+again. If it is the same, nothing changes and a notice says "Already up to date with Teams." If Teams can't be read,
+or has no transcript, nothing changes and the notice says why.
 
 ## Run summary and Re-run summary
 

@@ -543,6 +543,32 @@ async fn retry_fetch(app: AppHandle, id: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Fetch again from Teams (fetch::again): a transcript that changed starts its summary, as Replace transcript does.
+/// Returns whether it changed; a failure's reason is the error.
+#[tauri::command]
+async fn fetch_again(app: AppHandle, id: String) -> Result<bool, String> {
+    let lib = library_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (runs, home, program) = (state.data_dir.join("runs"), state.home.clone(), claude::program());
+        let excluded = || state.settings.lock().unwrap().excluded();
+        let started = || {
+            let _ = app.emit("meeting-changed", &id);
+        };
+        let changed = fetch::again(&lib, &id, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r), || claude::session_version(&program), excluded, started);
+        let _ = app.emit("meeting-changed", &id); // no longer fetching
+        if changed? {
+            if let Err(e) = start_summary(&app, &id) {
+                eprintln!("summary not started for {id}: {e}"); // the transcript itself landed
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Import from Teams' Search: one calendar search run per picked date (`YYYY-MM-DD`, local). Its eligible events
 /// wait for Import; returns them (id, subject, start, organiser) for the review list, how many were left out and how
 /// many couldn't be read. Nothing is fetched.
@@ -995,6 +1021,7 @@ pub fn run() {
             calendar_status,
             list_meetings,
             retry_fetch,
+            fetch_again,
             get_transcript,
             add_to_glossary,
             get_glossary,
