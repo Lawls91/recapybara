@@ -1125,13 +1125,13 @@ function attachStrip() {
     <button id="attach-choose" class="btn">Choose file</button></div>`;
 }
 
-/** A capture failure's card (mirrors Summary failed's): why, then Try again and Import transcript. While its fetch
- * runs, it says so, and Try again stays focusable but does nothing. */
+/** A capture failure's card (mirrors Summary failed's), and Didn't happen's (not drawn as a failure): why, then Try
+ * again and Import transcript. While its fetch runs, it says so, and Try again stays focusable but does nothing. */
 function fetchCard(m: Meeting) {
   const busy = !!m.fetching || retrying.has(m.id);
   const title = busy ? `<i class="spin"></i>Fetching transcript` : STATES[m.state].label;
   const why = busy ? "Asking Teams for this meeting’s transcript again…" : failureReason(m);
-  return `<div class="card${busy ? "" : " err"}" id="fetch-card"><h5>${title}</h5><p id="fetch-reason">${esc(why)}</p>
+  return `<div class="card${busy || STATES[m.state].family !== "fail" ? "" : " err"}" id="fetch-card"><h5>${title}</h5><p id="fetch-reason">${esc(why)}</p>
     <div class="acts"><button class="btn pri" id="fetch-retry"${busy ? ` aria-disabled="true"` : ""}>Try again</button><button class="btn" id="import-now">Import transcript</button></div></div>`;
 }
 

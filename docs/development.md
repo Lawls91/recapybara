@@ -98,7 +98,7 @@ any state:
 ```
 
 - `state` is one of `scheduled`, `inCall` (shown as In progress), `awaitingTranscript`, `noTranscript`,
-  `notReachable`, `captureFailed`, `transcriptReady`, `summarising`, `done` (Summary ready), `summaryFailed`,
+  `didNotHappen` (Didn't happen), `notReachable`, `captureFailed`, `transcriptReady`, `summarising`, `done` (Summary ready), `summaryFailed`,
   `skipped`.
 - A `summary.md` in the folder makes the summary action read "Re-run summary".
 - A fetch due at start: `"state": "awaitingTranscript"` with a past `nextAttempt` and a `transcriptUrl`.

@@ -298,10 +298,8 @@ pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, no
     Some(l.id)
 }
 
-pub const NO_CALL: &str = "The call never started.";
-
-/// The chat says folder `id`'s call never started (chat::tick): still on its schedule, it is No transcript now, saying
-/// so, its attempts left not run. Under the event's claim, as note_chat; while a fetch has it, nothing changes (the
+/// The chat says folder `id`'s call never started (chat::tick): still on its schedule, it is Didn't happen now, its
+/// attempts left not run. Under the event's claim, as note_chat; while a fetch has it, nothing changes (the
 /// next tick tries again). Returns whether it changed.
 pub fn no_call(lib: &Path, e: &Event, id: &str) -> bool {
     let Some(_one) = claim(lib, &e.id) else { return false };
@@ -311,7 +309,7 @@ pub fn no_call(lib: &Path, e: &Event, id: &str) -> bool {
     if !matches!(m.state, State::Scheduled | State::AwaitingTranscript) || m.skipped || dir.join(library::VTT).exists() {
         return false;
     }
-    let m = Meeting { state: State::NoTranscript, next_attempt: None, fetch_error: Some(NO_CALL.into()), ..m };
+    let m = Meeting { state: State::DidNotHappen, next_attempt: None, fetch_error: None, ..m };
     library::save(&dir, &m).map_err(|err| eprintln!("chat: {id} not updated: {err}")).is_ok()
 }
 
@@ -589,7 +587,7 @@ pub fn tick(
     done
 }
 
-/// Try again on a No transcript, Not reachable or Capture failed meeting: one attempt now, through the scheduler's own
+/// Try again on a No transcript, Didn't happen, Not reachable or Capture failed meeting: one attempt now, through the scheduler's own
 /// fetch code and claim, so a late transcript or newly granted access can change the answer. `started` is called once
 /// the meeting is taken, so its row can show it fetching. Refused when another fetch has it, it isn't in one of
 /// those states, or its series is excluded. Returns the meeting as it now stands.
@@ -608,7 +606,7 @@ pub fn retry(
     let _one = claim(lib, m.event_id.as_deref().unwrap_or(id)).ok_or("This meeting is being fetched already.")?;
     // Read again once taken: a fetch or an import may have landed meanwhile.
     let m = library::load(&dir).map_err(|e| e.to_string())?;
-    if !matches!(m.state, State::NoTranscript | State::NotReachable | State::CaptureFailed) || dir.join(library::VTT).exists() {
+    if !matches!(m.state, State::NoTranscript | State::DidNotHappen | State::NotReachable | State::CaptureFailed) || dir.join(library::VTT).exists() {
         return Err("Only a meeting whose capture failed can be fetched again.".into());
     }
     // Never fetched, from a stale page or a direct call alike.
@@ -1758,6 +1756,11 @@ mod tests {
         assert_eq!(m.fetch_error.as_deref(), Some("Reading the transcript failed: MCP error -32001: synthetic timeout"));
         let m = retry(&lib, &id, now, answer(blocks(&body(&[]))), none, Vec::new, || {}).unwrap();
         assert_eq!((m.state, m.fetch_error, m.attempts), (State::NoTranscript, None, 8));
+        // Didn't happen (stored as "didNotHappen"): Try again as on No transcript, an empty list is No transcript.
+        library::save(&lib.join(&id), &Meeting { state: State::DidNotHappen, ..only(&lib) }).unwrap();
+        assert!(fs::read_to_string(lib.join(&id).join(library::META)).unwrap().contains(r#""state": "didNotHappen""#));
+        let m = retry(&lib, &id, now, answer(blocks(&body(&[]))), none, Vec::new, || {}).unwrap();
+        assert_eq!((m.state, m.fetch_error, m.attempts), (State::NoTranscript, None, 9));
 
         // Its series excluded (a stale page, a direct call): refused before any run.
         assert_eq!(retry(&lib, &id, now, |_| panic!("excluded"), none, || vec!["https://teams.example/j/1".into()], || panic!("excluded")).unwrap_err(), "This meeting's series is excluded.");

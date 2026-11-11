@@ -14,12 +14,12 @@ dated by the file's modified time. Its summary starts at once; the status line u
 
 ## Attach a transcript to a meeting
 
-For a meeting the app couldn't fetch (No transcript, Not reachable, Capture failed) or is still waiting for
+For a meeting the app couldn't fetch (No transcript, Didn't happen, Not reachable, Capture failed) or is still waiting for
 (Awaiting transcript):
 
-- press **Import transcript** on its card and pick the `.vtt` (the three failure states also have it on their
+- press **Import transcript** on its card and pick the `.vtt` (those four also have it on their
   **...** menu), or
-- for the three failure states, drop the `.vtt` on the **Attach the transcript** strip under the card.
+- for those four, drop the `.vtt` on the **Attach the transcript** strip under the card.
 
 The transcript joins that meeting and its summary starts. To swap a transcript a meeting already has, use
 [Replace transcript…](meeting-actions.md#replace-transcript).
