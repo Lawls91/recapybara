@@ -397,10 +397,15 @@ pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meetin
     Ok(m)
 }
 
+/// The capture's `transcript.vtt`: one part exactly as captured, several merged.
+fn transcript_of(parts: &[Part]) -> String {
+    if parts.len() == 1 { parts[0].content.clone() } else { merge(parts) }
+}
+
 /// Writes the capture: one part as `transcript.vtt` exactly; several as `transcript.part<n>.vtt` each, plus
 /// the merged `transcript.vtt`.
 fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
-    let vtt = if parts.len() == 1 { parts[0].content.clone() } else { merge(parts) };
+    let vtt = transcript_of(parts);
     if parts.len() > 1 {
         for (n, p) in parts.iter().enumerate() {
             library::write_atomic(&dir.join(format!("transcript.part{}.vtt", n + 1)), p.content.as_bytes())?;
@@ -410,22 +415,13 @@ fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
     Ok(library::sha256(vtt.as_bytes()))
 }
 
-/// One attempt for the meeting in `dir`: the outcome goes in `meeting.json`, a failure's reason as `fetchError`.
-/// A meeting that left the state it was in (`m`'s) during the run, a manual import say, is left as it is.
-fn attempt(
-    dir: &Path,
-    m: &Meeting,
-    now: DateTime<Utc>,
-    run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>,
-    version: &impl Fn() -> Option<String>,
-    excluded: &impl Fn() -> Vec<String>,
-) -> io::Result<Meeting> {
+/// The fetch run for meeting `m`, judged.
+fn verdict(m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>) -> Attempt {
     let url = m.transcript_url.clone().unwrap_or_default();
     // No end, no schedule to keep: fail closed rather than retry forever.
     let end: DateTime<Utc> = m.end.map(Into::into).unwrap_or(now);
     let start = m.start.map(Into::into).unwrap_or(end);
-    let ver = version();
-    let outcome = if m.end.is_none() {
+    if m.end.is_none() {
         Attempt::Invalid("The meeting has no end time.".into())
     } else if url.is_empty() {
         Attempt::Missed("The calendar event has no Teams transcript link.".into())
@@ -440,7 +436,22 @@ fn attempt(
                 })
             }
         }
-    };
+    }
+}
+
+/// One attempt for the meeting in `dir`: the outcome goes in `meeting.json`, a failure's reason as `fetchError`.
+/// A meeting that left the state it was in (`m`'s) during the run, a manual import say, is left as it is.
+fn attempt(
+    dir: &Path,
+    m: &Meeting,
+    now: DateTime<Utc>,
+    run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>,
+    version: &impl Fn() -> Option<String>,
+    excluded: &impl Fn() -> Vec<String>,
+) -> io::Result<Meeting> {
+    let end: DateTime<Utc> = m.end.map(Into::into).unwrap_or(now);
+    let ver = version();
+    let outcome = verdict(m, now, run);
     let was = m.state;
     let mut m = library::load(dir).unwrap_or_else(|_| m.clone());
     // Left "awaiting" (or Try again's failure state) during the run (an import, a Skip), or its series excluded
@@ -589,6 +600,62 @@ pub fn retry(
     _one.fetch();
     started();
     attempt(&dir, &m, now, &mut run, &version, &excluded).map_err(|e| e.to_string())
+}
+
+/// Fetch again from Teams on a meeting with a transcript and a Teams transcript link: one read now, through the
+/// fetch code and claim, every part Teams has kept (no waiting for more). A transcript that differs replaces
+/// `transcript.vtt` (and its parts) as Replace transcript would, notes untouched, and the meeting is Transcript ready
+/// for its summary: returns true. The same transcript changes nothing: false. Any failure changes nothing either and
+/// is the error, as is a refusal: another fetch has it, it is skipped, excluded or summarising.
+#[allow(clippy::too_many_arguments)]
+pub fn again(
+    lib: &Path,
+    id: &str,
+    now: DateTime<Utc>,
+    mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>,
+    version: impl Fn() -> Option<String>,
+    excluded: impl Fn() -> Vec<String>,
+    started: impl FnOnce(),
+) -> Result<bool, String> {
+    let dir = library::meeting_dir(lib, id)?;
+    let m = library::load(&dir).map_err(|_| format!("Not a meeting: {id}"))?;
+    let one = claim(lib, m.event_id.as_deref().unwrap_or(id)).ok_or("This meeting is being fetched already.")?;
+    // Read again once taken, and again after the run: a Replace transcript, a summary or a Skip may land meanwhile.
+    let check = || -> Result<(Meeting, Vec<u8>), String> {
+        let m = library::load(&dir).map_err(|e| e.to_string())?;
+        let vtt = std::fs::read(dir.join(library::VTT)).map_err(|_| "This meeting has no transcript to fetch again.")?;
+        match m.state {
+            State::Skipped => Err("This meeting is skipped. Unskip it first.".into()),
+            State::Summarising => Err("A summary is running for this meeting. Fetch again when it finishes.".into()),
+            _ if m.transcript_url.as_deref().unwrap_or_default().is_empty() => Err("This meeting has no Teams transcript link.".into()),
+            _ if library::excluded(&m, &excluded()) => Err("This meeting's series is excluded.".into()),
+            _ => Ok((m, vtt)),
+        }
+    };
+    let (m, was) = check()?;
+    one.fetch();
+    started();
+    let ver = version();
+    let parts = match verdict(&m, now, &mut run) {
+        Attempt::Captured(parts) => parts,
+        Attempt::Empty => return Err("Teams has no transcript for this meeting now.".into()),
+        Attempt::Unreachable => return Err("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).".into()),
+        Attempt::Invalid(why) | Attempt::Missed(why) => return Err(why),
+    };
+    if transcript_of(&parts).as_bytes() == was {
+        return Ok(false);
+    }
+    let (mut m, vtt) = check()?;
+    if vtt != was {
+        return Err("The transcript changed during the fetch, so it was left as it is.".into());
+    }
+    m.transcript_sha256 = Some(write_capture(&dir, &parts).map_err(|e| e.to_string())?);
+    m.source = Some("connector".into());
+    m.state = State::TranscriptReady;
+    m.last_fetch = Some(now.with_timezone(&Local).fixed_offset());
+    m.claude_version = ver.or(m.claude_version);
+    library::save(&dir, &m).map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 /// Import from Teams' end report: how each folder the import made (`import`'s ids) ended up, one deleted during the
@@ -1685,6 +1752,88 @@ mod tests {
         assert!(fetching(&lib, "SYNTH-1") && library::list(&lib)[0].fetching, "its fetch under way: the list says so");
         drop(held);
         assert!(!library::list(&lib)[0].fetching);
+    }
+
+    /// A summarised meeting captured before split calls were waited for: part 1 only, with the user's notes.
+    fn part_one_only(name: &str) -> (PathBuf, String) {
+        let lib = temp(name);
+        let id = library::create(&lib, &Meeting { state: State::Done, next_attempt: None, ..folder_for(&event(1, start(), end()), end()) }).unwrap();
+        fs::write(lib.join(&id).join(library::VTT), VTT_A).unwrap();
+        fs::write(lib.join(&id).join(library::NOTES_MD), "Synthetic notes.\n").unwrap();
+        (lib, id)
+    }
+    fn teams_has(answer: Value) -> impl FnMut(&ClaudeRun) -> io::Result<Output> {
+        move |_| Ok(Output { stdout: String::new(), captured: vec![read("meeting-transcript:///events/SYNTH-1?start=x&end=y", answer.clone())] })
+    }
+    const MERGED: &str = "WEBVTT\n\nsynth/1-0\n00:00:01.000 --> 00:00:04.000\n<v Speaker A>Synthetic part one opens.</v>\n\n\
+                          synth/2-0\n00:20:05.000 --> 00:20:09.500\n<v Speaker B>Synthetic part two resumes.</v>\n";
+
+    #[test]
+    fn fetch_again_with_a_second_part_there_now_replaces_the_transcript_keeps_the_notes_and_is_ready_for_its_summary() {
+        let (lib, id) = part_one_only("again-differs");
+        let two = blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A), ("2026-11-05T11:20:00Z", VTT_B)]));
+        let started = RefCell::new(false);
+        let now = end() + Duration::days(3);
+        let changed = again(&lib, &id, now, teams_has(two), || Some("9.9.9 (Claude Code)".into()), Vec::new, || *started.borrow_mut() = fetching(&lib, "SYNTH-1"));
+        assert_eq!(changed, Ok(true));
+        assert!(*started.borrow(), "its row shows it fetching while it runs");
+        let dir = lib.join(&id);
+        assert_eq!(fs::read_to_string(dir.join(library::VTT)).unwrap(), MERGED);
+        assert_eq!(fs::read_to_string(dir.join("transcript.part2.vtt")).unwrap(), VTT_B);
+        assert_eq!(fs::read_to_string(dir.join(library::NOTES_MD)).unwrap(), "Synthetic notes.\n");
+        let m = only(&lib);
+        assert_eq!((m.state, m.transcript_sha256, m.claude_version.as_deref()), (State::TranscriptReady, Some(library::sha256(MERGED.as_bytes())), Some("9.9.9 (Claude Code)")));
+        assert!(!fetching(&lib, "SYNTH-1"), "free once landed");
+    }
+
+    #[test]
+    fn fetch_again_with_the_same_transcript_at_teams_changes_nothing() {
+        let (lib, id) = part_one_only("again-same");
+        let before = fs::read(lib.join(&id).join(library::META)).unwrap();
+        assert_eq!(again(&lib, &id, end(), teams_has(blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)]))), none, Vec::new, || {}), Ok(false));
+        assert_eq!(fs::read(lib.join(&id).join(library::META)).unwrap(), before, "still Summary ready, no summary to spend");
+        assert_eq!(fs::read_to_string(lib.join(&id).join(library::VTT)).unwrap(), VTT_A);
+    }
+
+    #[test]
+    fn fetch_again_that_fails_changes_nothing_and_says_why() {
+        let (lib, id) = part_one_only("again-fails");
+        let before = fs::read(lib.join(&id).join(library::META)).unwrap();
+        let cases = [
+            (blocks(&body(&[])), "Teams has no transcript for this meeting now."),
+            (blocks("Error: 403 Forbidden"), "Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads)."),
+            (blocks(r#"{"value":[]}"#), "Teams answered in a shape the app doesn't recognise."),
+            (blocks("Error: synthetic transient failure"), "Teams answered the read with an error."),
+        ];
+        for (answer, why) in cases {
+            assert_eq!(again(&lib, &id, end(), teams_has(answer), none, Vec::new, || {}), Err(why.into()));
+        }
+        assert_eq!(again(&lib, &id, end(), |_| Err(io::Error::other("synthetic crash")), none, Vec::new, || {}), Err("Claude couldn't run: synthetic crash".into()));
+        assert_eq!(fs::read(lib.join(&id).join(library::META)).unwrap(), before);
+        assert_eq!(fs::read_to_string(lib.join(&id).join(library::VTT)).unwrap(), VTT_A);
+    }
+
+    #[test]
+    fn fetch_again_is_refused_while_another_fetch_has_the_meeting_or_it_is_skipped_excluded_or_summarising() {
+        let (lib, id) = part_one_only("again-refused");
+        let held = claim(&lib, "SYNTH-1").unwrap();
+        assert_eq!(again(&lib, &id, end(), |_| panic!("taken"), none, Vec::new, || panic!("taken")), Err("This meeting is being fetched already.".into()));
+        drop(held);
+        let excluded = || vec!["https://teams.example/j/1".to_string()];
+        assert_eq!(again(&lib, &id, end(), |_| panic!("excluded"), none, excluded, || {}), Err("This meeting's series is excluded.".into()));
+        for (state, why) in [(State::Skipped, "This meeting is skipped. Unskip it first."), (State::Summarising, "A summary is running for this meeting. Fetch again when it finishes.")] {
+            library::save(&lib.join(&id), &Meeting { state, ..only(&lib) }).unwrap();
+            assert_eq!(again(&lib, &id, end(), |_| panic!("refused"), none, Vec::new, || {}), Err(why.into()));
+        }
+        // A Replace transcript landing during the run wins: nothing is written over it.
+        library::save(&lib.join(&id), &Meeting { state: State::Done, ..only(&lib) }).unwrap();
+        let mut teams = teams_has(blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A), ("2026-11-05T11:20:00Z", VTT_B)])));
+        let replaced = |r: &ClaudeRun| {
+            fs::write(lib.join(&id).join(library::VTT), VTT_B).unwrap();
+            teams(r)
+        };
+        assert_eq!(again(&lib, &id, end(), replaced, none, Vec::new, || {}), Err("The transcript changed during the fetch, so it was left as it is.".into()));
+        assert_eq!(fs::read_to_string(lib.join(&id).join(library::VTT)).unwrap(), VTT_B);
     }
 
     #[test]

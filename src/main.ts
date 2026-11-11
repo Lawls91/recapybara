@@ -609,6 +609,7 @@ $("row-menu").addEventListener("click", async (e) => {
   else if (action === "folder") await invoke("open_folder", { id: m.id });
   else if (action === "delete") askDelete(m);
   else if (action === "summarise") await runSummary(m.id);
+  else if (action === "fetch-again") await fetchAgain(m);
   else if (action === "skip") await skip(m);
   else if (action === "exclude") await exclude(m);
   else if (action === "include") await include(m.joinUrl!);
@@ -1154,6 +1155,17 @@ async function tryAgain(m: Meeting) {
     retrying.delete(m.id);
     renderDetail();
   }
+}
+
+/** Fetch again from Teams: one read of the meeting's Teams transcript now. A changed transcript replaces it and its
+ * summary starts (the row shows it); the same one, or a failure, changes nothing and the notice says so. */
+async function fetchAgain(m: Meeting) {
+  try {
+    if (!(await invoke<boolean>("fetch_again", { id: m.id }))) notify("Already up to date with Teams.");
+  } catch (e) {
+    notify(String(e));
+  }
+  await loadMeetings();
 }
 
 /** Scheduled, In progress, Awaiting transcript and Skipped: title, time and the state's sentence, plus its action. */

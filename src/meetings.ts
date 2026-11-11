@@ -37,6 +37,8 @@ export interface Meeting {
   fetchError?: string | null;
   /** A fetch attempt for it is running now. */
   fetching?: boolean;
+  /** The calendar event's Teams transcript link, kept from its capture. */
+  transcriptUrl?: string | null;
   /** In progress, and the meeting chat shows no transcription 5 minutes after the call started. */
   transcriptionOff?: boolean;
 }
@@ -236,6 +238,9 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "", bold: true });
   else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "" });
   if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "" });
+  // Read the Teams transcript again (a part published after the capture): never alongside another fetch or run.
+  if (m.hasTranscript && m.transcriptUrl && !busy && !m.fetching && m.state !== "skipped" && !m.excluded)
+    items.push({ id: "fetch-again", label: "Fetch again from Teams", icon: "" });
   // A meeting from the calendar cache has no folder until it is captured.
   // Copy to the clipboard: summary.md as Markdown, or the summary's action items.
   if (m.hasSummary) items.push({ id: "copy-summary", label: "Copy summary", icon: "" }, { id: "copy-actions", label: "Copy actions", icon: "" });

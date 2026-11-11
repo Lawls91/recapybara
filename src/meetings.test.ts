@@ -23,6 +23,16 @@ test("a running summary's menu offers neither Re-run summary nor Replace transcr
   expect(ids("summarising")).not.toContain("replace");
 });
 
+test("Fetch again from Teams needs a transcript and its Teams link, and nothing skipped, excluded or running", () => {
+  const ids = (m: Meeting) => menuFor(m).map((i) => i.id);
+  const teams = { ...meeting("done"), transcriptUrl: "meeting-transcript:///events/SYNTH" };
+  expect(ids(teams)).toContain("fetch-again");
+  expect(ids(teams).indexOf("fetch-again")).toBe(ids(teams).indexOf("replace") + 1);
+  expect(ids(meeting("done"))).not.toContain("fetch-again");
+  for (const m of [{ ...teams, hasTranscript: false }, { ...teams, state: "skipped" as const }, { ...teams, state: "summarising" as const }, { ...teams, fetching: true }, { ...teams, excluded: true }])
+    expect(ids(m)).not.toContain("fetch-again");
+});
+
 test("Skip is only on a meeting not yet captured, and an excluded series offers Include series instead", () => {
   const ids = (m: Meeting) => menuFor(m).map((i) => i.id);
   expect(ids({ ...meeting("scheduled"), hasTranscript: false })).toContain("skip");
