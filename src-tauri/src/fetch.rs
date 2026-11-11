@@ -17,6 +17,10 @@ pub const RETRIES: [i64; 5] = [0, 2, 10, 30, 120];
 pub const CATCH_UP: Duration = Duration::minutes(120);
 /// Transcripts created this long before the event's start still belong to it.
 pub const EARLY: Duration = Duration::minutes(30);
+/// A capture whose parts stop more than this short of the call's ended time waits for the parts still to come ...
+pub const PART_GAP: Duration = Duration::minutes(5);
+/// ... until this long after the call ended, when what is there is captured.
+pub const PART_WAIT: Duration = Duration::minutes(30);
 
 /// Import from Teams fetches at most this many meetings at once ...
 pub const FETCHES: usize = 4;
@@ -217,6 +221,12 @@ pub fn merge(parts: &[Part]) -> String {
         out = out.trim_end().to_string();
     }
     out + "\n"
+}
+
+/// Where the parts stop: the last part's `createdDateTime` plus its last cue's end.
+fn covered(parts: &[Part]) -> Option<DateTime<Utc>> {
+    let p = parts.last()?;
+    Some(p.created + Duration::milliseconds(library::cues(&p.content).last()?.end.into()))
 }
 
 /// The first scheduled attempt after `at`, or none when the schedule is over.
@@ -449,7 +459,12 @@ fn attempt(
         Some(t) => m.next_attempt = Some(t.with_timezone(&Local).fixed_offset()),
         None => m.state = last,
     };
+    // Teams publishes each part of a split call as it closes: parts stopping well short of the call's ended time
+    // retry as an empty list would, until `PART_WAIT` after it. No ended time (chat::Chat): captured as they are.
+    let ended = m.chat.and_then(|c| c.ended_at);
+    let partial = |parts: &[Part]| ended.is_some_and(|e| now < e + PART_WAIT && covered(parts).is_some_and(|c| c < e - PART_GAP));
     match outcome {
+        Attempt::Captured(parts) if partial(&parts) => retry(&mut m, State::NoTranscript),
         Attempt::Captured(parts) => {
             m.transcript_sha256 = Some(write_capture(dir, &parts)?);
             m.source = Some("connector".into());
@@ -1022,6 +1037,46 @@ mod tests {
         let merged = fs::read_to_string(dir.join(library::VTT)).unwrap();
         assert!(merged.contains("00:20:05.000 --> 00:20:09.500"), "{merged}");
         assert_eq!(only(&lib).transcript_sha256, Some(library::sha256(merged.as_bytes())));
+    }
+
+    /// Ticks minute by minute from the scheduled end to 180 past it, Teams always answering with `parts`; with
+    /// `ended`, the folder holds the chat's call-ended time (the scheduled end). Returns the minutes runs happened at
+    /// and the minute the transcript was first on disk.
+    fn split_call(name: &str, ended: bool, parts: &[(&str, &str)]) -> (Vec<i64>, Option<i64>) {
+        let lib = temp(name);
+        let e = event(1, start(), end());
+        if ended {
+            let chat = crate::chat::Chat { started_at: Some(start()), ended_at: Some(end()), ..Default::default() };
+            library::create(&lib, &Meeting { chat: Some(chat), ..folder_for(&e, end()) }).unwrap();
+        }
+        let (log, minute) = (RefCell::new(vec![]), RefCell::new(0));
+        let mut run = runner(&log, &minute, |_| blocks(&body(parts)));
+        let mut landed = None;
+        for m in 0..=180 {
+            *minute.borrow_mut() = m;
+            tick(&lib, std::slice::from_ref(&e), Vec::new, end() + Duration::minutes(m), &mut run, none, free, |_, _| {});
+            if landed.is_none() && lib.join(&library::list(&lib)[0].id).join(library::VTT).exists() {
+                landed = Some(m);
+            }
+        }
+        assert_eq!(only(&lib).state, State::TranscriptReady, "{name}");
+        let runs = log.borrow().iter().map(|x| x.0).collect();
+        (runs, landed)
+    }
+
+    #[test]
+    fn parts_stopping_well_short_of_the_call_end_wait_for_the_rest_until_30_minutes_after_it() {
+        // The 11:00 part's last cue ends at 00:00:04, 45 minutes short of the 11:50 call end: retried at 0, 2 and 10
+        // as an empty list would be, then captured as it is at +30.
+        assert_eq!(split_call("split-short", true, &[("2026-11-05T11:00:00Z", VTT_A)]), (vec![0, 2, 10, 30], Some(30)));
+        // Two parts, the 11:20 one ending at 00:00:09.5: still short, so the same.
+        let two = [("2026-11-05T11:00:00Z", VTT_A), ("2026-11-05T11:20:00Z", VTT_B)];
+        assert_eq!(split_call("split-two", true, &two), (vec![0, 2, 10, 30], Some(30)));
+        // A part ending at 00:46:00 covers to 11:46, within 5 minutes of 11:50: captured at once.
+        const NEAR: &str = "WEBVTT\n\nsynth/1-0\n00:45:58.000 --> 00:46:00.000\n<v Speaker A>Synthetic closing line.</v>\n";
+        assert_eq!(split_call("split-near", true, &[("2026-11-05T11:00:00Z", NEAR)]), (vec![0], Some(0)));
+        // No call-ended time in the chat: the short part is captured at once, as before.
+        assert_eq!(split_call("split-no-chat", false, &[("2026-11-05T11:00:00Z", VTT_A)]), (vec![0], Some(0)));
     }
 
     #[test]
