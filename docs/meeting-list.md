@@ -85,7 +85,9 @@ missed can be brought in with [Import from Teams](importing.md#import-from-teams
 
 ![An Awaiting transcript card](images/awaiting-transcript.png)
 
-When Teams saved the call as several transcripts, the parts are merged into one transcript on one timeline.
+When Teams saved the call as several transcripts, the parts are merged into one transcript on one timeline. If the
+parts found stop more than 5 minutes before the call ended (seen in its chat), the app waits for the rest on the same
+schedule, up to 30 minutes after the call ended, then saves what is there.
 
 ## The failure cards: Try again and Import transcript
 
