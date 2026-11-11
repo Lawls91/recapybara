@@ -34,7 +34,7 @@ test("the quote is marked in the turn ignoring case and punctuation, on whole wo
   expect(markQuote(text, "ship it on Friday")).toBe(text);
 });
 
-test("lists follow D21's order and leave empty ones out", () => {
+test("lists follow summary.md's order and leave empty ones out", () => {
   const it = { text: "t" } as Item;
   const titles = lists({
     overview: "",

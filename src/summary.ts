@@ -1,4 +1,4 @@
-// The Summary tab's chips and peek sheet (D43), from the app's checked summary (D20).
+// The Summary tab's chips and peek sheet, from the app's checked summary.
 
 export type Check = "verified" | "notInCue" | "tooShort" | "noCue";
 
@@ -17,7 +17,7 @@ export interface Item {
   citations: Citation[];
   inferred: boolean;
   ticketKeys: string[];
-  /** Ticket keys the run's Jira lookups didn't find (D20). */
+  /** Ticket keys the run's Jira lookups didn't find. */
   missingKeys: string[];
   owner: string | null;
   verified: boolean;
@@ -33,7 +33,7 @@ export interface Summary {
 
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-/** D21 order: the run's sections, then Decisions, Actions, Open questions. Empty lists are left out. */
+/** summary.md's order: the run's sections, then Decisions, Actions, Open questions. Empty lists are left out. */
 export const lists = (s: Summary): { title: string; items: Item[]; owners: boolean }[] =>
   [
     ...s.sections.map((x) => ({ title: x.title, items: x.points, owners: false })),
@@ -42,10 +42,10 @@ export const lists = (s: Summary): { title: string; items: Item[]; owners: boole
     { title: "Open questions", items: s.questions, owners: false },
   ].filter((l) => l.items.length);
 
-/** `✓ 00:00:10` for a verified citation, `? 00:31:12` otherwise (D43). */
+/** `✓ 00:00:10` for a verified citation, `? 00:31:12` otherwise. */
 export const chipLabel = (c: Citation) => `${c.check === "verified" ? "✓" : "?"} ${c.at}`;
 
-/** Why an unverified citation didn't check out, as the peek sheet says it (D43). */
+/** Why an unverified citation didn't check out, as the peek sheet says it. */
 export function peekReason(c: Citation): string | null {
   if (c.check === "verified") return null;
   if (c.check === "noCue") return `No transcript line at ${c.at}`;
@@ -53,7 +53,7 @@ export function peekReason(c: Citation): string | null {
   return "Quoted words not found in this cue";
 }
 
-/** `text`, escaped, with the quote's words marked. Matching ignores case and punctuation, like the check (D20). */
+/** `text`, escaped, with the quote's words marked. Matching ignores case and punctuation, like the check. */
 export function markQuote(text: string, quote: string): string {
   const words = quote.match(/[\p{L}\p{N}]+/gu);
   if (!words) return esc(text);
@@ -66,7 +66,7 @@ export function markQuote(text: string, quote: string): string {
   return `${esc(text.slice(0, m.index))}<mark>${esc(m[0])}</mark>${esc(text.slice(m.index + m[0].length))}`;
 }
 
-/** Copy actions: one line per action item, its owner first as in summary.md (D21); "" when there are none. */
+/** Copy actions: one line per action item, its owner first as in summary.md; "" when there are none. */
 export const actionsText = (s: Summary | null) => (s?.actions ?? []).map((a) => `- ${a.owner ?? "Unassigned"}: ${a.text}`).join("\n");
 
 /** The corrections strip atop a transcript: how many it has, how many are to review (not in the glossary, not kept), how many were rejected. */

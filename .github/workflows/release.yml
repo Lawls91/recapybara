@@ -1,4 +1,4 @@
-# Release (slice 19): one run by hand on main (Actions, Release, Run workflow, or gh workflow run Release) makes a
+# Release: one run by hand on main (Actions, Release, Run workflow, or gh workflow run Release) makes a
 # release. It picks the version (the input, or the latest vX.Y.Z tag's next minor), stamps it into this runner's copy
 # only (nothing is committed: main keeps the last released version), builds the per-user MSI, signs it with the
 # updater key and publishes a GitHub Release holding the MSI, its .sig and latest.json, which the app's updater reads

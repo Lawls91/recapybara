@@ -1,4 +1,4 @@
-//! Windows-only bits (D4). A Mac port adds a sibling module.
+//! Windows-only bits. A Mac port adds a sibling module.
 use std::process::Command;
 
 #[cfg(windows)]
@@ -11,7 +11,7 @@ pub fn no_console(cmd: &mut Command) {
 #[cfg(not(windows))]
 pub fn no_console(_cmd: &mut Command) {}
 
-/// A toast under the installed shortcut's AUMID (D29, D47). Windows drops toasts whose AUMID has no
+/// A toast under the installed shortcut's AUMID. Windows drops toasts whose AUMID has no
 /// Start-menu shortcut, so a dev or E2E build shows none. `on_click` runs when the toast is clicked.
 pub fn toast(title: &str, body: &str, on_click: impl Fn() + Send + 'static) {
     toast_with(title, body, &[], move |_| on_click());
@@ -47,7 +47,7 @@ fn show(title: &str, body: &str, buttons: &[(&str, &str)], on_activated: impl Fn
 #[cfg(not(windows))]
 fn show(_title: &str, _body: &str, _buttons: &[(&str, &str)], _on_activated: impl Fn(Option<String>) + Send + 'static) {}
 
-/// Moves `path` to the Recycle Bin (D30), never a silent hard delete: where the drive has no Recycle Bin, Windows asks
+/// Moves `path` to the Recycle Bin, never a silent hard delete: where the drive has no Recycle Bin, Windows asks
 /// first (FOF_WANTNUKEWARNING), in front of window `owner` (an HWND, or 0), and a No leaves the folder in place.
 #[cfg(windows)]
 pub fn recycle(path: &std::path::Path, owner: isize) -> Result<(), String> {

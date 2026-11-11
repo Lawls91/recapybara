@@ -1,5 +1,5 @@
 // Runs each E2E spec in its own wdio process, so each gets its own temp library,
-// app-data and home folders through the D37 env vars (tauri-driver inherits the launcher's env),
+// app-data and home folders through the RECAPYBARA_* env vars (tauri-driver inherits the launcher's env),
 // and runs as a dev instance (RECAPYBARA_DEV), so an installed or running real copy can't collide with it.
 // Needs a debug build first: `npx tauri build --debug --no-bundle`.
 import { execFileSync, spawnSync } from "node:child_process";
@@ -92,7 +92,7 @@ for (const spec of specs) {
   // specs start with no settings, as a new install does.
   if (!name.startsWith("first-run") && !docs) fs.writeFileSync(path.join(data, "settings.json"), JSON.stringify({ libraryPath: library, startAtLogon: false }));
   const scenario = path.join(root, "scenario.json");
-  // Default: a valid minimal summary, so an import (which starts its summary, D15) ends "Summary ready".
+  // Default: a valid minimal summary, so an import (which starts its summary) ends "Summary ready".
   fs.writeFileSync(scenario, JSON.stringify({ structuredOutput: { overview: "Synthetic summary." }, ...(docs && { version: "2.1.0 (Claude Code)" }) }));
 
   const env = {
@@ -107,11 +107,11 @@ for (const spec of specs) {
     // Its own WebView2 profile and no single-instance lock or Run key. Apart from root\data, so the specs show that
     // RECAPYBARA_DATA_DIR still wins over the dev dir.
     RECAPYBARA_DEV: path.join(root, "dev"),
-    // The app must strip it from every claude it runs (D6); the fake's record shows whether it did.
+    // The app must strip it from every claude it runs; the fake's record shows whether it did.
     ANTHROPIC_API_KEY: "sk-e2e-parent-key-must-not-leak",
-    // A debug build's update check (slice 19) goes here, never to GitHub: nothing listens, so it fails, logged.
+    // A debug build's update check goes here, never to GitHub: nothing listens, so it fails, logged.
     RECAPYBARA_UPDATE_URL: "http://127.0.0.1:9/latest.json",
-    // A debug build appends each toast it raises here (title, body, buttons): dev builds show none (D47).
+    // A debug build appends each toast it raises here (title, body, buttons): dev builds show none.
     RECAPYBARA_TOAST_LOG: path.join(root, "toasts.jsonl"),
   };
   // Claude Code not installed: nothing at the path it is run from.

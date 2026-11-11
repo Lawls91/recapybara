@@ -69,7 +69,7 @@ describe("summarise with checked citations", () => {
     await expect(row(id, ".lbl")).toHaveText("Summary ready", { wait: 15000 });
   });
 
-  it("the run gets -p and D7's isolation flags plus --json-schema, never --bare, and no ANTHROPIC_API_KEY", async () => {
+  it("the run gets -p and the isolation flags plus --json-schema, never --bare, and no ANTHROPIC_API_KEY", async () => {
     expect(process.env.ANTHROPIC_API_KEY).toBeTruthy(); // the app's parent environment has one
     await summarised();
     const rec = claudeRecords().at(-1);
@@ -135,7 +135,7 @@ describe("summarise with checked citations", () => {
     await expect($("#tab-summary")).toHaveText(expect.stringContaining("Failed"), { wait: 15000 });
     await expect($("#summary-action")).toHaveText("Run summary");
     await expect($("#summary-error")).toHaveText("claude exited with exit code: 1"); // the real reason, on the card
-    // The header holds only the ... menu (D42).
+    // The header holds only the ... menu.
     await expect($$("#detail .ttlrow button")).toBeElementsArrayOfSize(1);
     await expect($("#detail .ttlrow button")).toHaveAttribute("id", "detail-menu");
     await expect($$("#detail-meta button")).toBeElementsArrayOfSize(0);

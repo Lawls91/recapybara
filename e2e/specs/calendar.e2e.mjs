@@ -1,7 +1,7 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 import { calendar, claudeRecords, event, hourFromNow, hhmm, invoke, M365, refreshCalendar, scenario } from "../helpers.mjs";
 
-// Ticket 07: the calendar refresh (D9). Synthetic events in the connector's shape (Research, Calendar data shape):
+// The calendar refresh. Synthetic events in the connector's shape:
 // the search answers concatenated event objects plus a paging object, times as {dateTime, timeZone}.
 const row = (e, part = "") => $(`.row[data-id="${e.uri}"] ${part}`.trim());
 const argAfter = (argv, flag) => argv[argv.indexOf(flag) + 1];
@@ -26,7 +26,7 @@ describe("calendar refresh", () => {
     await expect($("#calendar-status")).toHaveText(/^Updated \d\d:\d\d$/);
 
     await row(events[0]).click();
-    await expect($("#state-sentence")).toHaveText("Captures when the call ends"); // D49
+    await expect($("#state-sentence")).toHaveText("Captures when the call ends");
   });
 
   it("the list comes from the hook's raw responses, never from Claude's reply", async () => {

@@ -1,4 +1,4 @@
-//! Auto-fetch after a meeting (D12, D13, D14, D25): at event end a haiku run reads the cached
+//! Auto-fetch after a meeting: at event end a haiku run reads the cached
 //! `meetingTranscriptUrl`, its capture hook hands the raw payload to the app, and the app validates it, writes the
 //! meeting folder and retries on schedule. The transcript bytes never pass through the model's output.
 use crate::{
@@ -11,11 +11,11 @@ use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDateTime, Utc};
 use serde_json::Value;
 use std::{io, path::{Path, PathBuf}, sync::{mpsc, Mutex}};
 
-/// Attempt times, in minutes from event end (D12). After the last, the meeting is "no transcript".
+/// Attempt times, in minutes from event end. After the last, the meeting is "no transcript".
 pub const RETRIES: [i64; 5] = [0, 2, 10, 30, 120];
-/// An event that ended less than this long ago gets a catch-up attempt (D12).
+/// An event that ended less than this long ago gets a catch-up attempt.
 pub const CATCH_UP: Duration = Duration::minutes(120);
-/// Transcripts created this long before the event's start still belong to it (D14).
+/// Transcripts created this long before the event's start still belong to it.
 pub const EARLY: Duration = Duration::minutes(30);
 
 /// Import from Teams fetches at most this many meetings at once ...
@@ -74,7 +74,7 @@ impl Drop for Claim {
 
 pub const CAPTURE_FAILED_BODY: &str = "Capture failed: no transcript was saved. Import it from the Teams recap.";
 
-/// The fetch run (D8, D13): haiku, the two calendar tools, `read_resource` captured, the bigger MCP output limit.
+/// The fetch run: haiku, the two calendar tools, `read_resource` captured, the bigger MCP output limit.
 pub fn run_for(url: &str) -> ClaudeRun {
     ClaudeRun {
         kind: "fetch",
@@ -96,7 +96,7 @@ pub struct Part {
     pub content: String,
 }
 
-/// What one fetch attempt found (D12, D13, D14).
+/// What one fetch attempt found.
 #[derive(Debug, PartialEq)]
 pub enum Attempt {
     /// The kept transcripts, oldest first.
@@ -129,7 +129,7 @@ const FORBIDDEN: &[&str] = &[
     r#""code": "forbidden""#,
     "mcp error 3003",
     "error 3003",
-    // The one real 403 on record (Research, Transcript access by meeting type: a shared-mailbox organiser):
+    // The one real 403 on record (a shared-mailbox organiser):
     // "403 3003: User does not have access to lookup meeting".
     "403 3003",
     "3003:",
@@ -149,7 +149,7 @@ fn text(v: &Value) -> String {
     v.as_str().map(Into::into).unwrap_or_else(|| v.to_string())
 }
 
-/// The attempt's verdict from the run's captured payloads (D13, D14). Only a read whose `tool_input.uri` equals
+/// The attempt's verdict from the run's captured payloads. Only a read whose `tool_input.uri` equals
 /// `url` exactly counts. Its response must be `{meeting, transcripts[]}` (text blocks or one string); the transcripts
 /// created from 30 minutes before `start` to `end` are kept, and each must be VTT with at least one cue.
 pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<Utc>) -> Attempt {
@@ -198,7 +198,7 @@ fn stamp(ms: i64) -> String {
     format!("{:02}:{:02}:{:02}.{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
 }
 
-/// The parts on one timeline (D14): part 1 as captured, then each later part's cues with their times shifted by its
+/// The parts on one timeline: part 1 as captured, then each later part's cues with their times shifted by its
 /// `createdDateTime` minus part 1's. A later part's header (up to its first blank line) is dropped.
 pub fn merge(parts: &[Part]) -> String {
     let mut out = parts[0].content.trim_end().to_string();
@@ -219,12 +219,12 @@ pub fn merge(parts: &[Part]) -> String {
     out + "\n"
 }
 
-/// The first scheduled attempt after `at` (D12), or none when the schedule is over.
+/// The first scheduled attempt after `at`, or none when the schedule is over.
 pub fn next_after(end: DateTime<Utc>, at: DateTime<Utc>) -> Option<DateTime<Utc>> {
     RETRIES.iter().map(|m| end + Duration::minutes(*m)).find(|t| *t > at)
 }
 
-/// Attempts still to come for a meeting waiting on its schedule (D12), shown on the Awaiting transcript card: the one
+/// Attempts still to come for a meeting waiting on its schedule, shown on the Awaiting transcript card: the one
 /// due at `next_attempt` (a slot, or a catch-up between slots) plus each slot after it, as `next_after` would run them.
 /// None due: none left.
 pub fn attempts_left(m: &Meeting) -> u32 {
@@ -234,14 +234,14 @@ pub fn attempts_left(m: &Meeting) -> u32 {
     1 + RETRIES.iter().filter(|r| end + Duration::minutes(**r) > next).count() as u32
 }
 
-/// Where the retry schedule counts from (D12): the call's ended event (chat::Chat), early or late, else the scheduled
+/// Where the retry schedule counts from: the call's ended event (chat::Chat), early or late, else the scheduled
 /// end.
 fn schedule_end(m: &Meeting) -> Option<DateTime<Utc>> {
     let end: DateTime<Utc> = m.end?.into();
     Some(m.chat.and_then(|c| c.ended_at).unwrap_or(end))
 }
 
-/// An ended event with no folder yet gets a first (or catch-up) attempt only within `CATCH_UP` of its end (D12).
+/// An ended event with no folder yet gets a first (or catch-up) attempt only within `CATCH_UP` of its end.
 pub fn catches_up(end: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     end <= now && now - end < CATCH_UP
 }
@@ -288,7 +288,7 @@ pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, no
     Some(l.id)
 }
 
-/// A meeting not yet captured, by its end (D12): upcoming, Scheduled with its first attempt at the end; ended within
+/// A meeting not yet captured, by its end: upcoming, Scheduled with its first attempt at the end; ended within
 /// the catch-up window, due now; ended before that, No transcript (its fix the manual import).
 fn schedule(end: Option<DateTime<Utc>>, now: DateTime<Utc>) -> (State, Option<DateTime<FixedOffset>>) {
     let local = |t: DateTime<Utc>| Some(t.with_timezone(&Local).fixed_offset());
@@ -300,8 +300,8 @@ fn schedule(end: Option<DateTime<Utc>>, now: DateTime<Utc>) -> (State, Option<Da
 }
 
 /// The folder id for `id`: a library folder's own, or for a cached event (`id` is its uri) its folder, made now as
-/// `shape` of the meeting `schedule` gives it, so its state and fetch schedule are what they would be without a folder
-/// (D12, D25). Made under the event's claim, like the tick's and an import's, so a keystroke as the event ends makes
+/// `shape` of the meeting `schedule` gives it, so its state and fetch schedule are what they would be without a folder.
+/// Made under the event's claim, like the tick's and an import's, so a keystroke as the event ends makes
 /// no second folder; while another holds it, the folder it made, else refused (the page retries). Skip and My notes on
 /// a calendar-only meeting go through here.
 pub fn folder_of(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>, shape: impl FnOnce(Meeting) -> Meeting) -> Result<String, String> {
@@ -327,12 +327,12 @@ pub fn folder_of(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>, sha
     library::create(lib, &shape(Meeting { state, next_attempt, ..folder_for(e, now) })).map_err(|e| e.to_string())
 }
 
-/// A skipped meeting (D17): never fetched, so no attempt due.
+/// A skipped meeting: never fetched, so no attempt due.
 fn skipped(m: Meeting) -> Meeting {
     Meeting { state: State::Skipped, skipped: true, next_attempt: None, ..m }
 }
 
-/// Skip (D17, D25) on a library folder or on a cached event, whose folder is made skipped (`folder_of`, one write). A
+/// Skip on a library folder or on a cached event, whose folder is made skipped (`folder_of`, one write). A
 /// skipped meeting is never fetched or summarised; only one not yet captured can be skipped. Returns the folder id.
 pub fn skip(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Result<String, String> {
     let id = &folder_of(lib, id, events, now, skipped)?;
@@ -349,7 +349,7 @@ pub fn skip(lib: &Path, id: &str, events: &[Event], now: DateTime<Utc>) -> Resul
 }
 
 /// A folder not yet captured follows its cached event (same event id) when the meeting moves: start, end and the
-/// transcript URL, which pins the occurrence (D13). An upcoming one stays due at its new end. Returns whether it changed.
+/// transcript URL, which pins the occurrence. An upcoming one stays due at its new end. Returns whether it changed.
 fn follow(m: &mut Meeting, events: &[Event]) -> bool {
     let Some(e) = events.iter().find(|e| Some(e.id.as_str()) == m.event_id.as_deref()) else { return false };
     if !matches!(m.state, State::Scheduled | State::Skipped | State::AwaitingTranscript) {
@@ -367,7 +367,7 @@ fn follow(m: &mut Meeting, events: &[Event]) -> bool {
     true
 }
 
-/// Unskip (D49): clears the skip, with the cached event's current times when it has moved. A meeting that ended within the catch-up window is due for a fetch now, an upcoming
+/// Unskip: clears the skip, with the cached event's current times when it has moved. A meeting that ended within the catch-up window is due for a fetch now, an upcoming
 /// one at its end; one that ended earlier is "no transcript", its fix the manual import.
 pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meeting, String> {
     let _note = noting(); // as skip: a chat note can't write back the pre-Unskip copy
@@ -387,7 +387,7 @@ pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meetin
     Ok(m)
 }
 
-/// Writes the capture (D14): one part as `transcript.vtt` exactly; several as `transcript.part<n>.vtt` each, plus
+/// Writes the capture: one part as `transcript.vtt` exactly; several as `transcript.part<n>.vtt` each, plus
 /// the merged `transcript.vtt`.
 fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
     let vtt = if parts.len() == 1 { parts[0].content.clone() } else { merge(parts) };
@@ -400,7 +400,7 @@ fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
     Ok(library::sha256(vtt.as_bytes()))
 }
 
-/// One attempt for the meeting in `dir` (D12): the outcome goes in `meeting.json`, a failure's reason as `fetchError`.
+/// One attempt for the meeting in `dir`: the outcome goes in `meeting.json`, a failure's reason as `fetchError`.
 /// A meeting that left the state it was in (`m`'s) during the run, a manual import say, is left as it is.
 fn attempt(
     dir: &Path,
@@ -434,7 +434,7 @@ fn attempt(
     let was = m.state;
     let mut m = library::load(dir).unwrap_or_else(|_| m.clone());
     // Left "awaiting" (or Try again's failure state) during the run (an import, a Skip), or its series excluded
-    // meanwhile: left as it is, the capture dropped (D17). An unskipped upcoming meeting is due at its end.
+    // meanwhile: left as it is, the capture dropped. An unskipped upcoming meeting is due at its end.
     if !(matches!(m.state, State::AwaitingTranscript | State::Scheduled) || m.state == was) || library::excluded(&m, &excluded()) {
         return Ok(m);
     }
@@ -475,15 +475,15 @@ fn attempt(
     Ok(m)
 }
 
-/// Whether the meeting is due for an attempt at `now` (D12).
+/// Whether the meeting is due for an attempt at `now`.
 fn due(m: &Meeting, now: DateTime<Utc>) -> bool {
     matches!(m.state, State::AwaitingTranscript | State::Scheduled) && m.next_attempt.is_some_and(|t| t <= now)
 }
 
-/// The scheduler's fetch look at the clock (D12, D25). Each cached event that has ended within the catch-up window
+/// The scheduler's fetch look at the clock. Each cached event that has ended within the catch-up window
 /// and has no folder gets one ("awaiting transcript", due now). Then every awaiting meeting whose next attempt is
 /// due gets one attempt, one at a time. A skipped meeting, or one whose join URL `excluded()` names, never gets
-/// either (D17); the exclusions are read again after each run, so one made during it still holds. A meeting another
+/// either; the exclusions are read again after each run, so one made during it still holds. A meeting another
 /// fetch has (`claim`) is left to it, and each is checked again once taken. One `held` (its call live, chat::Chats::in_call)
 /// waits: its due attempt runs once the hold lifts. First, each folder
 /// not yet captured takes its cached event's current times and transcript URL (a moved meeting). `changed` is called with each folder id as it is created (no meeting) and as
@@ -567,7 +567,7 @@ pub fn retry(
     if !matches!(m.state, State::NoTranscript | State::NotReachable | State::CaptureFailed) || dir.join(library::VTT).exists() {
         return Err("Only a meeting whose capture failed can be fetched again.".into());
     }
-    // Never fetched (D17), from a stale page or a direct call alike.
+    // Never fetched, from a stale page or a direct call alike.
     if library::excluded(&m, &excluded()) {
         return Err("This meeting's series is excluded.".into());
     }
@@ -604,7 +604,7 @@ pub fn import_report(lib: &Path, ids: &[String], excluded: &[String]) -> String 
 }
 
 /// Import from Teams' choice from the searched events: those with a `meetingTranscriptUrl` that have ended. Ones
-/// already in the library (captured, skipped or any other state), deleted (D30) or in an excluded series (D17) are
+/// already in the library (captured, skipped or any other state), deleted or in an excluded series are
 /// left out, and counted.
 pub fn eligible(events: Vec<Event>, lib: &Path, excluded: &[String], deleted: impl Fn(&str) -> bool, now: DateTime<Utc>) -> (Vec<Event>, usize) {
     let known = library::list(lib);
@@ -675,7 +675,7 @@ impl TeamsImport {
     }
 }
 
-/// Import from Teams: each event gets a folder and one attempt through the tick's own fetch code (D13, D14), at most
+/// Import from Teams: each event gets a folder and one attempt through the tick's own fetch code, at most
 /// `FETCHES` at once. Each is taken (`claim`) and checked again first, so one the tick has, or a Skip, a Delete or an
 /// Exclude took meanwhile, is left alone. "No transcript" (an empty list, past the retries) keeps its folder and lists
 /// as a No transcript row, to Attach or Delete; one that ended within the catch-up window stays "awaiting", for the
@@ -805,7 +805,7 @@ mod tests {
         assert!(matches!(judged(&[failure("MCP error -32001: timed out after 1,403 ms")]), Attempt::Missed(_)));
         assert!(matches!(judged(&[read(URL, blocks("Error: synthetic transient failure"))]), Attempt::Missed(_)));
         assert_eq!(judged(&[read(URL, blocks("Error: 403 Forbidden"))]), Attempt::Unreachable);
-        // Recorded verbatim in Research (a shared-mailbox organiser), through either hook.
+        // Recorded verbatim from a real 403 (a shared-mailbox organiser), through either hook.
         const RECORDED: &str = "403 3003: User does not have access to lookup meeting";
         assert_eq!(judged(&[read(URL, blocks(RECORDED))]), Attempt::Unreachable);
         assert_eq!(judged(&[failure(RECORDED)]), Attempt::Unreachable);
@@ -1055,7 +1055,7 @@ mod tests {
         assert_eq!((only(&lib).state, only(&lib).next_attempt), (State::CaptureFailed, None));
     }
 
-    // --- skip and exclude (D17) ---
+    // --- skip and exclude ---
 
     fn ran(log: &RefCell<Vec<(i64, u32)>>) -> Vec<u32> {
         log.borrow().iter().map(|x| x.1).collect()
@@ -1189,7 +1189,7 @@ mod tests {
         let mut run = runner(&log, &minute, |_| blocks(&body(&[("2026-11-05T11:00:00Z", VTT_A)])));
         tick(&lib, std::slice::from_ref(&e), Vec::new, now, &mut run, none, free, |_, _| {});
         tick(&lib, std::slice::from_ref(&e), Vec::new, now + Duration::minutes(30), &mut run, none, free, |_, _| {});
-        assert!(log.borrow().is_empty(), "D12: no attempt for a meeting ended over 120 minutes ago");
+        assert!(log.borrow().is_empty(), "no attempt for a meeting ended over 120 minutes ago");
         assert_eq!(library::load(&lib.join(&id)).unwrap().state, State::NoTranscript);
     }
 
@@ -1619,7 +1619,7 @@ mod tests {
         let m = retry(&lib, &id, now, answer(blocks(&body(&[]))), none, Vec::new, || {}).unwrap();
         assert_eq!((m.state, m.fetch_error, m.attempts), (State::NoTranscript, None, 8));
 
-        // Its series excluded (a stale page, a direct call): refused before any run (D17).
+        // Its series excluded (a stale page, a direct call): refused before any run.
         assert_eq!(retry(&lib, &id, now, |_| panic!("excluded"), none, || vec!["https://teams.example/j/1".into()], || panic!("excluded")).unwrap_err(), "This meeting's series is excluded.");
 
         // Another fetch has it: refused, nothing runs.

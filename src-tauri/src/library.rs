@@ -1,4 +1,4 @@
-//! The library folder: one folder per meeting (D25), manual import (D15), VTT turns (D22).
+//! The library folder: one folder per meeting, manual import, VTT turns.
 use chrono::{DateTime, FixedOffset, Local};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -10,12 +10,12 @@ use std::{
 pub const META: &str = "meeting.json";
 pub const VTT: &str = "transcript.vtt";
 pub const SUMMARY_MD: &str = "summary.md";
-/// Claude's structured output as returned, kept so the app can redraw chips and peeks (D43).
+/// Claude's structured output as returned, kept so the app can redraw chips and peeks.
 pub const SUMMARY_JSON: &str = "summary.json";
-/// The user's own notes, edited in the My notes tab (D27). Nothing else in the app writes it.
+/// The user's own notes, edited in the My notes tab. Nothing else in the app writes it.
 pub const NOTES_MD: &str = "notes.md";
 
-/// Meeting states (D26), as stored in `meeting.json`.
+/// Meeting states, as stored in `meeting.json`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum State {
@@ -33,7 +33,7 @@ pub enum State {
     Skipped,
 }
 
-/// `meeting.json` (D25). Every field defaults, so a folder holding only a state still lists.
+/// `meeting.json`. Every field defaults, so a folder holding only a state still lists.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Meeting {
@@ -56,15 +56,15 @@ pub struct Meeting {
     /// Why the last fetch attempt failed, in plain words, shown on its Capture failed card. Never transcript text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fetch_error: Option<String>,
-    /// Ticket keys the last good summary run's Jira lookups found (D20). Keys only, never a response.
+    /// Ticket keys the last good summary run's Jira lookups found. Keys only, never a response.
     /// None: summarised before keys were checked, so no key is marked until a re-run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub found_keys: Option<Vec<String>>,
-    /// The cached event's `meetingTranscriptUrl`, the one URI a capture may come from (D13).
+    /// The cached event's `meetingTranscriptUrl`, the one URI a capture may come from.
     pub transcript_url: Option<String>,
-    /// Fetch attempts made so far (D12).
+    /// Fetch attempts made so far.
     pub attempts: u32,
-    /// When the next fetch attempt is due; none once the schedule has ended (D12, D25).
+    /// When the next fetch attempt is due; none once the schedule has ended.
     pub next_attempt: Option<DateTime<FixedOffset>>,
     /// The meeting chat's call times for this occurrence (chat::Chat), and nothing else of the chat.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,9 +80,9 @@ pub struct Listed {
     pub meeting: Meeting,
     pub has_transcript: bool,
     pub has_summary: bool,
-    /// Its series is excluded (D17).
+    /// Its series is excluded.
     pub excluded: bool,
-    /// Fetch attempts still to come (D12), for the Awaiting transcript card.
+    /// Fetch attempts still to come, for the Awaiting transcript card.
     pub attempts_left: u32,
     /// A fetch attempt holds it now (its claim). Try again and the scheduler redraw the list as they take it; an import's
     /// shows on the next redraw while it runs.
@@ -91,12 +91,12 @@ pub struct Listed {
     pub transcription_off: bool,
 }
 
-/// In an excluded series (D17): the join URL every occurrence shares is in `series`.
+/// In an excluded series: the join URL every occurrence shares is in `series`.
 pub fn excluded(m: &Meeting, series: &[String]) -> bool {
     m.join_url.as_ref().is_some_and(|u| series.contains(u))
 }
 
-/// Exclude series (D17): every occurrence of an excluded series not yet captured lists as skipped. One with a
+/// Exclude series: every occurrence of an excluded series not yet captured lists as skipped. One with a
 /// transcript keeps its state, so its summary stays readable.
 pub fn exclude(list: &mut [Listed], series: &[String]) {
     for l in list.iter_mut().filter(|l| excluded(&l.meeting, series)) {
@@ -107,7 +107,7 @@ pub fn exclude(list: &mut [Listed], series: &[String]) {
     }
 }
 
-/// Temp file, then rename (D25). `before_rename` is the interruption point tests use.
+/// Temp file, then rename. `before_rename` is the interruption point tests use.
 fn write_atomic_with(path: &Path, bytes: &[u8], before_rename: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, bytes)?;
@@ -119,7 +119,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_atomic_with(path, bytes, || Ok(()))
 }
 
-/// Starts with `WEBVTT` (BOM tolerated) and has at least one cue (D14, D15).
+/// Starts with `WEBVTT` (BOM tolerated) and has at least one cue.
 pub fn validate(name: &str, bytes: &[u8]) -> Result<(), String> {
     if !name.to_lowercase().ends_with(".vtt") {
         return Err(format!("{name}: only Teams transcripts (.vtt) can be imported."));
@@ -139,7 +139,7 @@ pub fn validate(name: &str, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// `YYYY-MM-DD HHmm <Subject>`, illegal file-name characters replaced with `-` (D25).
+/// `YYYY-MM-DD HHmm <Subject>`, illegal file-name characters replaced with `-`.
 pub fn folder_name(start: DateTime<FixedOffset>, subject: &str) -> String {
     let safe: String = subject.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { '-' } else { c }).collect();
     // Windows drops trailing dots and spaces from folder names.
@@ -178,7 +178,7 @@ fn with_transcript(m: &mut Meeting, bytes: &[u8]) {
 }
 
 /// The list's Import transcript: an ad-hoc meeting dated from the file's modified time and
-/// titled from its name (D15). Returns the new folder's id.
+/// titled from its name. Returns the new folder's id.
 pub fn import_new(library: &Path, src: &Path) -> Result<String, String> {
     let bytes = read_checked(src)?;
     let modified = fs::metadata(src).and_then(|m| m.modified()).map_err(|e| e.to_string())?;
@@ -188,7 +188,7 @@ pub fn import_new(library: &Path, src: &Path) -> Result<String, String> {
     let mut m = Meeting { subject, start: Some(start), ..Meeting::default() };
     with_transcript(&mut m, &bytes);
     let io = || -> io::Result<()> {
-        fs::create_dir(&dir)?; // only the meeting's folder: a library gone meanwhile isn't made anew (D45)
+        fs::create_dir(&dir)?; // only the meeting's folder: a library gone meanwhile isn't made anew
         write_atomic(&dir.join(VTT), &bytes)?;
         save(&dir, &m)
     };
@@ -196,16 +196,16 @@ pub fn import_new(library: &Path, src: &Path) -> Result<String, String> {
     Ok(dir.file_name().unwrap().to_string_lossy().into_owned())
 }
 
-/// A new meeting folder for `m`, named from its start and subject (D25), holding only `meeting.json`. Returns its id.
+/// A new meeting folder for `m`, named from its start and subject, holding only `meeting.json`. Returns its id.
 pub fn create(library: &Path, m: &Meeting) -> io::Result<String> {
     let start = m.start.unwrap_or_else(|| Local::now().fixed_offset()).with_timezone(&Local).fixed_offset();
     let dir = unique_dir(library, &folder_name(start, &m.subject));
-    fs::create_dir(&dir)?; // only the meeting's folder: a library gone meanwhile isn't made anew (D45)
+    fs::create_dir(&dir)?; // only the meeting's folder: a library gone meanwhile isn't made anew
     save(&dir, m)?;
     Ok(dir.file_name().unwrap().to_string_lossy().into_owned())
 }
 
-/// A meeting's attach strip (or Replace transcript…): the transcript joins that meeting (D15, D44).
+/// A meeting's attach strip (or Replace transcript…): the transcript joins that meeting.
 pub fn attach(library: &Path, id: &str, src: &Path) -> Result<(), String> {
     let dir = meeting_dir(library, id)?;
     let bytes = read_checked(src)?;
@@ -231,7 +231,7 @@ pub fn meeting_dir(library: &Path, id: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Delete (D30): the meeting's folder goes to the Recycle Bin, any nuke prompt owned by window `owner` (0: none).
+/// Delete: the meeting's folder goes to the Recycle Bin, any nuke prompt owned by window `owner` (0: none).
 /// Only a meeting folder directly in this library, and not while its summary runs: anything else is refused untouched.
 /// `first` runs before the folder moves (recording the delete); its error refuses it too. Returns the meeting as it was.
 pub fn delete(library: &Path, id: &str, owner: isize, first: impl FnOnce(&Meeting) -> Result<(), String>) -> Result<Meeting, String> {
@@ -253,7 +253,7 @@ pub fn load(dir: &Path) -> io::Result<Meeting> {
     Ok(serde_json::from_slice(&fs::read(dir.join(META))?)?)
 }
 
-/// The library folder as it is now (D45): one that can't be read (missing, a drive unplugged, not yet synced) is refused,
+/// The library folder as it is now: one that can't be read (missing, a drive unplugged, not yet synced) is refused,
 /// so nothing lists as gone and nothing is written into a folder made anew; the page shows this with Choose folder.
 pub fn check(library: &Path) -> Result<(), String> {
     fs::read_dir(library)
@@ -261,7 +261,7 @@ pub fn check(library: &Path) -> Result<(), String> {
         .map_err(|_| format!("Library folder not found or can't be read: {}. Reconnect the drive it's on, or choose another folder.", library.display()))
 }
 
-/// Every folder holding a readable `meeting.json`, newest first (D26).
+/// Every folder holding a readable `meeting.json`, newest first.
 pub fn list(library: &Path) -> Vec<Listed> {
     let mut out: Vec<Listed> = fs::read_dir(library)
         .into_iter()
@@ -287,14 +287,14 @@ pub fn list(library: &Path) -> Vec<Listed> {
 }
 
 /// A summary can't still be running at start (the app quit mid-run), so "summarising" becomes
-/// "summary failed", whose card offers the re-run (D49).
+/// "summary failed", whose card offers the re-run.
 pub fn recover(library: &Path) {
     for l in list(library).into_iter().filter(|l| l.meeting.state == State::Summarising) {
         let _ = save(&library.join(&l.id), &Meeting { state: State::SummaryFailed, ..l.meeting });
     }
 }
 
-/// A word Teams misheard and what it should read (D18, D22).
+/// A word Teams misheard and what it should read.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct Correction {
@@ -303,15 +303,15 @@ pub struct Correction {
     pub reason: String,
 }
 
-/// A run of turn text; `was` holds what Teams heard where a correction replaced it (D45).
+/// A run of turn text; `was` holds what Teams heard where a correction replaced it.
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Part {
     pub text: String,
     pub was: Option<String>,
 }
 
-/// One speaker turn: consecutive cues from the same speaker merged (D22). `speaker` and `text` are raw,
-/// as Teams heard them (the peek shows what the citation check read, D20); the parts are corrected.
+/// One speaker turn: consecutive cues from the same speaker merged. `speaker` and `text` are raw,
+/// as Teams heard them (the peek shows what the citation check read); the parts are corrected.
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Turn {
@@ -332,7 +332,7 @@ pub struct Place {
     pub after: String,
 }
 
-/// A correction that changed at least one word, with how many places (D22, D45). A rejected one's
+/// A correction that changed at least one word, with how many places. A rejected one's
 /// places are where Teams' word still shows (`heard`).
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -350,7 +350,7 @@ pub struct Applied {
 #[serde(rename_all = "camelCase")]
 pub struct Transcript {
     pub turns: Vec<Turn>,
-    /// Length from the last cue's end, in whole minutes (D44 "40 min").
+    /// Length from the last cue's end, in whole minutes ("40 min").
     pub minutes: u32,
     pub corrections: Vec<Applied>,
     /// summary.json's `rejected` (library::reject): listed on the Transcript tab, never applied (`heard`).
@@ -370,14 +370,14 @@ pub fn hms(ms: u32) -> String {
     format!("{:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
 }
 
-/// One VTT cue: raw text as Teams heard it (D20 checks against this, never corrected text).
+/// One VTT cue: raw text as Teams heard it (the citation check reads this, never corrected text).
 #[derive(Debug, PartialEq)]
 pub struct Cue {
     pub start: u32,
     pub end: u32,
     pub speaker: String,
     pub text: String,
-    /// Index of the speaker turn (D22) holding this cue.
+    /// Index of the speaker turn holding this cue.
     pub turn: usize,
 }
 
@@ -420,7 +420,7 @@ fn plain(text: impl Into<String>) -> Part {
     Part { text: text.into(), was: None }
 }
 
-/// `text` with each correction's `from` replaced by its `to`, matching whole words exactly (D22). One pass
+/// `text` with each correction's `from` replaced by its `to`, matching whole words exactly. One pass
 /// over the raw text, so a correction's output is never corrected again. Adds each one's uses to `used`.
 fn correct(text: &str, fixes: &[Correction], used: &mut [usize]) -> Vec<Part> {
     let wordy = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
@@ -453,7 +453,7 @@ fn correct(text: &str, fixes: &[Correction], used: &mut [usize]) -> Vec<Part> {
     parts
 }
 
-/// The turns of `vtt` with `fixes` applied to cue text and speaker labels (D22). Cue times come from the
+/// The turns of `vtt` with `fixes` applied to cue text and speaker labels. Cue times come from the
 /// timing lines and are never corrected.
 pub fn transcript(vtt: &str, fixes: &[Correction]) -> Transcript {
     let mut used = vec![0; fixes.len()];
@@ -533,7 +533,7 @@ fn joined(parts: &[Part]) -> String {
 
 pub const TRANSCRIPT_MD: &str = "transcript.md";
 
-/// `transcript.md` (D22): one paragraph per turn, `**[hh:mm:ss] Speaker:**` first, then the corrections
+/// `transcript.md`: one paragraph per turn, `**[hh:mm:ss] Speaker:**` first, then the corrections
 /// applied with their reasons. Left out when none applied.
 pub fn transcript_md(t: &Transcript) -> String {
     let mut md: Vec<String> = t.turns.iter().map(|u| format!("**[{}] {}:** {}", u.at, joined(&u.speaker_parts), joined(&u.parts))).collect();
@@ -544,7 +544,7 @@ pub fn transcript_md(t: &Transcript) -> String {
     md.join("\n\n") + "\n"
 }
 
-/// My notes (D27): the meeting's `notes.md`, empty when there is none yet.
+/// My notes: the meeting's `notes.md`, empty when there is none yet.
 pub fn read_notes(dir: &Path) -> io::Result<String> {
     match fs::read_to_string(dir.join(NOTES_MD)) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
@@ -552,7 +552,7 @@ pub fn read_notes(dir: &Path) -> io::Result<String> {
     }
 }
 
-/// Saves My notes (D27) atomically, touching no other file. An existing folder only: a missing one is an error.
+/// Saves My notes atomically, touching no other file. An existing folder only: a missing one is an error.
 pub fn write_notes(dir: &Path, text: &str) -> io::Result<()> {
     write_atomic(&dir.join(NOTES_MD), text.as_bytes())
 }
@@ -573,7 +573,7 @@ pub fn write_carried_notes(dir: &Path, text: &str, base: &str) -> Result<(), Str
 /// Why carried notes weren't written (the page keeps them, Not saved).
 pub const NOT_REPLACED: &str = "Notes not saved: this meeting's notes.md in the chosen library holds other notes, so it wasn't replaced. Your text is kept in My notes: copy what you need, or type in it to replace them.";
 
-/// One search hit (D28): the meeting, the tab its file shows in, the matching line as the snippet shows it, and for
+/// One search hit: the meeting, the tab its file shows in, the matching line as the snippet shows it, and for
 /// a transcript line its turn's time.
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Hit {
@@ -600,8 +600,8 @@ fn snippet_line(tab: &str, raw: &str) -> (String, Option<String>) {
     (line.trim_start_matches(['#', '-', ' ']).to_string(), None)
 }
 
-/// The lines of a file search reads: never the app's own boilerplate. In `summary.md` (D21) that is the title, the
-/// date line and every heading; in `transcript.md` (D22) the "Corrections applied" block after the turns. Notes are
+/// The lines of a file search reads: never the app's own boilerplate. In `summary.md` that is the title, the
+/// date line and every heading; in `transcript.md` the "Corrections applied" block after the turns. Notes are
 /// the user's own, read whole.
 fn searchable<'a>(tab: &str, text: &'a str) -> Vec<&'a str> {
     match tab {
@@ -612,7 +612,7 @@ fn searchable<'a>(tab: &str, text: &'a str) -> Vec<&'a str> {
     }
 }
 
-/// Search (D28): a plain scan, no index, of each meeting's `summary.md`, `transcript.md` and `notes.md`, ignoring
+/// Search: a plain scan, no index, of each meeting's `summary.md`, `transcript.md` and `notes.md`, ignoring
 /// case. Meetings come in list order (newest first), each one's hits in tab order; a meeting's scan stops at its
 /// third hit.
 pub fn search(library: &Path, query: &str) -> Vec<Hit> {
@@ -641,7 +641,7 @@ pub fn search(library: &Path, query: &str) -> Vec<Hit> {
     hits
 }
 
-/// `glossary.md` at the library root, one entry per line, edited by the user (D23).
+/// `glossary.md` at the library root, one entry per line, edited by the user.
 pub const GLOSSARY: &str = "glossary.md";
 /// The prefix of an older build's permanent reject (`never: from -> to`). Reject now applies to the meetings it was
 /// pressed for only (reject), so these lines are ignored: never an entry, never sent to a summary, dropped on the
@@ -676,7 +676,7 @@ pub fn entries(glossary: &str) -> Vec<Correction> {
     glossary.lines().filter_map(pair).map(|(from, to)| Correction { from: from.into(), to: to.into(), reason: String::new() }).collect()
 }
 
-/// The Glossary page's edits (D23): `old` replaced by `new`; no `old` adds `new` at the end, no `new` removes `old`.
+/// The Glossary page's edits: `old` replaced by `new`; no `old` adds `new` at the end, no `new` removes `old`.
 /// Other lines (bare terms) stay as they are; an older build's never lines go. A glossary that can't be read is left
 /// alone.
 pub fn edit_glossary(library: &Path, old: Option<&Correction>, new: Option<&Correction>) -> Result<(), String> {
@@ -719,7 +719,7 @@ pub fn edit_glossary(library: &Path, old: Option<&Correction>, new: Option<&Corr
     write_atomic(&path, out.as_bytes()).map_err(|e| e.to_string())
 }
 
-/// Add to glossary (D23): appends the correction as one line, once.
+/// Add to glossary: appends the correction as one line, once.
 pub fn add_to_glossary(library: &Path, c: &Correction) -> Result<(), String> {
     edit_glossary(library, None, Some(c))
 }

@@ -10,7 +10,7 @@ const pinWindow = async () => {
   });
 };
 
-// Launched per spec by e2e/run.mjs, which sets MC_APP and the D37 env vars.
+// Launched per spec by e2e/run.mjs, which sets MC_APP and the RECAPYBARA_* env vars.
 export const config = {
   runner: "local",
   specs: ["./specs/*.e2e.mjs"],

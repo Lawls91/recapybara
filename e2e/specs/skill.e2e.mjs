@@ -1,4 +1,4 @@
-// The library skill (D33), installed into the test's temp home (RECAPYBARA_HOME) at start.
+// The library skill, installed into the test's temp home (RECAPYBARA_HOME) at start.
 import { browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { invoke, root } from "../helpers.mjs";

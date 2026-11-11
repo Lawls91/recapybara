@@ -3,9 +3,9 @@ import fs from "node:fs";
 import { Key } from "webdriverio";
 import { at, claudeRecords, fixture, freshFixture, invoke, refreshCalendar, root, scenario, seed } from "../helpers.mjs";
 
-// Slice S2, usability quick wins: search by title and people, the mark's contrast, Copy summary and Copy actions,
+// Usability quick wins: search by title and people, the mark's contrast, Copy summary and Copy actions,
 // focus back to the opener, live status, the Awaiting transcript card, the status line's layout and sticky day
-// headers, and the library-missing banner (D42, D45). Synthetic meetings only.
+// headers, and the library-missing banner. Synthetic meetings only.
 const PARTNER = "s2 Partner sync";
 const AWAIT = "s2 Platform sync";
 const FILLERS = Array.from({ length: 8 }, (_, i) => `s2 Filler ${i}`);
@@ -16,7 +16,7 @@ const TRIAGE = "s2 Triage";
 const PLANNING = "s2 Planning";
 const EMPTY = "s2 Empty summary";
 const ROWS = 15;
-// Awaiting, as D12 leaves it: ended 15 minutes ago, found late, its catch-up attempt made, next at end+30, then +120.
+// Awaiting, as the retry schedule leaves it: ended 15 minutes ago, found late, its catch-up attempt made, next at end+30, then +120.
 const AWAIT_END = Date.now() - 15 * 60e3;
 const AWAIT_NEXT = new Date(AWAIT_END + 30 * 60e3);
 const item = (text, owner) => ({ text, citations: [{ at: "00:00:10", quote: "the approach of adding" }], inferred: false, ticketKeys: [], owner });
@@ -136,7 +136,7 @@ describe("usability quick wins", () => {
       };
     });
     expect(layout).toEqual({ first: "sect-upcoming", firstText: "Upcoming", earlierText: "Earlier", between: ["gh"], labels: [[null, null], [null, null]] });
-    // The arrows cross from the last upcoming row to the first past one (D42).
+    // The arrows cross from the last upcoming row to the first past one.
     await $(`.row[data-id="${PLANNING}"]`).click();
     await browser.keys("ArrowDown");
     expect((await active()).row).toBe(AWAIT);

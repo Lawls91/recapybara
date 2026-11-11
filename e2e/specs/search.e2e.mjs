@@ -2,7 +2,7 @@ import { $, $$, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 import { at, invoke, seed } from "../helpers.mjs";
 
-// Ticket 15: search (D28, D45), and ticket 10's search inside the series filter (D17). Synthetic meetings only.
+// Search, and search inside the series filter. Synthetic meetings only.
 const EXPORT = "2026-11-05 1000 Export review";
 const STANDUP = "2026-11-04 0930 Team stand-up";
 const SPRINT = "2026-11-03 1400 Sprint review";
@@ -67,7 +67,7 @@ describe("search", () => {
       { tab: "Transcript 00:18:05", line: "Speaker C: Orbit is different on v2 versus v1", marks: ["Orbit"] },
     ]);
     expect(await snips(STANDUP)).toEqual([{ tab: "My notes", line: "Follow up on Orbit with Katya", marks: ["Orbit"] }]);
-    // The highlight is the lavender mark (D45, --mc-mark #5B43C0 with white ink in light, for AA contrast).
+    // The highlight is the lavender mark (--mc-mark #5B43C0 with white ink in light, for AA contrast).
     expect(await browser.execute(() => getComputedStyle(document.querySelector(".snip mark")).backgroundColor)).toBe("rgb(91, 67, 192)");
     expect(await browser.execute(() => getComputedStyle(document.querySelector(".snip mark")).color)).toBe("rgb(255, 255, 255)");
   });
@@ -148,7 +148,7 @@ describe("search", () => {
     await expect($("#search-clear")).not.toBeDisplayed();
   });
 
-  it("with the selected row filtered out, Tab from the search box reaches a result row, and arrows reach its snippets (D42)", async () => {
+  it("with the selected row filtered out, Tab from the search box reaches a result row, and arrows reach its snippets", async () => {
     await $(`.row[data-id="${SPRINT}"]`).click(); // selected, and holds no Orbit
     await typeQuery("Orbit");
     await browser.waitUntil(async () => (await ids()).length === 3, { timeout: 5000 });

@@ -2,8 +2,8 @@ import { $, $$, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { invoke, root, seedAllStates } from "../helpers.mjs";
 
-// D41 light values: [label, dot rgb]. Scheduled is a hollow ring, so its colour is the border.
-const D41 = {
+// Light values: [label, dot rgb]. Scheduled is a hollow ring, so its colour is the border.
+const STATE_DOTS = {
   scheduled: ["Scheduled", "rgb(107, 115, 131)"],
   inCall: ["In progress", "rgb(35, 104, 208)"],
   awaitingTranscript: ["Awaiting transcript", "rgb(154, 100, 0)"],
@@ -31,8 +31,8 @@ describe("meeting list", () => {
   });
   beforeEach(closeMenu); // a test that fails with the menu open doesn't block the next
 
-  it("each meeting state draws its D41 dot colour and label", async () => {
-    for (const [state, [label, rgb]] of Object.entries(D41)) {
+  it("each meeting state draws its dot colour and label", async () => {
+    for (const [state, [label, rgb]] of Object.entries(STATE_DOTS)) {
       await expect(row(state, ".lbl")).toHaveText(label);
       const dot = await browser.execute((s) => {
         const cs = getComputedStyle(document.querySelector(`.row[data-state="${s}"] .dot`));
@@ -47,7 +47,7 @@ describe("meeting list", () => {
       noTranscript: "Import transcript",
       notReachable: "Import transcript",
       captureFailed: "Import transcript",
-      summaryFailed: "Re-run summary", // seeded with an earlier summary.md (D49 naming)
+      summaryFailed: "Re-run summary", // seeded with an earlier summary.md, so Re-run
     };
     for (const [state, fix] of Object.entries(fixes)) {
       await kebab(state);
@@ -82,7 +82,7 @@ describe("meeting list", () => {
     await expect($("#detail-title")).toHaveText(subject);
     await browser.keys("Delete");
     await expect($("#confirm")).toBeDisplayed();
-    // Ticket 17 added the start, e.g. (Wed 4 Nov 10:00).
+    // The question ends with the start, e.g. (Wed 4 Nov 10:00).
     const quoted = subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     await expect($("#confirm-title")).toHaveText(new RegExp(`^Delete “${quoted}” \\(\\w{3} \\d{1,2} \\w{3} \\d{2}:\\d{2}\\)\\?$`));
     await $("#confirm-cancel").click();
@@ -97,7 +97,7 @@ describe("meeting list", () => {
     await expect($("#detail-title")).toHaveText(subject);
   });
 
-  it("Exclude series needs a join URL (D17), and a Skipped meeting or one whose fetching is over offers no Skip", async () => {
+  it("Exclude series needs a join URL, and a Skipped meeting or one whose fetching is over offers no Skip", async () => {
     await kebab("transcriptReady"); // seeded without a join URL
     expect(await menuLabels()).not.toContain("Exclude series");
     await closeMenu();
@@ -113,13 +113,13 @@ describe("meeting list", () => {
     await closeMenu();
   });
 
-  it("a meeting with a transcript and no summary shows Summary tab status Not run (D44)", async () => {
+  it("a meeting with a transcript and no summary shows Summary tab status Not run", async () => {
     await row("transcriptReady").click();
     await expect($("#tab-summary .tq")).toHaveText("Not run");
     await expect($("#tab-transcript .tq")).toHaveText("1 min");
   });
 
-  it("Scheduled, In progress, Awaiting transcript and Skipped show their D49 state card, with Unskip only on Skipped", async () => {
+  it("Scheduled, In progress, Awaiting transcript and Skipped show their state card, with Unskip only on Skipped", async () => {
     const cards = {
       scheduled: "Captures when the call ends",
       inCall: "Live now, capture starts when it ends",

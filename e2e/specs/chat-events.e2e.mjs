@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { body, calendar, claudeRecords, event, invoke, M365, root, scenario, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
 
-// Slice chat-events: the meeting chat's system events (call started, transcription started, call ended) drive In
-// progress, the transcription-off notification and an early fetch. Every id, name and message is synthetic (D34), in
+// Chat events: the meeting chat's system events (call started, transcription started, call ended) drive In
+// progress, the transcription-off notification and an early fetch. Every id, name and message is synthetic, in
 // the shapes the orchestrator recorded live on 2026-11-09 (messageType "unknownFutureValue" with an eventDetail).
 const READ = `${M365}read_resource`;
 // A distinctive ordinary chat message: it must never reach any file the app writes (privacy criterion).

@@ -1,4 +1,4 @@
-// Synthetic 35-minute transcript of exactly 60,000 chars (D34: no real meeting content).
+// Synthetic 35-minute transcript of exactly 60,000 chars (no real meeting content).
 import fs from "node:fs";
 const TARGET = 60000;
 const topics = ["retry rule", "filter chain", "hotfix branch", "release notes", "policy editor", "test matrix", "audit log"];

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { at, body, calendar, event, fetchesOf, invoke, refreshCalendar, root, scenario, seed, transcriptRead, vtt } from "../helpers.mjs";
 
-// Ticket 17: Delete (D30) moves the meeting's folder to the Recycle Bin after a confirmation. Synthetic meetings only.
+// Delete moves the meeting's folder to the Recycle Bin after a confirmation. Synthetic meetings only.
 const A = "2026-11-05 1000 Delete A";
 const B = "2026-11-04 1000 Delete B";
 const C = "2026-11-03 1000 Delete C";

@@ -66,4 +66,3 @@ The log is never trimmed.
 - **Public holidays** aren't known: the list looks ahead to the next weekday even when that day is a holiday.
 - **Single user.** The app works for one Windows user and one claude.ai account.
 - **Updates** can't be reached while the GitHub repository is private (see [Updates](updates.md)).
-- **Export to vault** is shown on the menu but not available yet.

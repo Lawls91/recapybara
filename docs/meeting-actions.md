@@ -17,7 +17,6 @@ Each row's **...** button (or a right-click on the row) opens its menu. An open 
 | Exclude series (or Include series) | E | It is a Teams meeting. |
 | Delete | Del | The meeting has a folder, and no summary is running. |
 | Show all in this series | | It is a Teams meeting. |
-| Export to vault | | Not available yet (marked "Later"). |
 
 ## Skip, Delete or Exclude series?
 

@@ -2,7 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import { at, calendar, calls, countCalls, event, fixture, hourFromNow, invoke, pickerAnswers, refreshCalendar, root, scenario, seed } from "../helpers.mjs";
 
-// Ticket 14: My notes (D27). Synthetic meetings seeded into the test library.
+// My notes. Synthetic meetings seeded into the test library.
 const A = "2026-11-02 1000 Notes A";
 const B = "2026-11-02 1100 Notes B";
 const C = "2026-11-02 1200 Notes C";
@@ -40,7 +40,7 @@ describe("my notes", () => {
     await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance: "light" } });
     const vtt = fs.readFileSync(fixture());
     seed(A, { subject: "Notes A", start: at(-1, 10), end: at(-1, 11), state: "transcriptReady", source: "import" }, { "transcript.vtt": vtt });
-    // No transcript and a join URL: S, E and Del would all act on these rows (D42).
+    // No transcript and a join URL: S, E and Del would all act on these rows.
     for (const [id, subject, hh] of [[B, "Notes B", 11], [C, "Notes C", 12]]) {
       seed(id, { subject, start: at(-1, hh), end: at(-1, hh + 1), state: "noTranscript", joinUrl: `https://teams.example/j/${subject.replace(" ", "")}` });
     }

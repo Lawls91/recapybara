@@ -1,4 +1,4 @@
-// D38: both token sets meet WCAG AA against every surface each element sits on.
+// Both token sets meet WCAG AA against every surface each element sits on.
 import fs from "node:fs";
 import { expect, test } from "vitest";
 
@@ -52,20 +52,20 @@ const PAIRS: [string, string[], number][] = [
   ),
   ["tr-warnline", ["mc-win", "mc-card"], UI],
   ["mc-focus", ALL, UI],
-  // the peek sheet (D43): its text, the quote mark behind reading text, and the reason line
+  // the peek sheet: its text, the quote mark behind reading text, and the reason line
   ["mc-txt2", ["mc-peek"], TEXT],
   ["mc-txt3", ["mc-peek"], TEXT],
   ["mc-acctxt", ["mc-peek"], TEXT],
   ["mc-read", ["mc-peek"], TEXT],
   ["tr-warn", ["mc-peek"], TEXT],
   ["mc-focus", ["mc-peek"], UI],
-  // the lavender mark (D45): its text, and the mark itself as a non-text indicator against every surface it sits on
+  // the lavender mark: its text, and the mark itself as a non-text indicator against every surface it sits on
   // (a snippet on the list and a hovered one, a transcript turn on the card and a hit turn's tint, the peek)
   ["mc-markink", ["mc-mark"], TEXT],
   // the copy confirmation: inverse ink
   ["mc-card", ["mc-txt"], TEXT],
   ["mc-mark", ["mc-win", "mc-hover", "mc-card", "mc-accsoft", "mc-peek"], UI],
-  // the series filter chip (D17)
+  // the series filter chip
   ["mc-acctxt", ["mc-accsoft"], TEXT],
   ["mc-focus", ["mc-accsoft"], UI],
 ];
@@ -89,7 +89,7 @@ test("positive control: light tertiary #858B97 fails on the selected row #DCE1F7
   const { light } = readSets();
   expect(failures({ ...light, "mc-txt3": "#858B97" })).toContainEqual(expect.stringMatching(/^mc-txt3 #858B97 on mc-sel #DCE1F7: /));
   expect(failures({ ...light, "mc-txt3": "#5F6570" })).toEqual([]);
-  expect(ratio("#5F6570", "#DCE1F7")).toBeCloseTo(4.51, 2); // D38's table
+  expect(ratio("#5F6570", "#DCE1F7")).toBeCloseTo(4.51, 2); // the light theme's value
 });
 
 test("positive control: the old pale mark #EBDAFF stood out under 2:1 from the list, so it fails 3:1", () => {

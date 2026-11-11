@@ -1,5 +1,5 @@
-//! Calendar refresh (D9): a haiku run searches and reads the calendar, its capture hook hands the raw responses to
-//! the app (D13), and the app keeps the Teams events from 2 hours ago to the end of the next working day. Claude's
+//! Calendar refresh: a haiku run searches and reads the calendar, its capture hook hands the raw responses to
+//! the app, and the app keeps the Teams events from 2 hours ago to the end of the next working day. Claude's
 //! reply is ignored.
 //! Import from Teams runs the same search over a date range the user picks.
 use crate::{
@@ -14,16 +14,16 @@ use std::{collections::HashMap, fs, io, path::PathBuf, sync::Mutex};
 
 pub const SEARCH: &str = "mcp__claude_ai_Microsoft_365__outlook_calendar_search";
 pub const READ: &str = "mcp__claude_ai_Microsoft_365__read_resource";
-/// The refresh run's only tools, and the ones its hook captures (D9).
+/// The refresh run's only tools, and the ones its hook captures.
 pub const TOOLS: &[&str] = &[SEARCH, READ];
-/// Refresh interval (D9).
+/// Refresh interval.
 pub const EVERY: Duration = Duration::minutes(30);
-/// The cache keeps events that ended less than this long ago (D9).
+/// The cache keeps events that ended less than this long ago.
 pub const LOOK_BACK: Duration = Duration::hours(2);
 /// How often the scheduler looks at the clock. A sleeping laptop wakes to a due refresh within this.
 pub const TICK: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// A cached Teams event (D9).
+/// A cached Teams event.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Event {
     pub uri: String,
@@ -37,7 +37,7 @@ pub struct Event {
     pub meeting_transcript_url: Option<String>,
 }
 
-/// The refresh run (D8, D9): haiku, the two calendar tools, both captured. `cached` events aren't read again unless
+/// The refresh run: haiku, the two calendar tools, both captured. `cached` events aren't read again unless
 /// they moved.
 pub fn run_for(now: DateTime<Utc>, cached: &[Event]) -> ClaudeRun {
     ClaudeRun { kind: "refresh", ..run_window(now - LOOK_BACK, ahead(now), cached) }
@@ -174,7 +174,7 @@ pub struct Found {
     pub unreadable: Vec<String>,
 }
 
-/// The Teams events in the run's captured payloads (D9), from `now` - 2 h to `ahead(now)`.
+/// The Teams events in the run's captured payloads, from `now` - 2 h to `ahead(now)`.
 pub fn parse(captured: &[Value], now: DateTime<Utc>) -> Result<Vec<Event>, String> {
     parse_in(captured, now, &Local)
 }
@@ -184,7 +184,7 @@ fn parse_in<Tz: TimeZone>(captured: &[Value], now: DateTime<Utc>, tz: &Tz) -> Re
     counted_in(captured, now - LOOK_BACK, working_day_end(now, tz), &[]).map(|f| f.events)
 }
 
-/// The Teams events overlapping `from` to `to` in a search run's captured payloads (D9). The search pages are
+/// The Teams events overlapping `from` to `to` in a search run's captured payloads. The search pages are
 /// followed from offset 0 through each `nextOffset` until a paging object no longer says `moreResults`; a missing
 /// page fails the whole search. An event counts only if its read has `onlineMeeting.joinUrl`. One in `cached` with the
 /// same start and end needs no read: its join and transcript URLs are the cached ones. All-day and cancelled events
@@ -283,7 +283,7 @@ fn search_run(search: ClaudeRun, from: DateTime<Utc>, to: DateTime<Utc>, cached:
     }
 }
 
-/// The calendar status line (D40).
+/// The calendar status line.
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
@@ -304,7 +304,7 @@ struct Inner {
     events: Vec<Event>,
     status: Status,
     last_start: Option<DateTime<Utc>>,
-    /// Events of deleted meetings (D30), so neither the list nor the fetch brings them back, and the file keeping them.
+    /// Events of deleted meetings, so neither the list nor the fetch brings them back, and the file keeping them.
     deleted: Vec<Deleted>,
     deleted_file: Option<PathBuf>,
 }
@@ -322,7 +322,7 @@ struct Deleted {
 #[derive(Default)]
 pub struct Calendar(Mutex<Inner>);
 
-/// A failed run, with D40's fix.
+/// A failed run, with its fix.
 fn run_failure(e: &io::Error) -> String {
     eprintln!("calendar refresh: {e}");
     if e.kind() == io::ErrorKind::NotFound {
@@ -400,7 +400,7 @@ impl Calendar {
         i.events.iter().filter(|e| !i.deleted.iter().any(|d| d.event_id == e.id)).cloned().collect()
     }
 
-    /// Whether the meeting of this event was deleted (D30).
+    /// Whether the meeting of this event was deleted.
     pub fn deleted(&self, event_id: &str) -> bool {
         self.0.lock().unwrap().deleted.iter().any(|d| d.event_id == event_id)
     }
@@ -413,7 +413,7 @@ impl Calendar {
         (i.deleted, i.deleted_file) = (kept, Some(file));
     }
 
-    /// A deleted meeting's event (D30) leaves the cache for good, through every later refresh and restart. Written to
+    /// A deleted meeting's event leaves the cache for good, through every later refresh and restart. Written to
     /// the file before it returns, so a delete that can't be recorded can be refused.
     pub fn forget(&self, event_id: &str, end: DateTime<Utc>) -> io::Result<()> {
         let mut i = self.0.lock().unwrap();
@@ -428,7 +428,7 @@ impl Calendar {
     }
 
     /// One refresh through `run`, unless one is going (then nothing, and false). A good one replaces the cache; a
-    /// failed one keeps it and records why (D9). `changed` is called as it starts and as it ends.
+    /// failed one keeps it and records why. `changed` is called as it starts and as it ends.
     pub fn refresh(&self, now: DateTime<Utc>, mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
         let cached = {
             let mut i = self.0.lock().unwrap();
@@ -468,7 +468,7 @@ impl Calendar {
     }
 }
 
-/// The meeting list (D25, D26): the library's meetings plus each cached event not already in the library, as
+/// The meeting list: the library's meetings plus each cached event not already in the library, as
 /// "scheduled". A cached event's id is its uri, which no library folder name can be.
 pub fn listed(events: &[Event], mut library: Vec<Listed>) -> Vec<Listed> {
     let new: Vec<Listed> = events
@@ -524,7 +524,7 @@ mod tests {
         json!({ "hook_event_name": "PostToolUse", "tool_name": SEARCH, "tool_input": input,
                 "tool_response": [{ "type": "text", "text": text }] })
     }
-    /// A read of event `n`, its response as text blocks (as ticket 06 saw) or as one plain string.
+    /// A read of event `n`, its response as text blocks (as seen on a real machine) or as one plain string.
     fn read(n: u32, join: Option<&str>, plain: bool) -> Value {
         let mut ev = json!({ "uri": format!("calendar:///events/SYNTH-EVENT-{n}"), "body": "<p>Synthetic</p>",
             "meetingTranscriptUrl": format!("meeting-transcript:///events/U1lOVEgt{n}?start=x&end=y") });

@@ -3,9 +3,8 @@ import { Key } from "webdriverio";
 import fs from "node:fs";
 import { body, calendar, claudeRecords, event, fetchesOf, invoke, root, scenario, seed, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
 
-// Slice 08b: Import from Teams by date range. One calendar search per picked date, then, on Import, one fetch and
-// summary per eligible meeting, several at once (S1). Every event is synthetic, in the connector's shape (Research,
-// Calendar data shape).
+// Import from Teams by date range. One calendar search per picked date, then, on Import, one fetch and
+// summary per eligible meeting, several at once. Every event is synthetic, in the connector's shape.
 const daysAgo = (days, hh) => {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -41,7 +40,7 @@ const setDate = (id, value) =>
   }, id, value);
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const SEEDED = "seed captured";
-/** With MC_SHOTS set, a screenshot there in light and in dark (QA's reference; nothing is asserted). */
+/** With MC_SHOTS set, a screenshot there in light and in dark (a reference to check by eye; nothing is asserted). */
 const shots = async (name) => {
   if (!process.env.MC_SHOTS) return;
   fs.mkdirSync(process.env.MC_SHOTS, { recursive: true });

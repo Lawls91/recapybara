@@ -1,4 +1,4 @@
-//! Spawning the user's own `claude -p` (D6, D7, D36).
+//! Spawning the user's own `claude -p`.
 use serde_json::{json, Value};
 use std::{
     ffi::OsString,
@@ -25,11 +25,11 @@ pub struct ClaudeRun {
     pub model: String,
     /// Empty: no tool is pre-approved, so `dontAsk` denies every tool.
     pub allowed_tools: &'static [&'static str],
-    /// Tools whose PostToolUse and PostToolUseFailure payloads the run's capture hook hands to the app (D13).
+    /// Tools whose PostToolUse and PostToolUseFailure payloads the run's capture hook hands to the app.
     pub capture: &'static [&'static str],
-    /// Run-specific flags, e.g. `--json-schema` (D18).
+    /// Run-specific flags, e.g. `--json-schema`.
     pub args: Vec<String>,
-    /// Extra child environment, e.g. `MAX_MCP_OUTPUT_TOKENS` (D13).
+    /// Extra child environment, e.g. `MAX_MCP_OUTPUT_TOKENS`.
     pub env: &'static [(&'static str, &'static str)],
     pub stdin: String,
     /// How long it may run before it is stopped (`RUN_TIMEOUT`; tests shorten it).
@@ -49,7 +49,7 @@ pub fn find_on(path: &std::ffi::OsStr, pathext: &str) -> Option<std::path::PathB
         .find(|p| p.is_file())
 }
 
-/// `RECAPYBARA_CLAUDE` if set, else `claude` found on PATH (D36). Unfound, plain `claude`: the spawn
+/// `RECAPYBARA_CLAUDE` if set, else `claude` found on PATH. Unfound, plain `claude`: the spawn
 /// then fails as not found.
 pub fn program() -> OsString {
     if let Some(p) = std::env::var_os("RECAPYBARA_CLAUDE").filter(|p| !p.is_empty()) {
@@ -62,7 +62,7 @@ pub fn program() -> OsString {
         .unwrap_or_else(|| "claude".into())
 }
 
-/// `claude --version`, trimmed, for the meeting metadata (D14). None when it can't be run.
+/// `claude --version`, trimmed, for the meeting metadata. None when it can't be run.
 pub fn version(program: &OsString) -> Option<String> {
     version_within(program, VERSION_TIMEOUT)
 }
@@ -140,7 +140,7 @@ fn finish(mut child: Child, limit: Duration) -> io::Result<std::process::Output>
     Ok(std::process::Output { status, stdout: take(out), stderr: take(err) })
 }
 
-/// Claude Code's project-folder name for a cwd: every non letter/digit becomes `-` (D7).
+/// Claude Code's project-folder name for a cwd: every non letter/digit becomes `-`.
 pub fn slug(path: &Path) -> String {
     path.to_string_lossy()
         .chars()
@@ -148,7 +148,7 @@ pub fn slug(path: &Path) -> String {
         .collect()
 }
 
-/// What a run gave back: its stdout, and the raw hook payloads its capture hook recorded (D13), never via the model.
+/// What a run gave back: its stdout, and the raw hook payloads its capture hook recorded, never via the model.
 #[derive(Debug, Default)]
 pub struct Output {
     pub stdout: String,
@@ -171,7 +171,7 @@ pub fn capture_settings(dir: &Path, tools: &[&str]) -> String {
     json!({ "hooks": { "PostToolUse": group, "PostToolUseFailure": group } }).to_string()
 }
 
-/// Every payload file in `dir`, parsed; unparsable ones are dropped. Then `dir` is deleted (D7).
+/// Every payload file in `dir`, parsed; unparsable ones are dropped. Then `dir` is deleted.
 fn take_captured(dir: &Path) -> Vec<Value> {
     let found = fs::read_dir(dir)
         .into_iter()
@@ -183,7 +183,7 @@ fn take_captured(dir: &Path) -> Vec<Value> {
     found
 }
 
-/// Claude Code's project folders for this run (D7): the slug of `runs_dir`, plus the folder holding a hook
+/// Claude Code's project folders for this run: the slug of `runs_dir`, plus the folder holding a hook
 /// payload's `transcript_path` (the ground truth) when that is a direct child of `~/.claude/projects`.
 pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<PathBuf> {
     let projects = home.join(".claude").join("projects");
@@ -208,7 +208,7 @@ pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<Pat
 
 static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
 
-/// Runs going now, and the project folders waiting for none to be (D7). Every run shares one project folder, so it is
+/// Runs going now, and the project folders waiting for none to be. Every run shares one project folder, so it is
 /// deleted only when no other run uses it; the lock also keeps a run from starting between that check and the delete.
 static IN_FLIGHT: Mutex<(usize, Vec<PathBuf>)> = Mutex::new((0, vec![]));
 
@@ -235,7 +235,7 @@ impl Drop for InFlight {
 /// Deletes `d`; a failure other than "not there" is logged with the path, never swallowed.
 fn remove(d: &Path) {
     match fs::remove_dir_all(d) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => eprintln!("D7 cleanup: couldn't delete {}: {e}", d.display()),
+        Err(e) if e.kind() != io::ErrorKind::NotFound => eprintln!("project-folder cleanup: couldn't delete {}: {e}", d.display()),
         _ => {}
     }
 }
@@ -256,7 +256,7 @@ fn remove_if_idle(dirs: &[PathBuf], mine: usize) -> bool {
     idle
 }
 
-/// Deletes the run's project folders (D7), and again 2 and 10 seconds later in the background, in case something
+/// Deletes the run's project folders, and again 2 and 10 seconds later in the background, in case something
 /// the run started writes there late. Skipped while another run is going; the next run's end deletes them then.
 fn clean_projects(dirs: Vec<PathBuf>) {
     remove_if_idle(&dirs, 1);
@@ -268,12 +268,12 @@ fn clean_projects(dirs: Vec<PathBuf>) {
     });
 }
 
-/// Deletes `~/.claude/projects/<slug of runs_dir>` (D7) at app start, before any run.
+/// Deletes `~/.claude/projects/<slug of runs_dir>` at app start, before any run.
 pub fn sweep_project(home: &Path, runs_dir: &Path) {
     remove(&home.join(".claude").join("projects").join(slug(runs_dir)));
 }
 
-/// At startup: deletes every `hooks-*` capture folder a killed run left in `runs_dir` (D7). No run is going yet.
+/// At startup: deletes every `hooks-*` capture folder a killed run left in `runs_dir`. No run is going yet.
 pub fn sweep_captures(runs_dir: &Path) {
     for e in fs::read_dir(runs_dir).into_iter().flatten().flatten() {
         if e.file_name().to_string_lossy().starts_with("hooks-") && e.path().is_dir() {
@@ -282,7 +282,7 @@ pub fn sweep_captures(runs_dir: &Path) {
     }
 }
 
-/// A failed run said shortly, for a card: not found gets D40's fix, ending "then `then`."; anything else its first
+/// A failed run said shortly, for a card: not found gets its fix, ending "then `then`."; anything else its first
 /// line (stderr's first line), clipped.
 pub fn failure(e: &io::Error, then: &str) -> String {
     if e.kind() == io::ErrorKind::NotFound {
@@ -314,7 +314,7 @@ pub fn clip(s: &str) -> String {
     format!("{}\u{2026}", cut.trim_end())
 }
 
-/// Runs isolated in `runs_dir`, then deletes Claude Code's copies under `home` (D7),
+/// Runs isolated in `runs_dir`, then deletes Claude Code's copies under `home`,
 /// whether the run succeeded or not. Returns stdout and the captured hook payloads.
 pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) -> io::Result<Output> {
     fs::create_dir_all(runs_dir).map_err(|e| io::Error::new(e.kind(), format!("create {}: {e}", runs_dir.display())))?;
@@ -381,7 +381,7 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
 pub const RUNS_LOG: &str = "runs.jsonl";
 static LOG: Mutex<()> = Mutex::new(());
 
-/// Appends the run's metrics from its `--output-format json` result to `file`: never the prompt or any content (D34).
+/// Appends the run's metrics from its `--output-format json` result to `file`: never the prompt or any content.
 /// A run with no result (failed, stopped) still gets its line, its metrics null. Best effort: a failure is logged.
 fn log_run(file: &Path, run: &ClaudeRun, wall: Duration, stdout: &str) {
     let r: Value = serde_json::from_str(stdout.trim()).unwrap_or_default();
@@ -423,7 +423,7 @@ mod tests {
     }
 
     // Expected values follow folder names observed under ~/.claude/projects: every character but an ASCII letter or
-    // digit became "-". The paths are neutral stand-ins of the same shape (D34).
+    // digit became "-". The paths are neutral stand-ins of the same shape.
     #[test]
     fn slug_matches_observed_notebook_folder() {
         assert_eq!(

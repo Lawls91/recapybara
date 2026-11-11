@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# Test-only stand-in for the claude CLI (D36). Its own crate so it carries none of the app's Windows resources.
+# Test-only stand-in for the claude CLI. Its own crate so it carries none of the app's Windows resources.
 # No unit tests in the bin: its tests are tests/*.rs. (Windows security deletes this bin's empty test
 # harness exe as soon as it is linked, so building one only breaks `cargo test`.)
 [[bin]]

@@ -1,5 +1,5 @@
-//! Meeting chat events (slice chat-events, replacing the mic signal of D10): a haiku run reads the meeting chat's
-//! latest page through the M365 connector, its capture hook hands the raw page to the app (D13), and the app keeps only
+//! Meeting chat events (in place of a microphone signal): a haiku run reads the meeting chat's
+//! latest page through the M365 connector, its capture hook hands the raw page to the app, and the app keeps only
 //! the times of three system events for this occurrence: the call started, transcription started, the call ended.
 //! Ordinary messages are never read for their text: only `eventDetail` objects are looked at, and nothing else of the
 //! page outlives the parse. They drive In progress, the transcription-off notification and the early fetch.
@@ -98,7 +98,7 @@ pub fn uri(thread: &str) -> String {
     format!("teams:///chats/{thread}/messages")
 }
 
-/// The chat check run: haiku, `read_resource` only, captured (D8, D13).
+/// The chat check run: haiku, `read_resource` only, captured.
 pub fn run_for(uri: &str) -> ClaudeRun {
     ClaudeRun {
         kind: "chat",

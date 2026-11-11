@@ -2,7 +2,7 @@ import { $, $$, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 import { at, invoke, seed } from "../helpers.mjs";
 
-// The meeting list's Filter: Show groups (G3), a date, one series (D17 merged), kept in settings.json across restarts.
+// The meeting list's Filter: Show groups (G3), a date, one series, kept in settings.json across restarts.
 const REFINEMENT = "https://teams.example/j/refinement";
 const PARTNER = "https://teams.example/j/partner";
 const SEEDS = [

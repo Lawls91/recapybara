@@ -23,7 +23,7 @@ test("a running summary's menu offers neither Re-run summary nor Replace transcr
   expect(ids("summarising")).not.toContain("replace");
 });
 
-test("Skip is only on a meeting not yet captured, and an excluded series offers Include series instead (D17)", () => {
+test("Skip is only on a meeting not yet captured, and an excluded series offers Include series instead", () => {
   const ids = (m: Meeting) => menuFor(m).map((i) => i.id);
   expect(ids({ ...meeting("scheduled"), hasTranscript: false })).toContain("skip");
   expect(ids({ ...meeting("awaitingTranscript"), hasTranscript: false })).toContain("skip");

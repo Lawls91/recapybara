@@ -1,4 +1,4 @@
-//! Settings file in the app-data folder (D32).
+//! Settings file in the app-data folder.
 use serde::{Deserialize, Serialize};
 use std::{fs, io, path::Path};
 
@@ -10,9 +10,9 @@ pub struct Settings {
     pub library_path: Option<String>,
     pub summary_model: String,
     pub start_at_logon: bool,
-    /// Exclude series (D17): keyed by the join URL every occurrence shares; the subject is for Settings' list.
+    /// Exclude series: keyed by the join URL every occurrence shares; the subject is for Settings' list.
     pub excluded_series: Vec<Series>,
-    /// `system`, `light` or `dark` (D46).
+    /// `system`, `light` or `dark`.
     pub appearance: String,
     /// The meeting list's Filter, kept across restarts; the page alone reads it.
     pub list_filter: ListFilter,
@@ -74,7 +74,7 @@ pub fn for_dev(mut s: Settings, dev: &Path, own_library: bool) -> Settings {
     s
 }
 
-/// The library first run offers (D25), so Finish works without a pick: a dev instance's own `<dir>\library`, else
+/// The library first run offers, so Finish works without a pick: a dev instance's own `<dir>\library`, else
 /// `<Documents>\Recapybara`, Documents being the known folder (OneDrive-redirected or not). None without either.
 pub fn proposed_library(dev: Option<&Path>, documents: Option<&Path>) -> Option<String> {
     match dev {
@@ -88,12 +88,12 @@ fn dev_library(dev: &Path) -> String {
 }
 
 /// A dev instance makes its library at start only when it is the dev dir's own default (saved or not); a library
-/// chosen elsewhere that has gone stays gone, for the missing-library banner (D45).
+/// chosen elsewhere that has gone stays gone, for the missing-library banner.
 pub fn makes_dev_library(s: &Settings, dev: &Path) -> bool {
     s.library_path.as_deref() == Some(dev_library(dev).as_str())
 }
 
-/// Atomic write: temp file, then rename (D25).
+/// Atomic write: temp file, then rename.
 pub fn save(dir: &Path, settings: &Settings) -> io::Result<()> {
     fs::create_dir_all(dir)?;
     let tmp = dir.join(format!("{FILE}.tmp"));
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(loaded.library_path.as_deref(), Some(r"D:\lib"));
         assert_eq!(loaded.summary_model, "opus");
         assert!(!loaded.start_at_logon);
-        assert_eq!(loaded.excluded(), ["https://teams.example/j/1"], "an exclusion survives a restart (D17)");
+        assert_eq!(loaded.excluded(), ["https://teams.example/j/1"], "an exclusion survives a restart");
         assert_eq!(on_disk["excludedSeries"][0]["joinUrl"], "https://teams.example/j/1");
         fs::remove_dir_all(dir).unwrap();
     }

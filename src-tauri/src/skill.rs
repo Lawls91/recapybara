@@ -1,9 +1,9 @@
-//! The library skill for the user's own Claude sessions (D33).
+//! The library skill for the user's own Claude sessions.
 use std::{fs, io, path::{Path, PathBuf}};
 
 const TEMPLATE: &str = include_str!("../skill/SKILL.md");
 
-/// The skill folder name is frozen (D50).
+/// The skill folder name is frozen.
 pub fn dir(home: &Path) -> PathBuf {
     home.join(".claude").join("skills").join("recapybara")
 }
@@ -69,7 +69,7 @@ mod tests {
         assert!(skill(&home).contains(r"`D:\Meetings`"));
     }
 
-    /// Scope: the skill-install path only. D7's sweep of the app's own `runs` project folder is claude.rs's.
+    /// Scope: the skill-install path only. The sweep of the app's own `runs` project folder is claude.rs's.
     #[test]
     fn writes_nothing_under_dot_claude_outside_its_skill_folder() {
         let home = temp("sandbox");

@@ -1,4 +1,4 @@
-// Meeting states, day groups and the row menu (D26, D41, D42, D49).
+// Meeting states, day groups and the row menu.
 
 export type State =
   | "scheduled"
@@ -26,11 +26,11 @@ export interface Meeting {
   state: State;
   hasTranscript: boolean;
   hasSummary: boolean;
-  /** Its series is excluded (D17). */
+  /** Its series is excluded. */
   excluded?: boolean;
   /** Why the last summary run failed (shown on the Summary failed card). */
   summaryError?: string | null;
-  /** When the next fetch attempt is due, and the attempts still to come (D12, counted by the backend). */
+  /** When the next fetch attempt is due, and the attempts still to come (counted by the backend). */
   nextAttempt?: string | null;
   attemptsLeft?: number;
   /** Why the last fetch attempt failed, in plain words (shown on the Capture failed card). */
@@ -41,7 +41,7 @@ export interface Meeting {
   transcriptionOff?: boolean;
 }
 
-/** D41: dot family and label for each state. */
+/** Dot family and label for each state. */
 export const STATES: Record<State, { family: string; label: string }> = {
   scheduled: { family: "up", label: "Scheduled" },
   inCall: { family: "live", label: "In progress" },
@@ -72,7 +72,7 @@ export const groupOf = (m: Meeting) => {
 };
 
 /** The list's filter, saved in settings.json so it lasts across restarts. `hidden`: GROUPS ids unticked; `date`: "" (any
- * time), "today", "7d", "30d" or "custom" (`from`..`to`, local yyyy-mm-dd, inclusive, either open); `series`: D17's one
+ * time), "today", "7d", "30d" or "custom" (`from`..`to`, local yyyy-mm-dd, inclusive, either open); `series`: one
  * series, by join URL. */
 export interface ListFilter {
   hidden: string[];
@@ -117,7 +117,7 @@ export function passes(m: Meeting, f: ListFilter, now: Date): boolean {
   return day >= from && day <= to;
 }
 
-/** D49: states whose detail pane is a state card, with its sentence. */
+/** States whose detail pane is a state card, with its sentence. */
 export const STATE_CARDS: Partial<Record<State, string>> = {
   scheduled: "Captures when the call ends",
   inCall: "Live now, capture starts when it ends",
@@ -136,14 +136,14 @@ export function failureReason(m: Meeting): string {
   return m.fetchError || "The last attempt saved no transcript, and recorded no reason.";
 }
 
-/** D49: "Run summary" before the first summary, "Re-run summary" after. */
+/** "Run summary" before the first summary, "Re-run summary" after. */
 export const summaryAction = (m: Meeting) => (m.hasSummary ? "Re-run summary" : "Run summary");
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const dayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const timeFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-/** The delete confirmation's question (D30): the subject, then the start, so two meetings with one subject are told apart. */
+/** The delete confirmation's question: the subject, then the start, so two meetings with one subject are told apart. */
 export function deletePrompt(m: Meeting): string {
   const d = m.start ? new Date(m.start) : null;
   return `Delete “${m.subject || m.id}”${d ? ` (${dayFmt.format(d)} ${timeFmt.format(d)})` : ""}?`;
@@ -200,7 +200,7 @@ export function peopleLine(m: Meeting): string[] {
 }
 
 /** The Awaiting transcript card's schedule line: when it checks next, in local time with its day unless today, and
- * the attempts left (the backend's count, D12). */
+ * the attempts left (the backend's count). */
 export function awaitingLine(m: Meeting, now: Date): string {
   if (!m.nextAttempt) return "No more checks.";
   const d = new Date(m.nextAttempt);
@@ -224,11 +224,10 @@ export interface MenuItem {
   key?: string;
   bold?: boolean;
   danger?: boolean;
-  later?: boolean;
   sep?: boolean;
 }
 
-/** D42 order, plus D49's additions after the fix. */
+/** The row menu, in order: Open, the fix for the meeting's state, then its other actions. */
 export function menuFor(m: Meeting): MenuItem[] {
   const items: MenuItem[] = [{ id: "open", label: "Open", icon: "", key: "Enter" }];
   if (needsTranscript(m.state)) items.push({ id: "import", label: "Import transcript", icon: "", bold: true });
@@ -237,27 +236,26 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "", bold: true });
   else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "" });
   if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "" });
-  // A meeting from the calendar cache has no folder until it is captured (D25).
+  // A meeting from the calendar cache has no folder until it is captured.
   // Copy to the clipboard: summary.md as Markdown, or the summary's action items.
   if (m.hasSummary) items.push({ id: "copy-summary", label: "Copy summary", icon: "" }, { id: "copy-actions", label: "Copy actions", icon: "" });
   if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "" });
   const group: MenuItem[] = [];
-  // Skip stops a capture (D17), so only a meeting a fetch can still reach has it: not once fetching is over.
+  // Skip stops a capture, so only a meeting a fetch can still reach has it: not once fetching is over.
   if (m.state !== "skipped" && !m.hasTranscript && !busy && !needsTranscript(m.state)) group.push({ id: "skip", label: "Skip", icon: "", key: "S" });
-  // D17 keys a series by join URL.
+  // A series is keyed by its join URL.
   if (m.joinUrl)
     group.push(m.excluded ? { id: "include", label: "Include series", icon: "" } : { id: "exclude", label: "Exclude series", icon: "", key: "E" });
-  // Delete moves the folder to the Recycle Bin (D30); a calendar-cache meeting has none yet, and a running summary
+  // Delete moves the folder to the Recycle Bin; a calendar-cache meeting has none yet, and a running summary
   // would write into it.
   if (m.source !== "calendar" && !busy) group.push({ id: "delete", label: "Delete", icon: "", key: "Del", danger: true });
   if (group.length) group[0].sep = true;
   items.push(...group);
   if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "" });
-  items.push({ id: "export", label: "Export to vault", icon: "", later: true, sep: true });
   return items;
 }
 
-/** The calendar refresh's state (D9), as the backend reports it. */
+/** The calendar refresh's state, as the backend reports it. */
 export interface CalendarStatus {
   updated: string | null;
   refreshing: boolean;
@@ -268,7 +266,7 @@ export interface CalendarStatus {
   unreadable?: number;
 }
 
-/** D40's calendar status line: refreshing, else the last failure with its fix, else when it last refreshed. */
+/** The calendar status line: refreshing, else the last failure with its fix, else when it last refreshed. */
 export function calendarLine(s: CalendarStatus): { text: string; error: boolean } {
   if (s.refreshing) return { text: "Refreshing calendar…", error: false };
   if (s.failure) return { text: s.failure, error: true };

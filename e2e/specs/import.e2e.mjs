@@ -16,7 +16,7 @@ describe("import a transcript", () => {
     await expect(rows()).toBeElementsArrayOfSize(3);
   });
 
-  // Importing starts the summary (D15, ticket 04), and the default fake scenario returns a valid one.
+  // Importing starts the summary, and the default fake scenario returns a valid one.
   it("an imported fixture appears at the top of the past meetings, then summarises", async () => {
     await importFile(freshFixture());
     await expect(rows()).toBeElementsArrayOfSize(4);
@@ -33,7 +33,7 @@ describe("import a transcript", () => {
     const turns = await $$("#transcript .turn");
     await expect(turns).toBeElementsArrayOfSize(2);
     const first = await turns[0].getText();
-    // D22's turn: one paragraph starting **[00:00:03] Speaker A:**
+    // A transcript turn: one paragraph starting **[00:00:03] Speaker A:**
     expect(first.startsWith("[00:00:03] Speaker A:")).toBe(true);
     expect(first).toContain("We could ship the retry rule first. Then the filter chain stays as it is.");
     await expect(turns[0].$(".th")).toHaveText("[00:00:03] Speaker A:");

@@ -1,10 +1,10 @@
-//! Fake `claude` for tests (D36). Never ships; the app finds it through RECAPYBARA_CLAUDE.
+//! Fake `claude` for tests. Never ships; the app finds it through RECAPYBARA_CLAUDE.
 //!
 //! Scenario file (FAKE_CLAUDE_SCENARIO), all fields optional:
 //!   { "result": <json printed on stdout>, "exitCode": 0, "version": "2.1.318 (Claude Code)",
 //!     "hook": { "event": "PostToolUse", "tool_name": "...", "tool_input": {...}, "tool_response": ... },
 //!     "hooks": [ <hook>, ... ],   // several, fired in order after "hook"; a "PostToolUseFailure" one carries "error"
-//!     "structuredOutput": {...},  // printed inside the real --output-format json shape (Research, Headless Claude Code)
+//!     "structuredOutput": {...},  // printed inside the real --output-format json shape
 //!     "stdout": "raw text",       // printed as is, e.g. malformed JSON
 //!     "delayMs": 0,               // sleep before answering, so a test can see "summarising" (or a run time out)
 //!     "versionDelayMs": 0 }       // sleep before answering --version
