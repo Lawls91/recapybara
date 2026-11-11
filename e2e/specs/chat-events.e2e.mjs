@@ -73,7 +73,8 @@ describe("meeting chat events", () => {
         system("s7", min(-38), "callTranscriptEventMessageDetail", { callId: "call-d" }),
         system("s6", min(-39), "callStartedEventMessageDetail", { callId: "call-d" }),
       ]),
-      transcriptRead(early, body(early, vtt("early finish"))),
+      // Covers the 19-minute call to its end, so the capture isn't held for parts still to come.
+      transcriptRead(early, body(early, `${vtt("early finish")}\n00:18:30.000 --> 00:19:00.000\n<v Speaker A>Synthetic early finish closes the call.</v>\n`)),
     );
     scenario(s);
     const settings = await invoke("get_settings");
