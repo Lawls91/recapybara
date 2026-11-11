@@ -24,6 +24,8 @@ pub enum State {
     InCall,
     AwaitingTranscript,
     NoTranscript,
+    /// The meeting chat showed no call (fetch::no_call): nothing to capture, listed with Skipped.
+    DidNotHappen,
     NotReachable,
     CaptureFailed,
     TranscriptReady,
@@ -250,7 +252,12 @@ pub fn delete(library: &Path, id: &str, owner: isize, first: impl FnOnce(&Meetin
 }
 
 pub fn load(dir: &Path) -> io::Result<Meeting> {
-    Ok(serde_json::from_slice(&fs::read(dir.join(META))?)?)
+    let m: Meeting = serde_json::from_slice(&fs::read(dir.join(META))?)?;
+    // 0.5.1 stored a call that never started as No transcript with this reason: it is Didn't happen.
+    Ok(match m.fetch_error.as_deref() {
+        Some("The call never started.") if m.state == State::NoTranscript => Meeting { state: State::DidNotHappen, fetch_error: None, ..m },
+        _ => m,
+    })
 }
 
 /// The library folder as it is now: one that can't be read (missing, a drive unplugged, not yet synced) is refused,
@@ -1007,6 +1014,16 @@ Ask Robin about the 403
         assert!(folders(&lib).is_empty());
         import_new(&lib, &source(&src, "Sprint review.vtt", FIXTURE.as_bytes())).unwrap();
         assert_eq!(folders(&lib).len(), 1);
+    }
+
+    #[test]
+    fn a_call_that_never_started_stored_as_no_transcript_by_0_5_1_loads_as_did_not_happen() {
+        let dir = temp("lib-0.5.1");
+        let old = |reason: &str| fs::write(dir.join(META), format!(r#"{{"subject":"Synthetic","state":"noTranscript","fetchError":"{reason}"}}"#)).unwrap();
+        old("The call never started.");
+        assert_eq!((load(&dir).unwrap().state, load(&dir).unwrap().fetch_error), (State::DidNotHappen, None));
+        old("Something else.");
+        assert_eq!(load(&dir).unwrap().state, State::NoTranscript);
     }
 
     #[test]

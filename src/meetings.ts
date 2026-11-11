@@ -5,6 +5,7 @@ export type State =
   | "inCall"
   | "awaitingTranscript"
   | "noTranscript"
+  | "didNotHappen"
   | "notReachable"
   | "captureFailed"
   | "transcriptReady"
@@ -49,6 +50,7 @@ export const STATES: Record<State, { family: string; label: string }> = {
   inCall: { family: "live", label: "In progress" },
   awaitingTranscript: { family: "wait", label: "Awaiting transcript" },
   noTranscript: { family: "fail", label: "No transcript" },
+  didNotHappen: { family: "skip", label: "Didn't happen" },
   notReachable: { family: "fail", label: "Not reachable" },
   captureFailed: { family: "fail", label: "Capture failed" },
   transcriptReady: { family: "ready", label: "Transcript ready" },
@@ -127,12 +129,15 @@ export const STATE_CARDS: Partial<Record<State, string>> = {
   skipped: "Skipped, not captured",
 };
 
-export const needsTranscript = (s: State) => s === "noTranscript" || s === "notReachable" || s === "captureFailed";
+/** States with no transcript and no more checks: their card offers Try again and Import transcript. Didn't happen too,
+ * in case its meeting did happen after all. */
+export const needsTranscript = (s: State) => s === "noTranscript" || s === "didNotHappen" || s === "notReachable" || s === "captureFailed";
 
-/** Why a capture failure state has no transcript, for its card: the state's own reason, and Capture failed's (or No
- * transcript's, when the call never started) from the recorded attempt. The card's actions are Try again and Import transcript. */
+/** Why a meeting with no transcript has none, for its card: the state's own reason, and Capture failed's from the
+ * recorded attempt. The card's actions are Try again and Import transcript. */
 export function failureReason(m: Meeting): string {
-  if (m.state === "noTranscript") return m.fetchError || "Teams had no transcript for this meeting (transcription may have been off).";
+  if (m.state === "noTranscript") return "Teams had no transcript for this meeting (transcription may have been off).";
+  if (m.state === "didNotHappen") return "The call never started, so there's nothing to capture.";
   if (m.state === "notReachable")
     return "Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).";
   return m.fetchError || "The last attempt saved no transcript, and recorded no reason.";

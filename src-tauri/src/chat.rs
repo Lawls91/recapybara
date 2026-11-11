@@ -290,7 +290,7 @@ pub fn show(list: &mut [Listed], chats: &Chats, now: DateTime<Utc>) {
 /// `FAILURES` the meeting is left to its schedule. Each check's chat goes in the folder's `meeting.json` (fetch::note_chat);
 /// an ended call makes the meeting due for a fetch now. Returns each meeting whose chat changed or that is to be
 /// nudged (once each, on the first read at least `NUDGE_AFTER` past the start that still shows no transcription). One
-/// whose chat, still read after its end, shows no call by `UNTIL` past it is No transcript (fetch::no_call).
+/// whose chat, still read after its end, shows no call by `UNTIL` past it is Didn't happen (fetch::no_call).
 pub fn tick(chats: &Chats, lib: &Path, events: &[Event], excluded: &[String], now: DateTime<Utc>, run: impl Fn(&ClaudeRun) -> io::Result<Output> + Sync) -> Vec<News> {
     let listed = library::list(lib);
     let folder = |e: &Event| listed.iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str()));
@@ -344,7 +344,7 @@ pub fn tick(chats: &Chats, lib: &Path, events: &[Event], excluded: &[String], no
             changed(e, after, false);
         }
     }
-    // No call by `UNTIL` past the end, still read: No transcript. Only a good read at or after the scheduled end counts
+    // No call by `UNTIL` past the end, still read: Didn't happen. Only a good read at or after the scheduled end counts
     // (its page holds the whole scheduled call); a read only before that can't tell, so the schedule goes on.
     for e in events.iter().filter(|e| watched(e) && now >= e.end + UNTIL) {
         let Some(l) = folder(e).filter(|l| matches!(l.meeting.state, State::Scheduled | State::AwaitingTranscript)) else { continue };
@@ -800,11 +800,11 @@ mod tests {
     }
 
     #[test]
-    fn a_call_that_never_started_is_no_transcript_once_30_minutes_past_the_end_with_no_more_attempts() {
+    fn a_call_that_never_started_did_not_happen_once_30_minutes_past_the_end_with_no_more_attempts() {
         // Reads every 3 minutes to 10:58 find no call: the attempts at 10:30, 10:32 and 10:40 run, then at 11:00 it is
-        // No transcript, saying why; the 11:00 and 12:30 attempts never run.
+        // Didn't happen; the 11:00 and 12:30 attempts never run.
         let (got, m) = fetches("no-call", false, None, i64::MAX, 0..0);
-        assert_eq!((got, m.state, m.next_attempt, m.fetch_error.as_deref()), (vec![30, 32, 40], State::NoTranscript, None, Some(crate::fetch::NO_CALL)));
+        assert_eq!((got, m.state, m.next_attempt, m.fetch_error), (vec![30, 32, 40], State::DidNotHappen, None, None));
     }
 
     #[test]

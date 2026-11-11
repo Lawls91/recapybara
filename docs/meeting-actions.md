@@ -8,7 +8,7 @@ Each row's **...** button (or a right-click on the row) opens its menu. An open 
 | Action | Key | Shown when |
 | --- | --- | --- |
 | Open | Enter | Always. |
-| Import transcript | | No transcript, Not reachable or Capture failed (shown first, in bold). |
+| Import transcript | | No transcript, Didn't happen, Not reachable or Capture failed (shown first, in bold). |
 | Re-run summary | | There is a summary and no summary is running. On Summary failed it is shown first, in bold (Run summary if there was never a summary). |
 | Replace transcript… | | There is a transcript and no summary is running. |
 | Fetch again from Teams | | A Teams meeting with a transcript, not skipped or excluded, and no summary or fetch running for it. |
@@ -36,7 +36,7 @@ checked. Use it for a meeting you don't want recorded in your library, before or
 "Transcription isn't on" notification has a **Skip this meeting** button that does the same.
 
 Skip is offered only while a fetch can still happen: on Scheduled, In progress and Awaiting transcript meetings. Once
-fetching is over (No transcript, Not reachable, Capture failed) there is nothing left to skip, so Skip isn't offered;
+fetching is over (No transcript, Didn't happen, Not reachable, Capture failed) there is nothing left to skip, so Skip isn't offered;
 use Delete to get rid of such a meeting. A meeting that already has a transcript has no Skip either.
 
 The skip is kept in the meeting's folder, so it survives a restart. **Unskip**, on the Skipped meeting's card, undoes

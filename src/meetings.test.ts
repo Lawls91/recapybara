@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, filterChips, groupOf, menuFor, NO_FILTER, passes, peopleLine, type Meeting } from "./meetings";
+import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, filterChips, groupOf, menuFor, needsTranscript, NO_FILTER, passes, peopleLine, STATES, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -38,7 +38,7 @@ test("Skip is only on a meeting not yet captured, and an excluded series offers 
   expect(ids({ ...meeting("scheduled"), hasTranscript: false })).toContain("skip");
   expect(ids({ ...meeting("awaitingTranscript"), hasTranscript: false })).toContain("skip");
   // Fetching is over for these: nothing left to skip.
-  for (const s of ["noTranscript", "notReachable", "captureFailed"] as const) expect(ids({ ...meeting(s), hasTranscript: false })).not.toContain("skip");
+  for (const s of ["noTranscript", "didNotHappen", "notReachable", "captureFailed"] as const) expect(ids({ ...meeting(s), hasTranscript: false })).not.toContain("skip");
   expect(ids(meeting("done"))).not.toContain("skip");
   expect(ids({ ...meeting("skipped"), hasTranscript: false })).not.toContain("skip");
   const teams = { ...meeting("scheduled"), hasTranscript: false, joinUrl: "https://teams.example/j/1" };
@@ -169,7 +169,7 @@ test("a meeting with a summary offers Copy summary and Copy actions; one without
 test("each capture failure's card says why: its state's reason, and Capture failed the recorded attempt's", () => {
   const failed = (state: Meeting["state"], fetchError?: string) => failureReason({ ...meeting(state), hasTranscript: false, hasSummary: false, fetchError });
   expect(failed("noTranscript")).toBe("Teams had no transcript for this meeting (transcription may have been off).");
-  expect(failed("noTranscript", "The call never started.")).toBe("The call never started.");
+  expect(failed("didNotHappen")).toBe("The call never started, so there's nothing to capture.");
   expect(failed("notReachable")).toBe("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
   expect(failed("captureFailed", "Teams sent a size-limit notice instead of the transcript.")).toBe("Teams sent a size-limit notice instead of the transcript.");
   expect(failed("captureFailed")).toBe("The last attempt saved no transcript, and recorded no reason."); // a folder from before reasons were kept
@@ -179,7 +179,7 @@ test("the Filter's five groups (G3) hold every state, and a running fetch is In 
   const of = (s: Meeting["state"]) => groupOf(meeting(s));
   expect(["noTranscript", "notReachable", "captureFailed", "summaryFailed"].map((s) => of(s as Meeting["state"]))).toEqual(["fail", "fail", "fail", "fail"]);
   expect(["inCall", "awaitingTranscript", "transcriptReady", "summarising"].map((s) => of(s as Meeting["state"]))).toEqual(["flight", "flight", "flight", "flight"]);
-  expect([of("done"), of("scheduled"), of("skipped")]).toEqual(["done", "up", "skip"]);
+  expect([of("done"), of("scheduled"), of("skipped"), of("didNotHappen")]).toEqual(["done", "up", "skip", "skip"]);
   expect(groupOf({ ...meeting("captureFailed"), fetching: true })).toBe("flight");
 });
 
@@ -216,4 +216,13 @@ test("one chip per kind on", () => {
   const chips = filterChips({ hidden: ["up", "skip"], date: "7d", from: "", to: "", series: { joinUrl: "u", subject: "Refinement" } });
   expect(chips.map((c) => c.label)).toEqual(["Hidden: Upcoming, Skipped", "Last 7 days", "Series: Refinement"]);
   expect(filterChips({ ...NO_FILTER, date: "custom", from: "2026-11-02", to: "2026-11-10" })[0].label).toBe("Mon 2 Nov – Tue 10 Nov");
+});
+
+test("Didn't happen is a grey Skipped-group state whose card and menu still offer Try again and Import transcript", () => {
+  expect(STATES.didNotHappen).toEqual({ family: "skip", label: "Didn't happen" });
+  expect(groupOf(meeting("didNotHappen"))).not.toBe("fail");
+  // needsTranscript draws the Try again and Import transcript card.
+  expect(needsTranscript("didNotHappen")).toBe(true);
+  const items = menuFor({ ...meeting("didNotHappen"), hasTranscript: false, hasSummary: false });
+  expect(items.slice(0, 2).map((i) => [i.id, i.label, !!i.bold])).toEqual([["open", "Open", false], ["import", "Import transcript", true]]);
 });
