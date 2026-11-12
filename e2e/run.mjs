@@ -25,6 +25,24 @@ for (const f of [app, fake]) {
 // tauri-driver auto-install needs cargo on PATH.
 const cargoBin = path.join(os.homedir(), ".cargo", "bin");
 const PATH = `${cargoBin}${path.delimiter}${process.env.PATH}`;
+// With no msedgedriver on PATH whose version it can read, the service downloads one per spec (24 MB) into
+// %TEMP%\msedgedriver\<major>-<random> and never deletes it. A copy on PATH doesn't help: the service (to 2.0.0-next.0
+// at least) reads the version only as "MSEdgeDriver <v>", and drivers now print "Microsoft Edge WebDriver <v>". So after
+// each spec the runner deletes the folders that appeared during this run, never older ones.
+// ponytail: a run on another port that is mid-download when this one cleans can lose its folder (its spec then fails);
+// a per-spec TEMP for the wdio child would make each run own its downloads, if concurrent runs ever hit it.
+const downloads = path.join(os.tmpdir(), "msedgedriver");
+const listDownloads = () => (fs.existsSync(downloads) ? fs.readdirSync(downloads) : []);
+const oldDownloads = new Set(listDownloads());
+const removeDownloadedDrivers = () => {
+  for (const d of listDownloads().filter((d) => !oldDownloads.has(d))) {
+    try {
+      fs.rmSync(path.join(downloads, d), { recursive: true, force: true, maxRetries: 10 });
+    } catch (e) {
+      console.warn(`e2e: couldn't remove ${path.join(downloads, d)}: ${e.message}`);
+    }
+  }
+};
 
 // The service leaves each spec's tauri-driver (and its msedgedriver) running on Windows. A leftover holding the driver
 // port makes the next spec's driver fail silently and attach to a stale app, so a taken port fails the run, and each
@@ -152,6 +170,7 @@ for (const spec of specs) {
   });
   if (r.status !== 0) failed++;
   for (const pid of ownDriver()) spawnSync("taskkill", ["/PID", pid, "/T", "/F"], { stdio: "ignore" });
+  removeDownloadedDrivers();
 }
 console.log(`\ne2e: ${specs.length - failed}/${specs.length} spec files passed`);
 process.exit(failed ? 1 : 0);
