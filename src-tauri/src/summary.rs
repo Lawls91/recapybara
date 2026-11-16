@@ -361,7 +361,8 @@ pub fn run_for(m: &Meeting, vtt: &str, glossary: &str, model: &str) -> ClaudeRun
         allowed_tools: JIRA_READ_TOOLS,
         capture: JIRA_READ_TOOLS,
         args: vec!["--json-schema".into(), schema().to_string()],
-        env: &[],
+        // Its Jira reads are claude.ai connector tools.
+        env: &[crate::calendar::WAIT_FOR_CONNECTORS],
         stdin,
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -835,6 +836,7 @@ mod tests {
             ]
         );
         assert_eq!(r.capture, r.allowed_tools);
+        assert_eq!(r.env, [("MCP_CONNECTION_NONBLOCKING", "false")]);
         assert!(r.prompt.contains("Look up every ticket key you mention in Jira"));
     }
 

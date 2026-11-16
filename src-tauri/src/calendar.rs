@@ -69,6 +69,10 @@ fn utc_text(t: DateTime<Utc>) -> String {
 /// Turns the tool search off: a run then skips the turn spent loading the MCP tools (~3.5 s a run, spike).
 pub const NO_TOOL_SEARCH: (&str, &str) = ("ENABLE_TOOL_SEARCH", "false");
 
+/// Makes `claude -p` wait for the claude.ai connectors before its first request. Without it (Claude Code 2.1.325)
+/// they connect in the background and the first request goes out without their tools, so the run never searches.
+pub const WAIT_FOR_CONNECTORS: (&str, &str) = ("MCP_CONNECTION_NONBLOCKING", "false");
+
 /// The most characters of cached events a refresh prompt lists for the run to skip.
 const SKIP_LIST: usize = 12_000;
 
@@ -103,7 +107,7 @@ pub fn run_window(from: DateTime<Utc>, to: DateTime<Utc>, cached: &[Event]) -> C
         allowed_tools: TOOLS,
         capture: TOOLS,
         args: vec![],
-        env: &[NO_TOOL_SEARCH],
+        env: &[NO_TOOL_SEARCH, WAIT_FOR_CONNECTORS],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -119,7 +123,7 @@ pub fn read_run(uris: &[String]) -> ClaudeRun {
         allowed_tools: &[READ],
         capture: &[READ],
         args: vec![],
-        env: &[NO_TOOL_SEARCH],
+        env: &[NO_TOOL_SEARCH, WAIT_FOR_CONNECTORS],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -949,11 +953,12 @@ mod tests {
     }
 
     #[test]
-    fn the_refresh_search_and_fetch_runs_turn_the_tool_search_off() {
+    fn the_refresh_search_and_fetch_runs_turn_the_tool_search_off_and_wait_for_the_connectors() {
         // Through the paths that start them: a refresh and an import search, each with its read retry.
         let kinds = Mutex::new(vec![]);
         let check = |r: &ClaudeRun| {
             assert!(r.env.contains(&("ENABLE_TOOL_SEARCH", "false")), "{}", r.kind);
+            assert!(r.env.contains(&("MCP_CONNECTION_NONBLOCKING", "false")), "{}", r.kind);
             kinds.lock().unwrap().push(r.kind);
             Ok(Output { stdout: String::new(), captured: vec![all_teams()[0].clone(), all_teams()[1].clone(), failed(1)] })
         };
@@ -963,7 +968,8 @@ mod tests {
         kinds.sort();
         kinds.dedup();
         assert_eq!(kinds, ["read retry", "refresh", "search"]);
-        assert!(crate::fetch::run_for("meeting-transcript:///x").env.contains(&("ENABLE_TOOL_SEARCH", "false")));
+        let fetch = crate::fetch::run_for("meeting-transcript:///x");
+        assert!(fetch.env.contains(&("ENABLE_TOOL_SEARCH", "false")) && fetch.env.contains(&("MCP_CONNECTION_NONBLOCKING", "false")));
     }
 
     /// Santiago-like: UTC-4, then from 2026-11-08 04:00 UTC UTC-3, so local 00:00-00:59 on the 8th never happens.

@@ -87,7 +87,7 @@ pub fn run_for(url: &str) -> ClaudeRun {
         allowed_tools: TOOLS,
         capture: &[READ],
         args: vec![],
-        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000"), crate::calendar::NO_TOOL_SEARCH],
+        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000"), crate::calendar::NO_TOOL_SEARCH, crate::calendar::WAIT_FOR_CONNECTORS],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -1878,7 +1878,7 @@ mod tests {
         let r = run_for(URL);
         assert_eq!(r.model, "haiku");
         assert_eq!(r.capture, ["mcp__claude_ai_Microsoft_365__read_resource"]);
-        assert_eq!(r.env, [("MAX_MCP_OUTPUT_TOKENS", "200000"), ("ENABLE_TOOL_SEARCH", "false")]);
+        assert_eq!(r.env, [("MAX_MCP_OUTPUT_TOKENS", "200000"), ("ENABLE_TOOL_SEARCH", "false"), ("MCP_CONNECTION_NONBLOCKING", "false")]);
         assert!(r.prompt.contains(URL));
     }
 }

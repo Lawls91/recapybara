@@ -4,7 +4,7 @@
 //! Ordinary messages are never read for their text: only `eventDetail` objects are looked at, and nothing else of the
 //! page outlives the parse. They drive In progress, the transcription-off notification and the early fetch.
 use crate::{
-    calendar::{Event, NO_TOOL_SEARCH, READ},
+    calendar::{Event, NO_TOOL_SEARCH, READ, WAIT_FOR_CONNECTORS},
     claude::{ClaudeRun, Output},
     library::{self, Listed, Meeting, State},
 };
@@ -108,7 +108,7 @@ pub fn run_for(uri: &str) -> ClaudeRun {
         capture: &[READ],
         args: vec![],
         // A channel meeting's page passes the default MCP output limit.
-        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000"), NO_TOOL_SEARCH],
+        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000"), NO_TOOL_SEARCH, WAIT_FOR_CONNECTORS],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn the_chat_run_raises_the_mcp_output_limit() {
         let r = run_for(&uri_());
-        assert_eq!(r.env, [("MAX_MCP_OUTPUT_TOKENS", "200000"), ("ENABLE_TOOL_SEARCH", "false")]);
+        assert_eq!(r.env, [("MAX_MCP_OUTPUT_TOKENS", "200000"), ("ENABLE_TOOL_SEARCH", "false"), ("MCP_CONNECTION_NONBLOCKING", "false")]);
         assert!(r.prompt.contains(&uri_()));
     }
 
