@@ -69,6 +69,8 @@ The log is never trimmed.
   [Getting started](getting-started.md#install-on-a-mac)), and only Apple Silicon is built.
 - **Mac: no notifications** in a dev build (`npx tauri dev`), which isn't an app bundle, as on Windows. In the
   installed app, check **System Settings > Notifications > Recapybara** if none show.
-- **Mac: Claude Code not found** though `claude` works in Terminal: the app takes PATH from your login shell
-  (`$SHELL -l`). Put the PATH change in `~/.zprofile` (or `~/.zshrc`) rather than in a terminal-only setting.
+- **Mac: Claude Code not found** though `claude` works in Terminal: the app takes PATH from your shell started as
+  Terminal starts it (`$SHELL -ilc`, so zsh's `~/.zprofile` and `~/.zshrc` both count), then adds `~/.local/bin`,
+  `~/.claude/local` and Homebrew's folders. A PATH set only in a terminal app's own settings isn't seen; move it to
+  `~/.zshrc`. A shell setup that takes over 5 seconds is skipped.
 - **Updates** can't be reached while the GitHub repository is private (see [Updates](updates.md)).

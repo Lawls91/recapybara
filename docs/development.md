@@ -189,7 +189,7 @@ Cutting a release:
 2. Run the Release workflow on `main`: Actions, Release, Run workflow, or `gh workflow run Release -R Lawls91/recapybara`
    (add `-f version=X.Y.Z` to choose the version; blank is the latest release's next minor, 0.2.0 to 0.3.0).
 
-`.github/workflows/release.yml` refuses a run off `main`, a version that isn't X.Y.Z or one already tagged. Each job
+`.github/workflows/release.yml` refuses a run off `main` (except a dry run), a version that isn't X.Y.Z or one already tagged. Each job
 stamps the version into its own checkout only (`release.mjs bump`; nothing is committed, so `main` keeps the last
 released version). The **windows** job builds the MSI; the **macos** job builds the Apple Silicon app (ad-hoc
 signed, not notarised), packs it as `<name>-<version>-aarch64.app.tar.gz` and copies the `.dmg`. Each signs its
@@ -197,6 +197,11 @@ update package with the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_K
 makes a GitHub Release (which creates the tag) with all of them, their `.sig` files and one `latest.json` naming
 both platforms (`windows-x86_64`, `darwin-aarch64`). The notes
 are the release's body and latest.json's `notes`, which What's new shows.
+
+A **dry run** (`gh workflow run Release --ref <branch> -f dry_run=true`, from any branch) builds and signs both
+platforms and writes `latest.json` but publishes nothing: no tag, no release. The packages and `latest.json` are the
+run's `dry-run` artifact. Do one after changing the release workflow, since its first real run is a real release.
+A failed macOS build stops the Windows release too: one `latest.json` names both, so both ship or neither does.
 
 Pull requests never run the release workflow, so they never see the secrets. Tests use a throwaway key made at run
 time.

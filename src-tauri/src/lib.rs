@@ -886,8 +886,14 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>
     let updates = MenuItem::with_id(app, "updates", "Check for updates", !dev, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &settings, &refresh, &logon_item, &updates, &quit])?;
+    // macOS: a template image (alpha only), which the menu bar tints for light and dark like every item up there.
+    #[cfg(target_os = "macos")]
+    let (icon, template) = (tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?, true);
+    #[cfg(not(target_os = "macos"))]
+    let (icon, template) = (app.default_window_icon().unwrap().clone(), false);
     TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(icon)
+        .icon_as_template(template)
         .tooltip(&name)
         .menu(&menu)
         // macOS: the menu-bar item opens its menu on a click, as every menu-bar item does; Windows: a left click opens

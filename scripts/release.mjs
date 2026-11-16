@@ -29,8 +29,7 @@ export function versions(dir = REPO) {
 /** The tag's release: its version, whether it is a pre-release, and the installer's names. Throws when the tag doesn't
  * match the app version, or the version files disagree. */
 export function check(tag, dir = REPO) {
-  const m = /^v(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?$/.exec(tag);
-  if (!m) throw new Error(`Tag "${tag}" isn't vX.Y.Z (or vX.Y.Z-suffix for a pre-release).`);
+  const m = parseTag(tag);
   const found = versions(dir);
   const wrong = Object.entries(found).filter(([, v]) => v !== m[1]);
   if (wrong.length) {
@@ -48,6 +47,13 @@ export function check(tag, dir = REPO) {
     macUpdate: `${name.replace(/\s+/g, "-")}-${m[1]}-aarch64.app.tar.gz`,
     dmg: `${name.replace(/\s+/g, "-")}-${m[1]}-aarch64.dmg`,
   };
+}
+
+/** The tag's parts: [tag, X.Y.Z, -suffix or undefined]. Throws when it isn't vX.Y.Z(-suffix). */
+export function parseTag(tag) {
+  const m = /^v(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?$/.exec(tag);
+  if (!m) throw new Error(`Tag "${tag}" isn't vX.Y.Z (or vX.Y.Z-suffix for a pre-release).`);
+  return m;
 }
 
 /** latest.json, as tauri-plugin-updater reads it: for each platform (`windows-x86_64`, `darwin-aarch64`), its release
@@ -130,7 +136,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (cmd === "notes") console.log(releaseNotes(args[0], args[1]));
     else if (cmd === "manifest") {
       const [tag, repo, notes, ...sigs] = args;
-      const { version } = check(tag);
+      // From the tag alone: the publish job's checkout isn't stamped (the builds were, and checked it).
+      const version = parseTag(tag)[1];
       const platforms = Object.fromEntries(sigs.map((a) => platformArg(a, (f) => fs.readFileSync(f, "utf8"))));
       const m = manifest({ version, tag, repo, platforms, notes: fs.readFileSync(notes, "utf8").trim(), pubDate: new Date().toISOString() });
       console.log(JSON.stringify(m, null, 2));

@@ -74,7 +74,7 @@
             <div>
               <h3><label for="start-at-logon">Start at logon</label></h3>
               <p class="desc" data-mac="Opens in the menu bar when you log in to your Mac.">Opens in the tray when you sign in to Windows.</p>
-              <p class="desc" id="start-at-logon-dev" hidden>Always off in a dev instance, which never touches the Run key.</p>
+              <p class="desc" id="start-at-logon-dev" hidden data-mac="Always off in a dev instance, which never touches login items.">Always off in a dev instance, which never touches the Run key.</p>
             </div>
             <label class="toggle"><input type="checkbox" id="start-at-logon" class="switch" /><span id="start-at-logon-state"></span></label>
           </section>
@@ -150,7 +150,7 @@
           <section>
             <label class="check"><input type="checkbox" id="first-logon" /> Start when I log in</label>
             <p class="desc" data-mac="Opens in the menu bar when you log in to your Mac, so meetings are captured without opening it. Change it any time in Settings.">Opens in the tray when you sign in to Windows, so meetings are captured without opening it. Change it any time in Settings.</p>
-            <p class="desc" id="first-logon-dev" hidden>Always off in a dev instance, which never touches the Run key.</p>
+            <p class="desc" id="first-logon-dev" hidden data-mac="Always off in a dev instance, which never touches login items.">Always off in a dev instance, which never touches the Run key.</p>
           </section>
           <p id="first-error" class="desc err" role="alert" hidden></p>
           <button id="first-finish" class="btn pri">Finish</button>

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { bump, check, manifest, nextVersion, platformArg, releaseNotes, subjectNotes, versions } from "./release.mjs";
+import { bump, check, manifest, nextVersion, parseTag, platformArg, releaseNotes, subjectNotes, versions } from "./release.mjs";
 
 const FILES = ["src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "package.json", "package-lock.json", "Cargo.lock"];
 /** A copy of the repo's version files, to bump without touching the checkout. */
@@ -95,6 +95,12 @@ describe("release", () => {
       },
     });
     expect(() => manifest({ version: "0.4.2", tag: "v0.4.2", repo: "r/r", notes: "", pubDate: "", platforms: {} })).toThrow("at least one platform");
+  });
+
+  it("parseTag reads the version from the tag alone", () => {
+    expect(parseTag("v0.4.2")[1]).toBe("0.4.2");
+    expect(parseTag("v0.4.2-test.1").slice(1)).toEqual(["0.4.2", "-test.1"]);
+    expect(() => parseTag("0.4.2")).toThrow('Tag "0.4.2" isn\'t vX.Y.Z');
   });
 
   it("a platform argument names its asset after its .sig file", () => {

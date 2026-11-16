@@ -98,12 +98,15 @@ pub fn merge_paths(parts: &[OsString]) -> OsString {
     std::env::join_paths(seen).unwrap_or_default()
 }
 
-/// The PATH the user's login shell sets up (`$SHELL -l`), or none if it can't be read within `limit`.
+/// The PATH the user's shell sets up as Terminal opens it, interactive and login (`$SHELL -ilc`, as VS Code resolves
+/// it): zsh reads `.zprofile` and `.zshrc` both, so a PATH set in either (nvm's, an npm-global `claude`) is found.
+/// None if it can't be read within `limit`. `envs` is extra child environment (tests point ZDOTDIR elsewhere).
 #[cfg(target_os = "macos")]
-fn login_shell_path(shell: &OsString, limit: Duration) -> Option<OsString> {
+fn login_shell_path(shell: &OsString, envs: &[(&str, &std::ffi::OsStr)], limit: Duration) -> Option<OsString> {
     let mut cmd = Command::new(shell);
-    // A marker around PATH, so a profile that prints a banner can't corrupt it.
-    cmd.args(["-l", "-c", "printf '<<%s>>' \"$PATH\""]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    // A marker around PATH, so a profile that prints a banner (or a prompt, being interactive) can't corrupt it; no
+    // stdin, so one that asks for input reads end-of-file, and `limit` stops one that hangs.
+    cmd.args(["-i", "-l", "-c", "printf '<<%s>>' \"$PATH\""]).envs(envs.iter().copied()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     let out = cmd.spawn().and_then(|c| finish(c, limit)).ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let inner = text.rsplit_once("<<")?.1.split_once(">>")?.0;
@@ -116,7 +119,7 @@ fn login_shell_path(shell: &OsString, limit: Duration) -> Option<OsString> {
 #[cfg(target_os = "macos")]
 pub fn fix_gui_path(home: &Path) {
     let shell = std::env::var_os("SHELL").filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
-    let mut parts: Vec<OsString> = login_shell_path(&shell, Duration::from_secs(5)).into_iter().collect();
+    let mut parts: Vec<OsString> = login_shell_path(&shell, &[], Duration::from_secs(5)).into_iter().collect();
     parts.extend(std::env::var_os("PATH"));
     parts.extend(known_dirs(home).into_iter().map(OsString::from));
     std::env::set_var("PATH", merge_paths(&parts));
@@ -742,14 +745,28 @@ mod tests {
     fn the_login_shells_path_is_read_past_a_profiles_banner() {
         let dir = temp("loginsh");
         let shell = dir.join("sh");
-        // A stand-in login shell: prints a banner, then runs the command with a PATH of its own.
-        fs::write(&shell, "#!/bin/sh\necho 'Welcome <<not this>>'\nshift\nPATH=/from/profile:/usr/bin exec /bin/sh \"$@\"\n").unwrap();
+        // A stand-in shell: refuses anything but an interactive login (`-i -l -c`), prints a banner, then runs the
+        // command with a PATH of its own.
+        fs::write(&shell, "#!/bin/sh\n[ \"$1 $2 $3\" = '-i -l -c' ] || exit 2\necho 'Welcome <<not this>>'\nshift 2\nPATH=/from/profile:/usr/bin exec /bin/sh \"$@\"\n").unwrap();
         fs::set_permissions(&shell, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        assert_eq!(login_shell_path(&shell.clone().into(), Duration::from_secs(10)), Some("/from/profile:/usr/bin".into()));
+        assert_eq!(login_shell_path(&shell.clone().into(), &[], Duration::from_secs(10)), Some("/from/profile:/usr/bin".into()));
         let silent = dir.join("silent");
         fs::write(&silent, "#!/bin/sh\nexit 1\n").unwrap();
         fs::set_permissions(&silent, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        assert_eq!(login_shell_path(&silent.into(), Duration::from_secs(10)), None, "no PATH printed: none");
+        assert_eq!(login_shell_path(&silent.into(), &[], Duration::from_secs(10)), None, "no PATH printed: none");
         assert!(known_dirs(Path::new("/Users/x")).contains(&PathBuf::from("/Users/x/.local/bin")));
+    }
+
+    /// The real zsh: a PATH set only in `.zshrc` (where nvm puts it) is found, and one in `.zprofile` too.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_path_set_in_zshrc_or_zprofile_is_found() {
+        let zdot = temp("zdotdir");
+        fs::write(zdot.join(".zprofile"), "export PATH=\"/from/zprofile:$PATH\"\n").unwrap();
+        fs::write(zdot.join(".zshrc"), "echo 'Good morning'\nexport PATH=\"/from/zshrc:$PATH\"\n").unwrap();
+        let path = login_shell_path(&"/bin/zsh".into(), &[("ZDOTDIR", zdot.as_os_str())], Duration::from_secs(10)).expect("zsh printed its PATH");
+        let dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        assert!(dirs.contains(&PathBuf::from("/from/zshrc")), "{path:?}");
+        assert!(dirs.contains(&PathBuf::from("/from/zprofile")), "{path:?}");
     }
 }

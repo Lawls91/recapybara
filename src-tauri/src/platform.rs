@@ -44,12 +44,18 @@ fn show(title: &str, body: &str, buttons: &[(&str, &str)], on_activated: impl Fn
     }
 }
 
-/// A Notification Center banner from the app's bundle (`AUMID` is its bundle identifier too), so an unbundled dev
-/// build shows none, as on Windows. The send blocks until the banner is clicked, its button pressed, or it leaves
-/// Notification Center, so each waits on its own thread.
+/// A Notification Center banner as the app's bundle (`AUMID` is its bundle identifier too). Only from inside an
+/// `.app`: a dev build (`npx tauri dev`, `target/debug`) shows none, as on Windows, rather than posting as an installed
+/// copy that a click would then activate. The send blocks until the banner is clicked, its button pressed, or it
+/// leaves Notification Center, so each waits on its own thread.
+// ponytail: mac-notification-sys is NSUserNotification, deprecated since macOS 11 but working on 13-15;
+// UNUserNotificationCenter (objc2-user-notifications) is the route if a release drops it.
 #[cfg(target_os = "macos")]
 fn show(title: &str, body: &str, buttons: &[(&str, &str)], on_activated: impl Fn(Option<String>) + Send + 'static) {
     use mac_notification_sys::{MainButton, Notification, NotificationResponse};
+    if !std::env::current_exe().is_ok_and(|exe| in_app_bundle(&exe)) {
+        return;
+    }
     let (title, body) = (title.to_string(), body.to_string());
     let buttons: Vec<(String, String)> = buttons.iter().map(|(c, a)| (c.to_string(), a.to_string())).collect();
     std::thread::spawn(move || {
@@ -68,6 +74,15 @@ fn show(title: &str, body: &str, buttons: &[(&str, &str)], on_activated: impl Fn
             Err(e) => eprintln!("notification not shown: {e}"),
         }
     });
+}
+
+/// Whether `exe` is an app bundle's executable, `<name>.app/Contents/MacOS/<exe>`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn in_app_bundle(exe: &std::path::Path) -> bool {
+    fn up<'a>(p: Option<&'a std::path::Path>, name: &str) -> Option<&'a std::path::Path> {
+        p.filter(|d| d.file_name().is_some_and(|n| n == name)).and_then(|d| d.parent())
+    }
+    up(up(exe.parent(), "MacOS"), "Contents").and_then(|app| app.extension()).is_some_and(|e| e == "app")
 }
 
 /// The action of the button whose label is `pressed`; a label not among `buttons` is a click on the body.
@@ -143,6 +158,16 @@ mod tests {
         assert_eq!(banner_action(&buttons, "Skip").as_deref(), Some("skip"));
         assert_eq!(banner_action(&buttons, "Other"), None);
         assert_eq!(banner_action(&[], "Skip"), None);
+    }
+
+    #[test]
+    fn only_an_app_bundles_executable_is_in_a_bundle() {
+        use std::path::Path;
+        assert!(in_app_bundle(Path::new("/Applications/Recapybara.app/Contents/MacOS/recapybara")));
+        assert!(!in_app_bundle(Path::new("/Users/x/recapybara/target/debug/recapybara")), "a dev build");
+        assert!(!in_app_bundle(Path::new("/Applications/Recapybara/Contents/MacOS/recapybara")), "no .app");
+        assert!(!in_app_bundle(Path::new("/Applications/Recapybara.app/Contents/Resources/recapybara")));
+        assert!(!in_app_bundle(Path::new("recapybara")));
     }
 
     /// The proof it was trashed, not destroyed: the folder has left and the Trash holds it (macOS names a clash anew,

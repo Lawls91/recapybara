@@ -14,6 +14,10 @@ on:
         description: Version to release, X.Y.Z (blank for the latest release's next minor version)
         required: false
         default: ""
+      dry_run:
+        description: Dry run, building and signing everything but publishing nothing (latest.json and the packages are kept as the run's artifacts)
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -31,10 +35,11 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
+      # A dry run may start from any branch (gh workflow run Release --ref <branch> -f dry_run=true): it publishes nothing.
       - name: Only from main
-        if: github.ref != 'refs/heads/main'
+        if: github.ref != 'refs/heads/main' && !inputs.dry_run
         run: |
-          echo "::error::Release runs only on main, not $GITHUB_REF"
+          echo "::error::Release runs only on main, not $GITHUB_REF (a dry run can run anywhere)"
           exit 1
 
       - uses: actions/checkout@v5
@@ -173,7 +178,13 @@ jobs:
         run: |
           mkdir -p out/release "$RUNNER_TEMP/unpack"
           app=target/release/bundle/macos/Recapybara.app
-          tar -czf 'out/release/${{ steps.release.outputs.macUpdate }}' -C "$(dirname "$app")" "$(basename "$app")"
+          # COPYFILE_DISABLE: no AppleDouble ._* entries for extended attributes. The updater unpacks with the Rust tar
+          # crate, which would write them into the bundle as files and break its signature seal.
+          COPYFILE_DISABLE=1 tar -czf 'out/release/${{ steps.release.outputs.macUpdate }}' -C "$(dirname "$app")" "$(basename "$app")"
+          if tar -tzf 'out/release/${{ steps.release.outputs.macUpdate }}' | grep '/\._'; then
+            echo "::error::the update package holds AppleDouble ._* entries"
+            exit 1
+          fi
           tar -xzf 'out/release/${{ steps.release.outputs.macUpdate }}' -C "$RUNNER_TEMP/unpack"
           codesign --verify --deep --strict "$RUNNER_TEMP/unpack/Recapybara.app"
           cmp "$app/Contents/MacOS/recapybara" "$RUNNER_TEMP/unpack/Recapybara.app/Contents/MacOS/recapybara"
@@ -205,12 +216,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Stamp the version
-        id: release
-        run: |
-          node scripts/release.mjs bump '${{ needs.prepare.outputs.version }}'
-          node scripts/release.mjs check "$TAG" >> "$GITHUB_OUTPUT"
-
       - uses: actions/download-artifact@v5
         with:
           path: out/release
@@ -222,15 +227,25 @@ jobs:
           name: notes
           path: out
 
+      # Each platform's package is the one .sig of its kind the builds uploaded.
       - name: latest.json
         run: |
           node scripts/release.mjs manifest "$TAG" '${{ github.repository }}' out/notes.md \
-            'windows-x86_64=out/release/${{ steps.release.outputs.asset }}.sig' \
-            'darwin-aarch64=out/release/${{ steps.release.outputs.macUpdate }}.sig' > out/release/latest.json
+            "windows-x86_64=$(ls out/release/*.msi.sig)" \
+            "darwin-aarch64=$(ls out/release/*.app.tar.gz.sig)" > latest.json
+          mv latest.json out/release/latest.json
           cat out/release/latest.json
+
+      - name: Dry run (nothing published)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v5
+        with:
+          name: dry-run
+          path: out/release/
 
       # Makes the tag vX.Y.Z on this commit, and the release, marked latest so the app's updater finds it.
       - name: GitHub Release
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$TAG" out/release/* --target "$GITHUB_SHA" --title "$TAG" --notes-file out/notes.md --latest
