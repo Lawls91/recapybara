@@ -11,9 +11,10 @@ Esc, goes back. Every change saves at once.
 - **Summary model**: the Claude model that writes summaries: **Sonnet** (the default), **Opus** or **Haiku**. It
   applies to the next summary; [re-run](meeting-actions.md#run-summary-and-re-run-summary) a summary to use it on a
   meeting already done. Fetches and calendar reads always use Haiku.
-- **Start at logon**: opens the app in the tray when you sign in to Windows, so meetings are captured without you
+- **Start at logon**: opens the app in the tray when you sign in to Windows (the menu bar when you log in to your Mac,
+  as a login item), so meetings are captured without you
   opening it. The tray menu has the same switch.
-- **Appearance**: **System** (follows your Windows app theme, the default), **Light** or **Dark**.
+- **Appearance**: **System** (follows your Windows app theme or your Mac's appearance, the default), **Light** or **Dark**.
 - **Updates**: **Check for updates** checks now. See [Updates](updates.md).
 - **Excluded series**: the series you excluded with [Exclude series](meeting-actions.md#exclude-series). **Remove**
   includes a series again.

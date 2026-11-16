@@ -44,19 +44,28 @@ export function check(tag, dir = REPO) {
     // What scripts/build-msi.ps1 writes, and the release asset (no spaces: GitHub would rename it).
     msi: `out/${name}-${m[1]}.msi`,
     asset: `${name.replace(/\s+/g, "-")}-${m[1]}.msi`,
+    // The Apple Silicon assets: the updater's .app archive, and the disk image a first install opens.
+    macUpdate: `${name.replace(/\s+/g, "-")}-${m[1]}-aarch64.app.tar.gz`,
+    dmg: `${name.replace(/\s+/g, "-")}-${m[1]}-aarch64.dmg`,
   };
 }
 
-/** latest.json, as tauri-plugin-updater reads it: the release asset's URL and its .sig's contents. */
-export function manifest({ version, asset, tag, signature, repo, notes, pubDate }) {
-  return {
-    version,
-    notes,
-    pub_date: pubDate,
-    platforms: {
-      "windows-x86_64": { signature: signature.trim(), url: `https://github.com/${repo}/releases/download/${tag}/${asset}` },
-    },
-  };
+/** latest.json, as tauri-plugin-updater reads it: for each platform (`windows-x86_64`, `darwin-aarch64`), its release
+ * asset's URL and its .sig's contents. */
+export function manifest({ version, tag, repo, notes, pubDate, platforms }) {
+  const entries = Object.entries(platforms).map(([key, { asset, signature }]) => [
+    key,
+    { signature: signature.trim(), url: `https://github.com/${repo}/releases/download/${tag}/${asset}` },
+  ]);
+  if (!entries.length) throw new Error("latest.json needs at least one platform.");
+  return { version, notes, pub_date: pubDate, platforms: Object.fromEntries(entries) };
+}
+
+/** `<platform>=<sig file>` (the asset is the sig file's name without `.sig`) as manifest's platform entry. */
+export function platformArg(arg, readSig) {
+  const m = /^([a-z0-9]+-[a-z0-9_]+)=(.+\.sig)$/.exec(arg);
+  if (!m) throw new Error(`"${arg}" isn't <platform>=<file>.sig.`);
+  return [m[1], { asset: path.basename(m[2]).slice(0, -".sig".length), signature: readSig(m[2]) }];
 }
 
 /** The release to make: `input` (X.Y.Z), or blank for the latest vX.Y.Z tag's next minor version (0.1.0 with none).
@@ -120,13 +129,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (cmd === "check") lines(check(args[0]));
     else if (cmd === "notes") console.log(releaseNotes(args[0], args[1]));
     else if (cmd === "manifest") {
-      const [tag, sig, repo, notes] = args;
-      const r = check(tag);
-      const m = manifest({ ...r, tag, signature: fs.readFileSync(sig, "utf8"), repo, notes: fs.readFileSync(notes, "utf8").trim(), pubDate: new Date().toISOString() });
+      const [tag, repo, notes, ...sigs] = args;
+      const { version } = check(tag);
+      const platforms = Object.fromEntries(sigs.map((a) => platformArg(a, (f) => fs.readFileSync(f, "utf8"))));
+      const m = manifest({ version, tag, repo, platforms, notes: fs.readFileSync(notes, "utf8").trim(), pubDate: new Date().toISOString() });
       console.log(JSON.stringify(m, null, 2));
     } else
       throw new Error(
-        "usage: node scripts/release.mjs version [X.Y.Z] | bump <X.Y.Z> | check <tag> | notes <tag> [<prev tag>] | manifest <tag> <sig file> <owner/repo> <notes file>",
+        "usage: node scripts/release.mjs version [X.Y.Z] | bump <X.Y.Z> | check <tag> | notes <tag> [<prev tag>] | manifest <tag> <owner/repo> <notes file> <platform>=<sig file>...",
       );
   } catch (e) {
     console.error(e.message);

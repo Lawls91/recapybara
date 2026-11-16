@@ -1,9 +1,10 @@
 # Release: one run by hand on main (Actions, Release, Run workflow, or gh workflow run Release) makes a
-# release. It picks the version (the input, or the latest vX.Y.Z tag's next minor), stamps it into this runner's copy
-# only (nothing is committed: main keeps the last released version), builds the per-user MSI, signs it with the
-# updater key and publishes a GitHub Release holding the MSI, its .sig and latest.json, which the app's updater reads
-# from releases/latest. gh release create makes the tag on this commit. Never a pull request, so no PR run sees the
-# secrets.
+# release. It picks the version (the input, or the latest vX.Y.Z tag's next minor), stamps it into each runner's copy
+# only (nothing is committed: main keeps the last released version), builds the per-user MSI on Windows and the Apple
+# Silicon app on macOS (ad-hoc signed, not notarised), signs each update package with the updater key and publishes a
+# GitHub Release holding the MSI, the Mac disk image and .app.tar.gz, their .sig files and one latest.json for both,
+# which the app's updater reads from releases/latest. gh release create makes the tag on this commit. Never a pull
+# request, so no PR run sees the secrets.
 name: Release
 
 on:
@@ -21,16 +22,19 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: windows-latest
-    timeout-minutes: 60
-    env:
-      CARGO_TERM_COLOR: always
+  # The version and the notes, once, for both builds. Fails the run before anything is built when the version isn't
+  # X.Y.Z or its tag already exists.
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Only from main
         if: github.ref != 'refs/heads/main'
         run: |
-          Write-Error "Release runs only on main, not $env:GITHUB_REF"
+          echo "::error::Release runs only on main, not $GITHUB_REF"
           exit 1
 
       - uses: actions/checkout@v5
@@ -41,37 +45,53 @@ jobs:
         with:
           node-version: 24
 
-      - name: npm ci
-        run: npm ci
-
-      # Fails the run before anything is built when the version isn't X.Y.Z or its tag already exists.
       - name: Version
         id: version
         env:
           VERSION: ${{ inputs.version }} # through env, never pasted into a script: an input is text, not code
         run: |
-          $out = node scripts/release.mjs version "$env:VERSION"
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          $out
-          $out >> $env:GITHUB_OUTPUT
-          (@($out) -match '^tag=') -replace '^tag=', 'TAG=' >> $env:GITHUB_ENV
-
-      # This runner's copy only: no commit, no push.
-      - name: Stamp the version
-        id: release
-        run: |
-          node scripts/release.mjs bump '${{ steps.version.outputs.version }}'
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          node scripts/release.mjs check $env:TAG >> $env:GITHUB_OUTPUT
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          out=$(node scripts/release.mjs version "$VERSION")
+          echo "$out"
+          echo "$out" >> "$GITHUB_OUTPUT"
 
       # release-notes/<tag>.md if main has one, else the commit subjects since the last release: the release's body and
       # latest.json's notes (What's new in the app).
       - name: Release notes
         run: |
-          node scripts/release.mjs notes $env:TAG '${{ steps.version.outputs.prev }}' | Out-File -Encoding utf8NoBOM "$env:RUNNER_TEMP/notes.md"
+          mkdir -p out
+          node scripts/release.mjs notes '${{ steps.version.outputs.tag }}' '${{ steps.version.outputs.prev }}' > out/notes.md
+          cat out/notes.md
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: notes
+          path: out/notes.md
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: npm ci
+        run: npm ci
+
+      # This runner's copy only: no commit, no push.
+      - name: Stamp the version
+        id: release
+        run: |
+          node scripts/release.mjs bump '${{ needs.prepare.outputs.version }}'
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          Get-Content "$env:RUNNER_TEMP/notes.md"
+          node scripts/release.mjs check $env:TAG >> $env:GITHUB_OUTPUT
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -110,17 +130,107 @@ jobs:
           npx tauri signer sign --app-version '${{ steps.release.outputs.version }}' 'out/release/${{ steps.release.outputs.asset }}'
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-windows
+          path: out/release/
+
+  macos:
+    needs: prepare
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: npm ci
+        run: npm ci
+
+      # This runner's copy only: no commit, no push.
+      - name: Stamp the version
+        id: release
+        run: |
+          node scripts/release.mjs bump '${{ needs.prepare.outputs.version }}'
+          node scripts/release.mjs check "$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # tauri.macos.conf.json: the .app and .dmg, ad-hoc signed ("-"), no notarisation.
+      - name: Build the app and disk image
+        run: npx tauri build --bundles app,dmg
+
+      # The updater's package is the .app in a .tar.gz. A broken one never ships: unpacked, its signature must verify
+      # and its executable must be the one just built, byte for byte.
+      - name: The update package unpacks
+        run: |
+          mkdir -p out/release "$RUNNER_TEMP/unpack"
+          app=target/release/bundle/macos/Recapybara.app
+          tar -czf 'out/release/${{ steps.release.outputs.macUpdate }}' -C "$(dirname "$app")" "$(basename "$app")"
+          tar -xzf 'out/release/${{ steps.release.outputs.macUpdate }}' -C "$RUNNER_TEMP/unpack"
+          codesign --verify --deep --strict "$RUNNER_TEMP/unpack/Recapybara.app"
+          cmp "$app/Contents/MacOS/recapybara" "$RUNNER_TEMP/unpack/Recapybara.app/Contents/MacOS/recapybara"
+          cp target/release/bundle/dmg/*.dmg 'out/release/${{ steps.release.outputs.dmg }}'
+          ls -l out/release
+
+      - name: Sign the update package
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # Bound to the version, as the MSI's is (requireSignedVersion).
+        run: npx tauri signer sign --app-version '${{ steps.release.outputs.version }}' 'out/release/${{ steps.release.outputs.macUpdate }}'
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-macos
+          path: out/release/
+
+  publish:
+    needs: [prepare, windows, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Stamp the version
+        id: release
+        run: |
+          node scripts/release.mjs bump '${{ needs.prepare.outputs.version }}'
+          node scripts/release.mjs check "$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v5
+        with:
+          path: out/release
+          merge-multiple: true
+          pattern: release-*
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: notes
+          path: out
+
       - name: latest.json
         run: |
-          node scripts/release.mjs manifest $env:TAG 'out/release/${{ steps.release.outputs.asset }}.sig' '${{ github.repository }}' "$env:RUNNER_TEMP/notes.md" | Out-File -Encoding utf8NoBOM out/release/latest.json
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          Get-Content out/release/latest.json
+          node scripts/release.mjs manifest "$TAG" '${{ github.repository }}' out/notes.md \
+            'windows-x86_64=out/release/${{ steps.release.outputs.asset }}.sig' \
+            'darwin-aarch64=out/release/${{ steps.release.outputs.macUpdate }}.sig' > out/release/latest.json
+          cat out/release/latest.json
 
       # Makes the tag vX.Y.Z on this commit, and the release, marked latest so the app's updater finds it.
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          $assets = (Get-ChildItem out/release).FullName # pwsh expands no wildcard for a native command
-          gh release create $env:TAG @assets --target $env:GITHUB_SHA --title $env:TAG --notes-file "$env:RUNNER_TEMP/notes.md" --latest
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+        run: gh release create "$TAG" out/release/* --target "$GITHUB_SHA" --title "$TAG" --notes-file out/notes.md --latest

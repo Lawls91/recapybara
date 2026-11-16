@@ -7,12 +7,14 @@ const FAKE: &str = env!("CARGO_BIN_EXE_fake-claude");
 
 // One test in its own binary: it changes PATH for the whole process.
 #[test]
-fn the_default_claude_is_found_as_claude_exe_on_path() {
+fn the_default_claude_is_found_on_path() {
     let dir = std::env::temp_dir().join(format!("mc-defaultclaude-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).unwrap();
-    fs::copy(FAKE, bin.join("claude.exe")).unwrap();
+    // `claude.exe` on Windows, plain `claude` elsewhere: the name the app looks for.
+    let fake = bin.join(format!("claude{}", std::env::consts::EXE_SUFFIX));
+    fs::copy(FAKE, &fake).unwrap();
     let scenario = dir.join("scenario.json");
     fs::write(&scenario, r#"{"structuredOutput":{"overview":"from PATH"}}"#).unwrap();
 
@@ -24,9 +26,12 @@ fn the_default_claude_is_found_as_claude_exe_on_path() {
     std::env::set_var("FAKE_CLAUDE_SCENARIO", &scenario);
     std::env::set_var("RECAPYBARA_HOME", dir.join("home"));
 
+    // Never the real claude: a real install later on PATH must not be the one found.
+    let program = claude::program();
+    assert_eq!(PathBuf::from(&program), fake, "the fake, first on PATH, is the claude found");
     let run = claude::ClaudeRun { ..calendar::run_for(chrono::Utc::now(), &[]) };
-    let out = claude::run(&claude::program(), &dir.join("data").join("runs"), &dir.join("home"), &run);
-    let out: Value = serde_json::from_str(&out.expect("the claude.exe on PATH ran").stdout).unwrap();
+    let out = claude::run(&program, &dir.join("data").join("runs"), &dir.join("home"), &run);
+    let out: Value = serde_json::from_str(&out.expect("the claude on PATH ran").stdout).unwrap();
     assert_eq!(out["structured_output"]["overview"], "from PATH");
     assert!(PathBuf::from(format!("{}.record.jsonl", scenario.display())).exists());
     fs::remove_dir_all(&dir).unwrap();

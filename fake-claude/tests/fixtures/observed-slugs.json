@@ -3,5 +3,8 @@
   ["C:\\Users\\alex\\AppData\\Local\\Temp\\claude\\E--repos-app\\00000000-0000-4000-8000-000000000001\\scratchpad\\gitrepo\\.claude\\worktrees\\happy-otter", "C--Users-alex-AppData-Local-Temp-claude-E--repos-app-00000000-0000-4000-8000-000000000001-scratchpad-gitrepo--claude-worktrees-happy-otter"],
   ["C:\\Users\\alex\\AppData\\Roaming\\Toolbox\\worktrees\\add-search-4b7e19c2", "C--Users-alex-AppData-Roaming-Toolbox-worktrees-add-search-4b7e19c2"],
   ["E:\\repos\\recapybara", "E--repos-recapybara"],
-  ["E:\\repos\\team-skills", "E--repos-team-skills"]
+  ["E:\\repos\\team-skills", "E--repos-team-skills"],
+  ["/Users/alex/Code/app", "-Users-alex-Code-app"],
+  ["/Users/alex/Code/app/.claude/worktrees/happy-otter", "-Users-alex-Code-app--claude-worktrees-happy-otter"],
+  ["/private/var/folders/0a/ab12cd34_ef56gh78/T/mc-runner-1/data/runs", "-private-var-folders-0a-ab12cd34-ef56gh78-T-mc-runner-1-data-runs"]
 ]

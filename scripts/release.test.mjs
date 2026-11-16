@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { bump, check, manifest, nextVersion, releaseNotes, subjectNotes, versions } from "./release.mjs";
+import { bump, check, manifest, nextVersion, platformArg, releaseNotes, subjectNotes, versions } from "./release.mjs";
 
 const FILES = ["src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "package.json", "package-lock.json", "Cargo.lock"];
 /** A copy of the repo's version files, to bump without touching the checkout. */
@@ -49,6 +49,8 @@ describe("release", () => {
       prerelease: false,
       msi: "out/Recapybara-0.4.2.msi",
       asset: "Recapybara-0.4.2.msi",
+      macUpdate: "Recapybara-0.4.2-aarch64.app.tar.gz",
+      dmg: "Recapybara-0.4.2-aarch64.dmg",
     });
     expect(check("v0.4.2-test.1", dir)).toMatchObject({ version: "0.4.2", prerelease: true });
   });
@@ -65,15 +67,17 @@ describe("release", () => {
     expect(() => check("v0.4.2", dir)).toThrow("package.json 0.4.1");
   });
 
-  it("manifest is latest.json pointing at the release asset", () => {
+  it("manifest is latest.json pointing at each platform's release asset", () => {
     const m = manifest({
       version: "0.4.2",
-      asset: "Recapybara-0.4.2.msi",
       tag: "v0.4.2",
-      signature: "dW50cnVzdGVk\n",
       repo: "Lawls91/recapybara",
       notes: "Recapybara 0.4.2",
       pubDate: "2026-11-08T10:00:00.000Z",
+      platforms: {
+        "windows-x86_64": { asset: "Recapybara-0.4.2.msi", signature: "dW50cnVzdGVk\n" },
+        "darwin-aarch64": { asset: "Recapybara-0.4.2-aarch64.app.tar.gz", signature: "bWFj\n" },
+      },
     });
     expect(m).toEqual({
       version: "0.4.2",
@@ -84,8 +88,23 @@ describe("release", () => {
           signature: "dW50cnVzdGVk",
           url: "https://github.com/Lawls91/recapybara/releases/download/v0.4.2/Recapybara-0.4.2.msi",
         },
+        "darwin-aarch64": {
+          signature: "bWFj",
+          url: "https://github.com/Lawls91/recapybara/releases/download/v0.4.2/Recapybara-0.4.2-aarch64.app.tar.gz",
+        },
       },
     });
+    expect(() => manifest({ version: "0.4.2", tag: "v0.4.2", repo: "r/r", notes: "", pubDate: "", platforms: {} })).toThrow("at least one platform");
+  });
+
+  it("a platform argument names its asset after its .sig file", () => {
+    const read = (f) => `sig of ${f}`;
+    expect(platformArg("darwin-aarch64=out/release/Recapybara-0.4.2-aarch64.app.tar.gz.sig", read)).toEqual([
+      "darwin-aarch64",
+      { asset: "Recapybara-0.4.2-aarch64.app.tar.gz", signature: "sig of out/release/Recapybara-0.4.2-aarch64.app.tar.gz.sig" },
+    ]);
+    expect(() => platformArg("windows-x86_64=Recapybara.msi", read)).toThrow("isn't <platform>=<file>.sig");
+    expect(() => platformArg("Recapybara.msi.sig", read)).toThrow("isn't <platform>=<file>.sig");
   });
 
   it("nextVersion takes the version given, or the latest tag's next minor, and refuses one already tagged", () => {

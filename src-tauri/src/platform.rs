@@ -1,4 +1,4 @@
-//! Windows-only bits. A Mac port adds a sibling module.
+//! Platform bits: Windows, and the macOS sibling of each.
 use std::process::Command;
 
 #[cfg(windows)]
@@ -44,7 +44,39 @@ fn show(title: &str, body: &str, buttons: &[(&str, &str)], on_activated: impl Fn
     }
 }
 
-#[cfg(not(windows))]
+/// A Notification Center banner from the app's bundle (`AUMID` is its bundle identifier too), so an unbundled dev
+/// build shows none, as on Windows. The send blocks until the banner is clicked, its button pressed, or it leaves
+/// Notification Center, so each waits on its own thread.
+#[cfg(target_os = "macos")]
+fn show(title: &str, body: &str, buttons: &[(&str, &str)], on_activated: impl Fn(Option<String>) + Send + 'static) {
+    use mac_notification_sys::{MainButton, Notification, NotificationResponse};
+    let (title, body) = (title.to_string(), body.to_string());
+    let buttons: Vec<(String, String)> = buttons.iter().map(|(c, a)| (c.to_string(), a.to_string())).collect();
+    std::thread::spawn(move || {
+        // Errs once set (AlreadySet): the first call's answer stands.
+        let _ = mac_notification_sys::set_application(crate::AUMID);
+        let mut n = Notification::new();
+        n.title(&title).message(&body).wait_for_click(true);
+        // ponytail: one button is all the app sends (Skip); a second would need a dropdown.
+        if let Some((content, _)) = buttons.first() {
+            n.main_button(MainButton::SingleAction(content));
+        }
+        match n.send() {
+            Ok(NotificationResponse::Click) => on_activated(None),
+            Ok(NotificationResponse::ActionButton(pressed)) => on_activated(banner_action(&buttons, &pressed)),
+            Ok(_) => {}
+            Err(e) => eprintln!("notification not shown: {e}"),
+        }
+    });
+}
+
+/// The action of the button whose label is `pressed`; a label not among `buttons` is a click on the body.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn banner_action(buttons: &[(String, String)], pressed: &str) -> Option<String> {
+    buttons.iter().find(|(content, _)| content == pressed).map(|(_, action)| action.clone())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn show(_title: &str, _body: &str, _buttons: &[(&str, &str)], _on_activated: impl Fn(Option<String>) + Send + 'static) {}
 
 /// Moves `path` to the Recycle Bin, never a silent hard delete: where the drive has no Recycle Bin, Windows asks
@@ -72,7 +104,16 @@ pub fn recycle(path: &std::path::Path, owner: isize) -> Result<(), String> {
     }
 }
 
-#[cfg(not(windows))]
+/// Moves `path` to the Trash (NSFileManager), never a hard delete: a volume with no Trash fails and the folder stays.
+#[cfg(target_os = "macos")]
+pub fn recycle(path: &std::path::Path, _owner: isize) -> Result<(), String> {
+    use objc2_foundation::{NSFileManager, NSString, NSURL};
+    let abs = std::path::absolute(path).map_err(|e| e.to_string())?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(abs.to_str().ok_or("the path isn't valid UTF-8")?));
+    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None).map_err(|e| e.localizedDescription().to_string())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn recycle(_path: &std::path::Path, _owner: isize) -> Result<(), String> {
     Err("Delete isn't built for this platform yet.".into())
 }
@@ -86,7 +127,40 @@ pub fn set_run_value(name: &str, value: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Off Windows the autostart plugin's own login item is all there is: nothing to write again.
 #[cfg(not(windows))]
 pub fn set_run_value(_name: &str, _value: &str) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pressed_button_maps_to_its_action_and_an_unknown_label_to_a_body_click() {
+        let buttons = [("Skip".to_string(), "skip".to_string())];
+        assert_eq!(banner_action(&buttons, "Skip").as_deref(), Some("skip"));
+        assert_eq!(banner_action(&buttons, "Other"), None);
+        assert_eq!(banner_action(&[], "Skip"), None);
+    }
+
+    /// The proof it was trashed, not destroyed: the folder has left and the Trash holds it (macOS names a clash anew,
+    /// so the test's name is unique); then it is deleted from there.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn recycle_moves_a_folder_to_the_trash() {
+        let name = format!("mc-trash-{}-{}", std::process::id(), chrono::Utc::now().timestamp_millis());
+        let dir = std::env::temp_dir().join(&name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("transcript.vtt"), "WEBVTT\n").unwrap();
+        // The system temp dir is on the boot volume, whose Trash is ~/.Trash.
+        let trashed = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".Trash").join(&name);
+        recycle(&dir, 0).unwrap();
+        assert!(!dir.exists(), "left its place");
+        let in_trash = trashed.join("transcript.vtt").exists();
+        let _ = std::fs::remove_dir_all(&trashed);
+        assert!(in_trash, "in the Trash, whole");
+        assert!(recycle(&std::env::temp_dir().join("mc-no-such-folder"), 0).is_err(), "nothing there: an error");
+    }
 }

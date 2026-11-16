@@ -8,6 +8,8 @@
 //   4. cargo build -p fake-claude, then E2E (WebdriverIO + @wdio/tauri-service) against that build
 // Prerequisites it installs when missing: llvm-tools-preview, cargo-llvm-cov.
 // tauri-driver and msedgedriver are fetched by @wdio/tauri-service on first E2E run.
+// On macOS step 4 is skipped: tauri-driver has no WebDriver for WKWebView, so E2E runs on Windows only
+// (docs/development.md, macOS).
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -42,5 +44,6 @@ step("vitest", "npx", ["vitest", "run"]);
 step("tauri build (debug, no installer)", "npx", ["tauri", "build", "--debug", "--no-bundle"]);
 step("fake claude", "cargo", ["build", "-p", "fake-claude"]);
 if (process.env.MC_CHECK_SKIP_E2E) console.log("\n>>> e2e: skipped (MC_CHECK_SKIP_E2E)");
+else if (process.platform === "darwin") console.log("\n>>> e2e: skipped (no WebDriver for WKWebView on macOS; E2E runs on Windows)");
 else step("e2e", "node", ["e2e/run.mjs"]);
 console.log("\ncheck PASSED");

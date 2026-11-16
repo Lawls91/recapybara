@@ -64,5 +64,11 @@ The log is never trimmed.
 - **Time zones.** A calendar event in a time zone the app can't convert is left out, and the status line counts it:
   "2 events skipped: unknown time zone".
 - **Public holidays** aren't known: the list looks ahead to the next weekday even when that day is a holiday.
-- **Single user.** The app works for one Windows user and one claude.ai account.
+- **Single user.** The app works for one Windows or Mac user and one claude.ai account.
+- **Mac: not notarised.** The Mac app is ad-hoc signed, so the first open needs **Open Anyway** (see
+  [Getting started](getting-started.md#install-on-a-mac)), and only Apple Silicon is built.
+- **Mac: no notifications** in a dev build (`npx tauri dev`), which isn't an app bundle, as on Windows. In the
+  installed app, check **System Settings > Notifications > Recapybara** if none show.
+- **Mac: Claude Code not found** though `claude` works in Terminal: the app takes PATH from your login shell
+  (`$SHELL -l`). Put the PATH change in `~/.zprofile` (or `~/.zshrc`) rather than in a terminal-only setting.
 - **Updates** can't be reached while the GitHub repository is private (see [Updates](updates.md)).

@@ -146,6 +146,7 @@ pub fn busy(list: &[Listed], importing: bool) -> Option<&'static str> {
 mod tests {
     use super::*;
     use crate::library::Meeting;
+    #[cfg(windows)]
     use std::path::PathBuf;
 
     #[test]

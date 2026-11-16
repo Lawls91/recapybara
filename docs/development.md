@@ -9,7 +9,9 @@ meeting content goes in the repo.
 
 ## Build and run
 
-Needs Node 20+, Rust stable (MSVC) with `~/.cargo/bin` on PATH, and WebView2.
+Needs Node 20+, Rust stable (MSVC) with `~/.cargo/bin` on PATH, and WebView2. On a Mac (Apple Silicon): Node 20+,
+Rust stable and the Xcode command line tools; `npx tauri build --bundles app,dmg` makes the ad-hoc signed
+`target/release/bundle/macos/Recapybara.app` and its `.dmg` (`src-tauri/tauri.macos.conf.json`).
 
 ```
 npm install
@@ -121,12 +123,17 @@ only if that folder is empty or was made by an earlier run. Everything in the sh
 
 ## CI
 
-`.github/workflows/ci.yml` runs on GitHub Actions (`windows-latest`) for every pull request and every push to `main`,
-and by hand (`gh workflow run ci.yml --ref <branch>`).
+`.github/workflows/ci.yml` runs on GitHub Actions (`windows-latest`, and `macos-latest` for Apple Silicon) for every
+pull request and every push to `main`, and by hand (`gh workflow run ci.yml --ref <branch>`).
 
 - The **check** job runs `npm run check` with `MC_CHECK_SKIP_E2E=1`, then the calendar tests again with the clock at
   UTC+14 and UTC-12 (the app takes the working day in the machine's zone). A push to `main` also builds the
   installer and attaches it to the run as the `installer` artifact (kept 7 days).
+- The **check (macOS)** job runs the same `npm run check` and calendar time-zone runs (through `TZ`) on Apple
+  Silicon. `check.mjs` skips E2E on macOS: tauri-driver has no WebDriver for WKWebView, so the shared UI is covered by
+  the Windows E2E job, and the Mac-only code (Trash, notifications' button mapping, the login-shell PATH, the
+  `/private` project-folder name) by `cargo test` on this runner. A push to `main` also attaches the `.dmg` as the
+  `disk-image` artifact (kept 7 days).
 - The **e2e** job runs `npm run e2e` against a debug build, de-elevated through gsudo: hosted runners run jobs as an
   administrator, and WebView2 ignores `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` in an elevated app, so msedgedriver
   could never open its DevTools port ("DevToolsActivePort file doesn't exist"; tauri-apps/wry#1782).
@@ -171,6 +178,10 @@ again. At the next start the app reads and deletes that file: exit code 0 or 301
 cancelled", 1618 "another installation was in progress", anything else "the installer failed (code N)". The plugin's
 own install isn't used because it relaunches the app only through a custom action in the MSI, and the MSI has none.
 
+On macOS the plugin's own install is used: the verified `.app.tar.gz` replaces the app bundle in place (the old one is
+kept until the new one is in, so a failure leaves the app as it was and says why), and the quit that follows restarts
+into the new version.
+
 Cutting a release:
 
 1. Optionally, write `release-notes/vX.Y.Z.md` on `main`: a line each, `- ` for a bullet, plain text. Without it the
@@ -178,10 +189,13 @@ Cutting a release:
 2. Run the Release workflow on `main`: Actions, Release, Run workflow, or `gh workflow run Release -R Lawls91/recapybara`
    (add `-f version=X.Y.Z` to choose the version; blank is the latest release's next minor, 0.2.0 to 0.3.0).
 
-`.github/workflows/release.yml` refuses a run off `main`, a version that isn't X.Y.Z or one already tagged. It stamps
-the version into its own checkout only (`release.mjs bump`; nothing is committed, so `main` keeps the last released
-version), builds the MSI, signs it with the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-secrets, and publishes a GitHub Release (which creates the tag) with the MSI, its `.sig` and `latest.json`. The notes
+`.github/workflows/release.yml` refuses a run off `main`, a version that isn't X.Y.Z or one already tagged. Each job
+stamps the version into its own checkout only (`release.mjs bump`; nothing is committed, so `main` keeps the last
+released version). The **windows** job builds the MSI; the **macos** job builds the Apple Silicon app (ad-hoc
+signed, not notarised), packs it as `<name>-<version>-aarch64.app.tar.gz` and copies the `.dmg`. Each signs its
+update package with the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets, and **publish**
+makes a GitHub Release (which creates the tag) with all of them, their `.sig` files and one `latest.json` naming
+both platforms (`windows-x86_64`, `darwin-aarch64`). The notes
 are the release's body and latest.json's `notes`, which What's new shows.
 
 Pull requests never run the release workflow, so they never see the secrets. Tests use a throwaway key made at run
