@@ -1,5 +1,5 @@
 //! Tauri shell: window, tray, single instance, autostart, first run, commands.
-use std::{ffi::OsString, path::{Path, PathBuf}, sync::Mutex, time::SystemTime};
+use std::{ffi::OsString, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::SystemTime};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -68,9 +68,11 @@ struct AppState {
     first_run: Mutex<bool>,
     /// The library first run offers (settings::proposed_library), made at Finish if it isn't there.
     proposed_library: Option<String>,
-    /// The newer version found and verified, ready to install: its version, notes (What's new) and package. The lock
-    /// also keeps checks one at a time.
-    update: tauri::async_runtime::Mutex<Option<(String, String, Vec<u8>)>>,
+    /// The newer version found and verified, ready to install: its version, notes (What's new), package and the
+    /// updater's own handle on it (macOS installs through it). The lock also keeps checks one at a time.
+    update: tauri::async_runtime::Mutex<Option<(String, String, Vec<u8>, tauri_plugin_updater::Update)>>,
+    /// Restart and update has replaced the app on disk (macOS): quitting restarts into the new version.
+    restart: AtomicBool,
     /// The last check that got an answer, for the hourly check.
     last_check: Mutex<Option<SystemTime>>,
     /// Started again after Restart and update failed: the version it tried and what the page says (update::install_failed).
@@ -106,6 +108,9 @@ pub fn dev_dir(args: &[String], env: Option<OsString>) -> Option<PathBuf> {
 }
 
 fn show_main(app: &AppHandle) {
+    // macOS: a Dock icon and menu bar while the window is open (Cmd+Tab finds it), none while it sits in the menu bar.
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -273,6 +278,14 @@ async fn search(app: AppHandle, query: String) -> Result<Vec<library::Hit>, Stri
 /// Tray Quit's second half: the page has saved its notes.
 #[tauri::command]
 fn quit(app: AppHandle) {
+    exit_or_restart(&app);
+}
+
+/// Quits, or restarts into the new version once Restart and update has installed it in place (macOS).
+fn exit_or_restart(app: &AppHandle) {
+    if app.state::<AppState>().restart.load(Ordering::SeqCst) {
+        app.restart();
+    }
     app.exit(0);
 }
 
@@ -749,7 +762,7 @@ async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
             Some(u) if ready.as_ref().is_some_and(|(v, ..)| *v == u.version) => {}
             Some(u) => {
                 let bytes = u.download(|_, _| {}, || {}).await.map_err(|e| update::check_failed(Some(&u.version), &e))?;
-                *ready = Some((u.version, u.body.unwrap_or_default(), bytes));
+                *ready = Some((u.version.clone(), u.body.clone().unwrap_or_default(), bytes, u));
             }
         }
         *state.last_check.lock().unwrap() = Some(SystemTime::now());
@@ -759,7 +772,7 @@ async fn check_updates_now(app: &AppHandle) -> Result<Option<String>, String> {
     // Told even when the check failed: a page loaded during it (update_ready answers None meanwhile) still learns of
     // an update found earlier.
     let version = ready.as_ref().map(|(v, ..)| v.clone());
-    let _ = app.emit("update-ready", ready.as_ref().map(|(v, n, _)| (v, n)));
+    let _ = app.emit("update-ready", ready.as_ref().map(|(v, n, ..)| (v, n)));
     if let Some(item) = state.update_item.lock().unwrap().as_ref() {
         let _ = item.set_text(update::tray_label(version.as_deref()));
     }
@@ -779,7 +792,7 @@ async fn check_updates(app: AppHandle) -> Result<String, String> {
 /// going: its update-ready follows.
 #[tauri::command]
 fn update_ready(state: State<AppState>) -> Option<(String, String)> {
-    state.update.try_lock().ok()?.as_ref().map(|(v, n, _)| (v.clone(), n.clone()))
+    state.update.try_lock().ok()?.as_ref().map(|(v, n, ..)| (v.clone(), n.clone()))
 }
 
 /// The update this start follows that didn't install, if any: its version and the message the page shows.
@@ -816,17 +829,18 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     if let Some(why) = busy() {
         return Err(why.into()); // one started while the notice showed
     }
-    let (version, _, bytes) = ready.as_ref().unwrap();
-    if !update::is_msi(bytes) {
-        return Err("Couldn't update: the download isn't an installer".into());
-    }
-    let msi = std::env::temp_dir().join(format!("{}-{version}.msi", app.package_info().name));
-    std::fs::write(&msi, bytes).map_err(|e| format!("Couldn't update: {e}"))?;
-    let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into())).join("System32");
-    let exe = std::env::current_exe().map_err(|e| format!("Couldn't update: {e}"))?;
-    let args = update::install_args(std::process::id(), &system.join("msiexec.exe"), &msi, &exe, &state.data_dir.join(update::RESULT_FILE), version);
+    let (version, _, bytes, found) = ready.as_ref().unwrap();
     #[cfg(windows)]
     {
+        let _ = found;
+        if !update::is_msi(bytes) {
+            return Err("Couldn't update: the download isn't an installer".into());
+        }
+        let msi = std::env::temp_dir().join(format!("{}-{version}.msi", app.package_info().name));
+        std::fs::write(&msi, bytes).map_err(|e| format!("Couldn't update: {e}"))?;
+        let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into())).join("System32");
+        let exe = std::env::current_exe().map_err(|e| format!("Couldn't update: {e}"))?;
+        let args = update::install_args(std::process::id(), &system.join("msiexec.exe"), &msi, &exe, &state.data_dir.join(update::RESULT_FILE), version);
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let powershell = system.join(r"WindowsPowerShell\v1.0\powershell.exe");
@@ -835,8 +849,18 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
             return Err(format!("Couldn't update: {e}"));
         }
     }
+    // macOS: the verified .app.tar.gz replaces this app's bundle in place (the updater's own install, which keeps the
+    // old bundle until the new one is in), then the quit below restarts into it. A failure leaves the app as it was.
     #[cfg(not(windows))]
-    let _ = args;
+    {
+        let _ = version;
+        let (found, bytes) = (found.clone(), bytes.clone());
+        tauri::async_runtime::spawn_blocking(move || found.install(bytes))
+            .await
+            .map_err(|e| format!("Couldn't update: {e}"))?
+            .map_err(|e| format!("Couldn't update: {e}"))?;
+        state.restart.store(true, Ordering::SeqCst);
+    }
     *ready = None; // on disk now; the app is quitting
     quit_after_save(&app);
     Ok(())
@@ -848,7 +872,7 @@ fn quit_after_save(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        app.exit(0);
+        exit_or_restart(&app);
     });
 }
 
@@ -862,11 +886,19 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>
     let updates = MenuItem::with_id(app, "updates", "Check for updates", !dev, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &settings, &refresh, &logon_item, &updates, &quit])?;
+    // macOS: a template image (alpha only), which the menu bar tints for light and dark like every item up there.
+    #[cfg(target_os = "macos")]
+    let (icon, template) = (tauri::include_image!("icons/tray-template.png"), true); // decoded at compile time
+    #[cfg(not(target_os = "macos"))]
+    let (icon, template) = (app.default_window_icon().unwrap().clone(), false);
     TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(icon)
+        .icon_as_template(template)
         .tooltip(&name)
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        // macOS: the menu-bar item opens its menu on a click, as every menu-bar item does; Windows: a left click opens
+        // the window, the menu is on the right.
+        .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(|app, e| match e.id.as_ref() {
             "open" => show_main(app),
             "settings" => {
@@ -901,14 +933,35 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>
         })
         .on_tray_icon_event(|tray, e| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
-                show_main(tray.app_handle());
+                if !cfg!(target_os = "macos") {
+                    show_main(tray.app_handle());
+                }
             }
         })
         .build(app)?;
     Ok((logon_item, updates))
 }
 
+/// The macOS menu bar while the window is open: the app menu, whose Quit saves notes as the tray's does; Edit, without
+/// which Cmd+C, Cmd+V and the rest do nothing in the page; and Window, whose Close hides it to the menu bar.
+#[cfg(target_os = "macos")]
+fn app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    use tauri::menu::{PredefinedMenuItem as P, Submenu};
+    let name = display_name(app);
+    let quit = MenuItem::with_id(app, "app-quit", format!("Quit {name}"), true, Some("CmdOrCtrl+Q"))?;
+    let sep = || P::separator(app);
+    let app_menu = Submenu::with_items(app, &name, true, &[&P::about(app, None, None)?, &sep()?, &P::hide(app, None)?, &P::hide_others(app, None)?, &P::show_all(app, None)?, &sep()?, &quit])?;
+    let edit = Submenu::with_items(app, "Edit", true, &[&P::undo(app, None)?, &P::redo(app, None)?, &sep()?, &P::cut(app, None)?, &P::copy(app, None)?, &P::paste(app, None)?, &P::select_all(app, None)?])?;
+    let window = Submenu::with_items(app, "Window", true, &[&P::minimize(app, None)?, &P::close_window(app, None)?])?;
+    Menu::with_items(app, &[&app_menu, &edit, &window])
+}
+
 pub fn run() {
+    // Before any thread starts: set_var isn't safe beside a reader.
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        claude::fix_gui_path(Path::new(&home));
+    }
     let dev = dev_dir(&std::env::args().collect::<Vec<_>>(), std::env::var_os("RECAPYBARA_DEV"));
     let mut builder = tauri::Builder::default();
     match &dev {
@@ -965,7 +1018,18 @@ pub fn run() {
             let _ = std::fs::remove_file(&result);
             let calendar = calendar::Calendar::default();
             calendar.load_deleted(data_dir.join("deleted-events.json"));
-            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, chats: chat::Chats::default(), teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), proposed_library, update: Default::default(), last_check: Mutex::new(None), update_failed });
+            app.manage(AppState { data_dir, home, skill_home, settings: Mutex::new(s), logon_item: Mutex::new(None), update_item: Mutex::new(None), pending_open: Mutex::new(None), calendar, chats: chat::Chats::default(), teams: fetch::TeamsImport::default(), dev: dev.is_some(), first_run: Mutex::new(first), proposed_library, update: Default::default(), restart: AtomicBool::new(false), last_check: Mutex::new(None), update_failed });
+            #[cfg(target_os = "macos")]
+            {
+                // In the menu bar only until the window opens (show_main).
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_menu(app_menu(app.handle())?)?;
+                app.on_menu_event(|app, e| {
+                    if e.id.as_ref() == "app-quit" {
+                        quit_after_save(app);
+                    }
+                });
+            }
             // Display name follows productName only.
             if let Some(w) = app.get_webview_window("main") {
                 w.set_title(&display_name(app.handle()))?;
@@ -1011,6 +1075,8 @@ pub fn run() {
                 api.prevent_close();
                 let _ = w.emit("hiding", ()); // the page saves its notes at once
                 let _ = w.hide();
+                #[cfg(target_os = "macos")]
+                let _ = w.app_handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1106,12 +1172,16 @@ mod tests {
     #[test]
     fn dev_dir_is_the_flag_else_the_env_var() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let env = |v: &str| Some(OsString::from(v));
+        // Absolute on this platform (`C:\dev\…` is relative off Windows).
+        let root = std::env::temp_dir();
+        let (from_env, from_flag) = (root.join("env"), root.join("flag"));
+        let env = |p: &std::path::Path| Some(OsString::from(p));
+        let flag = from_flag.to_str().unwrap();
         assert_eq!(dev_dir(&args(&["mc.exe"]), None), None, "neither: the installed copy");
-        assert_eq!(dev_dir(&args(&["mc.exe"]), env("")), None, "an empty var is unset");
-        assert_eq!(dev_dir(&args(&["mc.exe"]), env(r"C:\dev\env")), Some(PathBuf::from(r"C:\dev\env")));
-        assert_eq!(dev_dir(&args(&["mc.exe", "--dev", r"C:\dev\flag"]), env(r"C:\dev\env")), Some(PathBuf::from(r"C:\dev\flag")), "the flag wins");
-        assert_eq!(dev_dir(&args(&["mc.exe", "--dev", ""]), env(r"C:\dev\env")), Some(PathBuf::from(r"C:\dev\env")));
+        assert_eq!(dev_dir(&args(&["mc.exe"]), Some(OsString::new())), None, "an empty var is unset");
+        assert_eq!(dev_dir(&args(&["mc.exe"]), env(&from_env)), Some(from_env.clone()));
+        assert_eq!(dev_dir(&args(&["mc.exe", "--dev", flag]), env(&from_env)), Some(from_flag.clone()), "the flag wins");
+        assert_eq!(dev_dir(&args(&["mc.exe", "--dev", ""]), env(&from_env)), Some(from_env.clone()));
         assert_eq!(dev_dir(&args(&["mc.exe", "--dev"]), None), None, "a flag with no dir");
         let rel = dev_dir(&args(&["mc.exe", "--dev", "rel"]), None).unwrap();
         assert_eq!(rel, std::env::current_dir().unwrap().join("rel"), "made absolute: claude runs in other dirs");

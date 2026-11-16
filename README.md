@@ -4,7 +4,7 @@
 
 <h1 align="center">Recapybara</h1>
 
-A Windows tray app for your Teams meetings. It lists your meetings, fetches each transcript when the call ends,
+A Windows tray app (and Mac menu-bar app) for your Teams meetings. It lists your meetings, fetches each transcript when the call ends,
 has Claude write a summary whose every point cites the transcript with a checked quote, and keeps every meeting
 as plain files in a library folder you choose. It also nudges you when a call is running without transcription.
 
@@ -14,7 +14,7 @@ Everything runs through your own Claude Code and claude.ai account: the app has 
 
 ## Requirements
 
-- Windows 11 (it has the WebView2 runtime the app needs).
+- Windows 11 (it has the WebView2 runtime the app needs), or macOS 13 or later on Apple Silicon.
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed, on PATH, and signed in to your claude.ai
   account.
 - The **Microsoft 365** connector connected in claude.ai, so Claude can read your calendar and Teams transcripts. The
@@ -24,7 +24,9 @@ Everything runs through your own Claude Code and claude.ai account: the app has 
 ## Install
 
 Download the latest `.msi` from the [Releases](https://github.com/Lawls91/recapybara/releases) page and
-double-click it. It installs for you only, so there is no admin prompt (Windows SmartScreen may ask once). To build the
+double-click it. It installs for you only, so there is no admin prompt (Windows SmartScreen may ask once). On a Mac,
+download the `-aarch64.dmg` instead and drag Recapybara to Applications; it isn't notarised, so macOS asks once (see
+[Getting started](docs/getting-started.md#install-on-a-mac)). To build the
 installer yourself, see [Development](docs/development.md#build-and-run).
 
 ## Quick start

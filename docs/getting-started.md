@@ -2,9 +2,9 @@
 
 ## What you need
 
-- Windows 11.
-- Claude Code installed and on PATH (the app runs the first `claude.exe` or `claude.cmd` it finds), signed in to
-  your claude.ai account.
+- Windows 11, or macOS 13 or later on Apple Silicon.
+- Claude Code installed and on PATH (the app runs the first `claude.exe` or `claude.cmd` it finds; on a Mac, the first
+  `claude` on your login shell's PATH, `~/.local/bin` and Homebrew's included), signed in to your claude.ai account.
 - The Microsoft 365 connector connected in claude.ai. The app asks Claude to read your Outlook calendar and your Teams
   transcripts through it, and reads only what the connector answers.
 - Optional: the Atlassian connector, so the Jira keys a summary mentions are checked against Jira.
@@ -18,6 +18,17 @@ SmartScreen may ask once. It adds a Start menu shortcut, and by default starts t
 
 Uninstall from **Settings > Apps > Installed apps**. That removes the app, its shortcut and its start-at-logon entry.
 Your settings and your library folder are kept.
+
+### Install on a Mac
+
+Open the `-aarch64.dmg` and drag **Recapybara** to **Applications**. The app is ad-hoc signed, not notarised by Apple,
+so the first open is refused with "Apple could not verify…": open **System Settings > Privacy & Security** and press
+**Open Anyway** (or run `xattr -dr com.apple.quarantine /Applications/Recapybara.app` once). Allow its notifications
+when macOS asks. Updates after that install without asking.
+
+To uninstall, quit it and drag it from Applications to the Trash; turn Start at logon off first, or remove it from
+**System Settings > General > Login Items**. Settings (`~/Library/Application Support/com.lawls91.recapybara`) and your
+library folder are kept.
 
 ## First run
 
@@ -38,7 +49,8 @@ Nothing is fetched or summarised before you press Finish.
 
 ## The tray
 
-Recapybara lives in the Windows tray. Closing the window only hides it there, so meetings are still captured.
+Recapybara lives in the Windows tray, or the menu bar on a Mac (a click opens its menu there; it shows in the Dock
+only while its window is open). Closing the window only hides it there, so meetings are still captured.
 The tray menu has:
 
 - **Open Recapybara**

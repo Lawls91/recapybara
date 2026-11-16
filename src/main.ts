@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { applyPlatformText, commandKey, isMac } from "./platform";
 import { firstLogonBox, libraryLabel, notesLines, type Settings } from "./settings";
 import {
   awaitingLine,
@@ -784,8 +785,11 @@ $("meeting-list").addEventListener("click", (e) => {
   clearFilters();
   $("meeting-list").querySelector<HTMLElement>('[tabindex="0"]')?.focus();
 });
+// Ctrl+Shift+F, Cmd+Shift+F on a Mac.
+const MAC = isMac(navigator.userAgent);
+applyPlatformText(document, MAC);
 document.addEventListener("keydown", (e) => {
-  if (!e.ctrlKey || !e.shiftKey || e.key.toLowerCase() !== "f" || $("list-view").hidden || !$("first-run").hidden) return;
+  if (!commandKey(e, MAC) || !e.shiftKey || e.key.toLowerCase() !== "f" || $("list-view").hidden || !$("first-run").hidden) return;
   e.preventDefault();
   openFilterMenu();
 });

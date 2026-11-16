@@ -33,7 +33,7 @@ mod tests {
     }
 
     fn skill(home: &Path) -> String {
-        fs::read_to_string(home.join(r".claude\skills\recapybara\SKILL.md")).unwrap()
+        fs::read_to_string(dir(home).join("SKILL.md")).unwrap()
     }
 
     #[test]
@@ -73,7 +73,8 @@ mod tests {
     #[test]
     fn writes_nothing_under_dot_claude_outside_its_skill_folder() {
         let home = temp("sandbox");
-        let seeded = [r".claude\settings.json", r".claude\projects\other\keep.jsonl", r".claude\skills\other\SKILL.md", r".claude\skills\recapybara-old\SKILL.md"];
+        // `/`-separated, which both platforms join; the listing below is normalised to the same.
+        let seeded = [".claude/settings.json", ".claude/projects/other/keep.jsonl", ".claude/skills/other/SKILL.md", ".claude/skills/recapybara-old/SKILL.md"];
         for f in seeded {
             fs::create_dir_all(home.join(f).parent().unwrap()).unwrap();
             fs::write(home.join(f), f).unwrap();
@@ -83,7 +84,7 @@ mod tests {
                 if e.file_type().unwrap().is_dir() {
                     files(&e.path(), out, root);
                 } else {
-                    out.push(e.path().strip_prefix(root).unwrap().to_string_lossy().into_owned());
+                    out.push(e.path().strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"));
                 }
             }
         }
@@ -94,7 +95,7 @@ mod tests {
         let mut found = vec![];
         files(&home, &mut found, &home);
         found.sort();
-        let mut want: Vec<String> = seeded.iter().map(|s| s.to_string()).chain([r".claude\skills\recapybara\SKILL.md".into()]).collect();
+        let mut want: Vec<String> = seeded.iter().map(|s| s.to_string()).chain([".claude/skills/recapybara/SKILL.md".into()]).collect();
         want.sort();
         assert_eq!(found, want, "no temp file left, nothing else written");
         for f in seeded {

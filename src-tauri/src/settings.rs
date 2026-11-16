@@ -127,11 +127,16 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// `<dir>\library` on Windows, `<dir>/library` elsewhere: the platform's own join.
+    fn lib_in(dir: &str) -> String {
+        Path::new(dir).join("library").to_string_lossy().into_owned()
+    }
+
     #[test]
     fn dev_forces_logon_off_and_defaults_the_library_into_the_dev_dir() {
         let fresh = for_dev(Settings::default(), Path::new(r"C:\dev\one"), true);
         assert!(!fresh.start_at_logon);
-        assert_eq!(fresh.library_path.as_deref(), Some(r"C:\dev\one\library"));
+        assert_eq!(fresh.library_path, Some(lib_in(r"C:\dev\one")));
         let chosen = Settings { library_path: Some(r"D:\lib".into()), start_at_logon: true, ..Settings::default() };
         let kept = for_dev(chosen, Path::new(r"C:\dev\one"), true);
         assert_eq!(kept.library_path.as_deref(), Some(r"D:\lib"), "a library already chosen is kept");
@@ -144,7 +149,7 @@ mod tests {
         let fresh = for_dev(Settings::default(), dev, true);
         assert!(makes_dev_library(&fresh, dev));
         // An Appearance change saves settings.json with the default path in it: still the dev dir's own.
-        let saved = for_dev(Settings { library_path: Some(r"C:\dev\one\library".into()), ..Settings::default() }, dev, true);
+        let saved = for_dev(Settings { library_path: Some(lib_in(r"C:\dev\one")), ..Settings::default() }, dev, true);
         assert!(makes_dev_library(&saved, dev));
         let chosen = for_dev(Settings { library_path: Some(r"D:\lib".into()), ..Settings::default() }, dev, true);
         assert!(!makes_dev_library(&chosen, dev), "a chosen library that has gone isn't made anew");
@@ -153,8 +158,9 @@ mod tests {
     #[test]
     fn first_run_proposes_the_dev_dirs_library_else_documents_recapybara() {
         let docs = Path::new(r"C:\Users\someone\OneDrive - Example\Documents");
-        assert_eq!(proposed_library(None, Some(docs)).as_deref(), Some(r"C:\Users\someone\OneDrive - Example\Documents\Recapybara"));
-        assert_eq!(proposed_library(Some(Path::new(r"C:\dev\one")), Some(docs)).as_deref(), Some(r"C:\dev\one\library"), "a dev instance keeps its own");
+        let recapybara = docs.join("Recapybara").to_string_lossy().into_owned();
+        assert_eq!(proposed_library(None, Some(docs)), Some(recapybara));
+        assert_eq!(proposed_library(Some(Path::new(r"C:\dev\one")), Some(docs)), Some(lib_in(r"C:\dev\one")), "a dev instance keeps its own");
         assert_eq!(proposed_library(None, None), None, "no Documents folder: nothing offered, the user picks");
         // A test standing in for Documents on a dev instance: no in-memory dev library, so first run is the installed copy's.
         assert_eq!(for_dev(Settings::default(), Path::new(r"C:\dev\one"), false).library_path, None);

@@ -36,17 +36,33 @@ pub struct ClaudeRun {
     pub timeout: Duration,
 }
 
-/// `claude` in the first PATH directory holding it as a program or a `.cmd`/`.bat` shim, in PATHEXT order.
-/// Resolved here so the spawn never goes through a shell (the prompt and schema are on argv).
+/// `claude` in the first PATH directory holding it as a program or a `.cmd`/`.bat` shim, in PATHEXT order. An empty
+/// `pathext` (off Windows) looks for plain `claude`, an executable file. Resolved here so the spawn never goes through a
+/// shell (the prompt and schema are on argv).
 pub fn find_on(path: &std::ffi::OsStr, pathext: &str) -> Option<std::path::PathBuf> {
-    let exts: Vec<String> = pathext
-        .split(';')
-        .map(|e| e.trim().to_ascii_lowercase())
-        .filter(|e| [".com", ".exe", ".bat", ".cmd"].contains(&e.as_str()))
-        .collect();
+    let exts: Vec<String> = if pathext.is_empty() {
+        vec![String::new()]
+    } else {
+        pathext
+            .split(';')
+            .map(|e| e.trim().to_ascii_lowercase())
+            .filter(|e| [".com", ".exe", ".bat", ".cmd"].contains(&e.as_str()))
+            .collect()
+    };
     std::env::split_paths(path)
         .flat_map(|dir| exts.iter().map(move |e| dir.join(format!("claude{e}"))))
-        .find(|p| p.is_file())
+        .find(|p| runnable(p))
+}
+
+#[cfg(windows)]
+fn runnable(p: &Path) -> bool {
+    p.is_file()
+}
+
+#[cfg(not(windows))]
+fn runnable(p: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 /// `RECAPYBARA_CLAUDE` if set, else `claude` found on PATH. Unfound, plain `claude`: the spawn
@@ -60,6 +76,53 @@ pub fn program() -> OsString {
         .and_then(|path| find_on(&path, if cfg!(windows) { &pathext } else { "" }))
         .map(Into::into)
         .unwrap_or_else(|| "claude".into())
+}
+
+/// Where Claude Code's installers put `claude` (and Homebrew its `node`), for a Mac app started from Finder or at login,
+/// whose PATH is only the system's.
+#[cfg(target_os = "macos")]
+fn known_dirs(home: &Path) -> Vec<PathBuf> {
+    vec![home.join(".local/bin"), home.join(".claude/local"), "/opt/homebrew/bin".into(), "/usr/local/bin".into()]
+}
+
+/// `parts`' directories in order, each once, empty entries dropped.
+pub fn merge_paths(parts: &[OsString]) -> OsString {
+    let mut seen: Vec<PathBuf> = vec![];
+    for p in parts {
+        for d in std::env::split_paths(p) {
+            if !d.as_os_str().is_empty() && !seen.contains(&d) {
+                seen.push(d);
+            }
+        }
+    }
+    std::env::join_paths(seen).unwrap_or_default()
+}
+
+/// The PATH the user's shell sets up as Terminal opens it, interactive and login (`$SHELL -ilc`, as VS Code resolves
+/// it): zsh reads `.zprofile` and `.zshrc` both, so a PATH set in either (nvm's, an npm-global `claude`) is found.
+/// None if it can't be read within `limit`. `envs` is extra child environment (tests point ZDOTDIR elsewhere).
+#[cfg(target_os = "macos")]
+fn login_shell_path(shell: &OsString, envs: &[(&str, &std::ffi::OsStr)], limit: Duration) -> Option<OsString> {
+    let mut cmd = Command::new(shell);
+    // A marker around PATH, so a profile that prints a banner (or a prompt, being interactive) can't corrupt it; no
+    // stdin, so one that asks for input reads end-of-file, and `limit` stops one that hangs.
+    cmd.args(["-i", "-l", "-c", "printf '<<%s>>' \"$PATH\""]).envs(envs.iter().copied()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let out = cmd.spawn().and_then(|c| finish(c, limit)).ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let inner = text.rsplit_once("<<")?.1.split_once(">>")?.0;
+    Some(OsString::from(inner)).filter(|p| !p.is_empty())
+}
+
+/// At start on macOS: PATH becomes the login shell's, then the inherited one, then the known install dirs. A Mac app
+/// started from Finder or at login inherits only the system PATH, which finds neither `claude` nor the `node` its hooks
+/// and MCP servers need. Called before any thread starts.
+#[cfg(target_os = "macos")]
+pub fn fix_gui_path(home: &Path) {
+    let shell = std::env::var_os("SHELL").filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
+    let mut parts: Vec<OsString> = login_shell_path(&shell, &[], Duration::from_secs(5)).into_iter().collect();
+    parts.extend(std::env::var_os("PATH"));
+    parts.extend(known_dirs(home).into_iter().map(OsString::from));
+    std::env::set_var("PATH", merge_paths(&parts));
 }
 
 /// `claude --version`, trimmed, for the meeting metadata. None when it can't be run.
@@ -148,6 +211,16 @@ pub fn slug(path: &Path) -> String {
         .collect()
 }
 
+/// The project folder Claude Code uses for a run in `cwd`: `slug` of the cwd as the child sees it. On macOS that is
+/// the resolved path (`/var/folders/…` is a link to `/private/var/folders/…`); on Windows the path as given.
+pub fn project_name(cwd: &Path) -> String {
+    #[cfg(not(windows))]
+    if let Ok(real) = fs::canonicalize(cwd) {
+        return slug(&real);
+    }
+    slug(cwd)
+}
+
 /// What a run gave back: its stdout, and the raw hook payloads its capture hook recorded, never via the model.
 #[derive(Debug, Default)]
 pub struct Output {
@@ -161,8 +234,8 @@ impl From<String> for Output {
     }
 }
 
-/// Per-run `--settings`: on PostToolUse and PostToolUseFailure of `tools`, Git Bash (as Claude Code on Windows
-/// runs hooks) writes the payload on stdin to its own new file in `dir`. No app process, no model in between.
+/// Per-run `--settings`: on PostToolUse and PostToolUseFailure of `tools`, the hook shell (Git Bash on Windows, `sh`
+/// elsewhere, as Claude Code runs hooks) writes the payload on stdin to its own new file in `dir`. No app process, no model in between.
 pub fn capture_settings(dir: &Path, tools: &[&str]) -> String {
     let template = format!("{}/XXXXXXXX", dir.to_string_lossy().replace('\\', "/"));
     // Single-quoted for bash, so spaces and `$` in the path stay literal; a `'` closes, escapes and reopens.
@@ -190,7 +263,7 @@ pub fn project_dirs(home: &Path, runs_dir: &Path, captured: &[Value]) -> Vec<Pat
     // ASCII-only lowering keeps byte offsets, so `folder` can be cut from the payload's own spelling.
     let norm = |s: &str| s.replace('/', "\\").to_ascii_lowercase();
     let prefix = norm(&format!("{}\\", projects.display()));
-    let mut dirs = vec![projects.join(slug(runs_dir))];
+    let mut dirs = vec![projects.join(project_name(runs_dir))];
     for tp in captured.iter().filter_map(|p| p["transcript_path"].as_str()) {
         let Some(rest) = norm(tp).strip_prefix(&prefix).map(|r| tp[tp.len() - r.len()..].replace('/', "\\")) else { continue };
         // Exactly `<folder>\<file>`, the folder in slug()'s alphabet only: Win32 strips trailing dots and spaces, so
@@ -270,7 +343,7 @@ fn clean_projects(dirs: Vec<PathBuf>) {
 
 /// Deletes `~/.claude/projects/<slug of runs_dir>` at app start, before any run.
 pub fn sweep_project(home: &Path, runs_dir: &Path) {
-    remove(&home.join(".claude").join("projects").join(slug(runs_dir)));
+    remove(&home.join(".claude").join("projects").join(project_name(runs_dir)));
 }
 
 /// At startup: deletes every `hooks-*` capture folder a killed run left in `runs_dir`. No run is going yet.
@@ -320,7 +393,7 @@ pub fn run(program: &OsString, runs_dir: &Path, home: &Path, run: &ClaudeRun) ->
     fs::create_dir_all(runs_dir).map_err(|e| io::Error::new(e.kind(), format!("create {}: {e}", runs_dir.display())))?;
     let _going = InFlight::start();
     // Whatever an earlier run left late, unless another run is using the folder.
-    remove_if_idle(&[home.join(".claude").join("projects").join(slug(runs_dir))], 1);
+    remove_if_idle(&[home.join(".claude").join("projects").join(project_name(runs_dir))], 1);
     let capture_dir = runs_dir.join(format!("hooks-{}-{}", std::process::id(), RUN_SEQ.fetch_add(1, Ordering::Relaxed)));
     let began = Instant::now();
     let mut cmd = Command::new(program);
@@ -448,6 +521,7 @@ mod tests {
         d
     }
 
+    #[cfg(windows)] // PATHEXT lookup; off Windows, find_on looks for plain `claude` (tested below)
     #[test]
     fn claude_is_found_on_path_as_exe_or_cmd_shim() {
         let (a, b) = (temp("a"), temp("b"));
@@ -462,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn the_capture_hook_writes_each_payload_to_its_own_file_through_git_bash_even_with_a_quote_in_the_path() {
+    fn the_capture_hook_writes_each_payload_to_its_own_file_through_the_hook_shell_even_with_a_quote_in_the_path() {
         let dir = temp("cap").join("O'Brien $HOME data").join("hooks-1");
         fs::create_dir_all(&dir).unwrap();
         let settings: Value = serde_json::from_str(&capture_settings(&dir, &["mcp__a__x", "mcp__a__y"])).unwrap();
@@ -470,7 +544,8 @@ mod tests {
             assert_eq!(settings["hooks"][event][0]["matcher"], "mcp__a__x|mcp__a__y", "{event}");
         }
         let command = settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"].as_str().unwrap();
-        let bash = std::env::var("CLAUDE_CODE_GIT_BASH_PATH").unwrap_or(r"C:\Program Files\Git\bin\bash.exe".into());
+        // The shell Claude Code runs hooks through: Git Bash on Windows, `sh` elsewhere.
+        let bash = if cfg!(windows) { std::env::var("CLAUDE_CODE_GIT_BASH_PATH").unwrap_or(r"C:\Program Files\Git\bin\bash.exe".into()) } else { "sh".into() };
         for payload in [r#"{"n":1}"#, r#"{"n":2}"#] {
             let mut child = Command::new(&bash).args(["-c", command]).stdin(Stdio::piped()).spawn().unwrap();
             child.stdin.take().unwrap().write_all(payload.as_bytes()).unwrap();
@@ -502,10 +577,10 @@ mod tests {
         let home = temp("sweepproj");
         let runs = home.join("data").join("runs");
         let projects = home.join(".claude").join("projects");
-        fs::create_dir_all(projects.join(slug(&runs)).join("memory")).unwrap();
+        fs::create_dir_all(projects.join(project_name(&runs)).join("memory")).unwrap();
         fs::create_dir_all(projects.join("C--Users-someone-else").join("memory")).unwrap();
         sweep_project(&home, &runs);
-        assert!(!projects.join(slug(&runs)).exists());
+        assert!(!projects.join(project_name(&runs)).exists());
         assert!(projects.join("C--Users-someone-else").join("memory").exists(), "another project's memory is kept");
         sweep_project(&home.join("nohome"), &runs); // nothing there: nothing to do
     }
@@ -580,6 +655,7 @@ mod tests {
         assert!(parallel(&[] as &[u32], 3, |n| *n).is_empty());
     }
 
+    #[cfg(windows)]
     #[test]
     fn a_hooks_transcript_path_adds_its_project_folder_only_when_directly_under_claude_projects() {
         let home = Path::new(r"C:\h");
@@ -605,5 +681,92 @@ mod tests {
             assert_eq!(at(outside), [slug_dir.clone()], "{outside}");
         }
         assert_eq!(project_dirs(home, runs, &[]), [slug_dir]);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_hooks_transcript_path_adds_its_project_folder_only_when_directly_under_claude_projects() {
+        let home = Path::new("/h");
+        let runs = Path::new("/d/runs"); // not on disk: its slug is of the path as given
+        let at = |tp: &str| project_dirs(home, runs, &[json!({ "transcript_path": tp })]);
+        let slug_dir = PathBuf::from("/h/.claude/projects/-d-runs");
+        assert_eq!(at("/h/.claude/projects/-d-runs/s.jsonl"), [slug_dir.clone()], "same as the slug");
+        assert_eq!(at("/h/.claude/projects/Other-Slug/s.jsonl"), [slug_dir.clone(), PathBuf::from("/h/.claude/projects/Other-Slug")]);
+        for outside in [
+            "/h/.claude/projects/../s.jsonl",
+            "/h/.claude/projects/.../s.jsonl",
+            "/h/.claude/projects/ /s.jsonl",
+            "/h/.claude/projects/a\\b/s.jsonl",
+            "/h/.claude/projects/abc./s.jsonl",
+            "/h/.claude/projects/s.jsonl",
+            "/h/.claude/projects/a/b/s.jsonl",
+            "/h/.claude/x/s.jsonl",
+            "/elsewhere/s.jsonl",
+        ] {
+            assert_eq!(at(outside), [slug_dir.clone()], "{outside}");
+        }
+        assert_eq!(project_dirs(home, runs, &[]), [slug_dir]);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_project_name_is_the_slug_of_the_resolved_cwd() {
+        let real = temp("realcwd");
+        let link = temp("linkparent").join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(project_name(&link), slug(&fs::canonicalize(&real).unwrap()), "a link resolves as the child's cwd does");
+        assert_eq!(project_name(Path::new("/no/such/dir")), "-no-such-dir", "unresolvable: the path as given");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn off_windows_plain_claude_is_found_only_when_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let (a, b) = (temp("unix-a"), temp("unix-b"));
+        let path = std::env::join_paths([&a, &b]).unwrap();
+        fs::write(a.join("claude"), "").unwrap(); // not executable: skipped
+        fs::write(b.join("claude"), "").unwrap();
+        fs::set_permissions(b.join("claude"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::create_dir_all(a.join("claude.exe")).unwrap();
+        assert_eq!(find_on(&path, ""), Some(b.join("claude")));
+        fs::set_permissions(a.join("claude"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(find_on(&path, ""), Some(a.join("claude")), "first PATH entry wins");
+    }
+
+    #[test]
+    fn merged_paths_keep_the_first_of_each_dir_in_order() {
+        let p = |s: &[&str]| std::env::join_paths(s).unwrap();
+        let merged = merge_paths(&[p(&["/a", "/b"]), p(&["/b", "", "/c"]), "/a".into()]);
+        assert_eq!(std::env::split_paths(&merged).collect::<Vec<_>>(), [PathBuf::from("/a"), "/b".into(), "/c".into()]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_login_shells_path_is_read_past_a_profiles_banner() {
+        let dir = temp("loginsh");
+        let shell = dir.join("sh");
+        // A stand-in shell: refuses anything but an interactive login (`-i -l -c`), prints a banner, then runs the
+        // command with a PATH of its own.
+        fs::write(&shell, "#!/bin/sh\n[ \"$1 $2 $3\" = '-i -l -c' ] || exit 2\necho 'Welcome <<not this>>'\nshift 2\nPATH=/from/profile:/usr/bin exec /bin/sh \"$@\"\n").unwrap();
+        fs::set_permissions(&shell, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        assert_eq!(login_shell_path(&shell.clone().into(), &[], Duration::from_secs(10)), Some("/from/profile:/usr/bin".into()));
+        let silent = dir.join("silent");
+        fs::write(&silent, "#!/bin/sh\nexit 1\n").unwrap();
+        fs::set_permissions(&silent, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        assert_eq!(login_shell_path(&silent.into(), &[], Duration::from_secs(10)), None, "no PATH printed: none");
+        assert!(known_dirs(Path::new("/Users/x")).contains(&PathBuf::from("/Users/x/.local/bin")));
+    }
+
+    /// The real zsh: a PATH set only in `.zshrc` (where nvm puts it) is found, and one in `.zprofile` too.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_path_set_in_zshrc_or_zprofile_is_found() {
+        let zdot = temp("zdotdir");
+        fs::write(zdot.join(".zprofile"), "export PATH=\"/from/zprofile:$PATH\"\n").unwrap();
+        fs::write(zdot.join(".zshrc"), "echo 'Good morning'\nexport PATH=\"/from/zshrc:$PATH\"\n").unwrap();
+        let path = login_shell_path(&"/bin/zsh".into(), &[("ZDOTDIR", zdot.as_os_str())], Duration::from_secs(10)).expect("zsh printed its PATH");
+        let dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        assert!(dirs.contains(&PathBuf::from("/from/zshrc")), "{path:?}");
+        assert!(dirs.contains(&PathBuf::from("/from/zprofile")), "{path:?}");
     }
 }

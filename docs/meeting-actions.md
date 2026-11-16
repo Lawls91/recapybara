@@ -49,7 +49,7 @@ it:
 ### Delete
 
 Delete asks first, for example `Delete “Release planning” (Sun 8 Nov 10:00)?`, then moves the meeting's folder, with its
-transcript, summary and notes, to the Windows Recycle Bin.
+transcript, summary and notes, to the Windows Recycle Bin (the Trash on a Mac).
 
 A deleted meeting never comes back: not at the next calendar refresh, not after a restart, and not through
 [Import from Teams](importing.md#import-from-teams), which counts it as deleted and leaves it out. Delete isn't

@@ -29,3 +29,9 @@ tauri-winrt-notification = "0.7"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell"] }
 # Already in the tree through tauri-plugin-autostart: the Run value written again, quoted.
 windows-registry = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Already in the tree through tauri; only the Trash call is added.
+objc2-foundation = { version = "0.3", features = ["NSFileManager", "NSURL", "NSError", "NSString"] }
+# Notification Center banners with a click and an action button (notify-rust's own backend).
+mac-notification-sys = "0.6"

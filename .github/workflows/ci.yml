@@ -1,6 +1,7 @@
 # CI: every PR runs `npm run check` (tsc, cargo test under the 80% coverage gate, Vitest and the
-# debug build) and then the calendar tests again in two far-apart time zones. A push to main also builds the
-# installer. The E2E suite runs beside it in its own job. Only the fake claude ever runs; no secrets are used.
+# debug build) and then the calendar tests again in two far-apart time zones, on Windows and on macOS (Apple
+# Silicon). A push to main also builds the installer and the Mac disk image. The E2E suite runs beside them in its
+# own job, on Windows only (no WebDriver for WKWebView). Only the fake claude ever runs; no secrets are used.
 name: CI
 
 on:
@@ -94,6 +95,71 @@ jobs:
         with:
           name: installer
           path: out/*.msi
+          retention-days: 7
+
+  # The same check on Apple Silicon. check.mjs skips E2E on macOS. The app is ad-hoc signed, not notarised.
+  check-macos:
+    name: check (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache/restore@v5
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
+
+      - name: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Save node_modules
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: node_modules
+          key: ${{ steps.node-modules.outputs.cache-primary-key }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: npm run check
+        run: npm run check
+
+      # As on Windows, at UTC+14 and UTC-12; chrono reads TZ for the local zone.
+      - name: Calendar tests at UTC+14 and UTC-12
+        run: |
+          for zone in Pacific/Kiritimati Etc/GMT+12; do
+            echo "zone: $zone, a new process reads $(TZ=$zone date +%Y-%m-%dT%H:%M:%S%z)"
+            TZ=$zone cargo llvm-cov --no-clean --workspace --summary-only -- calendar::
+          done
+
+      - name: Disk image (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: npx tauri build --bundles app,dmg
+
+      - name: Upload disk image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v5
+        with:
+          name: disk-image
+          path: target/release/bundle/dmg/*.dmg
           retention-days: 7
 
   # E2E runs de-elevated: hosted runners run jobs as an administrator, and WebView2 150+ ignores
