@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ic } from "./icons";
 import { applyPlatformText, commandKey, isMac } from "./platform";
 import { firstLogonBox, libraryLabel, notesLines, type Settings } from "./settings";
 import {
@@ -210,7 +211,7 @@ async function loadSettings() {
   // Excluded series, each with Remove.
   $("excluded-series").innerHTML = current.excludedSeries.length
     ? `<div class="exl">${current.excludedSeries
-        .map((s, i) => `<div class="exr"><span class="exn">${esc(s.subject || s.joinUrl)}</span><button class="lnk" id="include-${i}" data-include="${i}"><i aria-hidden="true" class="ic">&#xE74D;</i>Remove</button></div>`)
+        .map((s, i) => `<div class="exr"><span class="exn">${esc(s.subject || s.joinUrl)}</span><button class="lnk" id="include-${i}" data-include="${i}">${ic("delete")}Remove</button></div>`)
         .join("")}</div>`
     : `<p class="desc">No series excluded.</p>`;
   $("excluded-series").querySelectorAll<HTMLElement>("[data-include]").forEach(
@@ -466,7 +467,7 @@ function drawList() {
             return `<div id="row-${slug(m.id)}" class="row f-${look(m).family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
               <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
               ${mark(m)}
-              <button id="kebab-${slug(m.id)}" class="kebab" tabindex="-1" title="More" aria-label="More actions"><i aria-hidden="true" class="ic">&#xE712;</i></button>
+              <button id="kebab-${slug(m.id)}" class="kebab" tabindex="-1" title="More" aria-label="More actions">${ic("more_horizontal")}</button>
             </div>${snippets(m.id)}`;
           })
           .join(""),
@@ -482,7 +483,7 @@ const snippets = (id: string) =>
   (hits?.get(id) ?? [])
     .map(
       (h, i) =>
-        `<div class="snip" role="option" tabindex="-1" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl"><i aria-hidden="true" class="ic">${h.field ? FIELDS[h.field] : TABS[h.tab].icon}</i>${h.field ?? TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></div>`,
+        `<div class="snip" role="option" tabindex="-1" id="snip-${slug(id)}-${i}" data-id="${esc(id)}" data-hit="${i}"><span class="tl">${ic(h.field ? FIELDS[h.field] : TABS[h.tab].icon)}${h.field ?? TABS[h.tab].name}${h.at ? ` <span class="ts">${esc(h.at)}</span>` : ""}</span><span class="sl">${snippet(h.line, query)}</span></div>`,
     )
     .join("");
 
@@ -571,7 +572,7 @@ function openMenu(m: Meeting, x: number, y: number, from: string | null) {
       (i) =>
         (i.sep ? `<div class="msep"></div>` : "") +
         `<button class="mi${i.bold ? " pri" : ""}${i.danger ? " dng" : ""}" id="menu-${i.id}" role="menuitem">
-          <i aria-hidden="true" class="ic">${i.icon}</i><span>${i.label}</span><span class="k">${i.key ?? ""}</span></button>`,
+          ${ic(i.icon)}<span>${i.label}</span><span class="k">${i.key ?? ""}</span></button>`,
     )
     .join("");
   placeMenu(menu, x, y);
@@ -683,7 +684,7 @@ function openFilterMenu() {
     `<div role="group" aria-labelledby="fmh-date"><div class="mh" id="fmh-date">Date</div>${Object.entries(DATES)
       .map(([k, label]) => `<button class="mi" role="menuitemradio" id="fdate-${k || "any"}" data-date="${k}">${ck}<span>${label}</span></button>`)
       .join("")}</div><div class="msep"></div>` +
-    `<button class="mi" role="menuitem" id="filter-series" aria-haspopup="menu" aria-expanded="false" aria-controls="filter-series-menu">${ck}<span>Series</span><span class="k"><span id="filter-series-k"></span> <i aria-hidden="true" class="ic">&#xE76C;</i></span></button><div class="msep"></div>` +
+    `<button class="mi" role="menuitem" id="filter-series" aria-haspopup="menu" aria-expanded="false" aria-controls="filter-series-menu">${ck}<span>Series</span><span class="k"><span id="filter-series-k"></span> ${ic("chevron_right")}</span></button><div class="msep"></div>` +
     `<button class="mi" role="menuitem" id="filter-clear">${ck}<span>Clear filters</span></button>`;
   syncFilterMenu();
   $("filter-button").setAttribute("aria-expanded", "true");
@@ -1113,12 +1114,12 @@ const turnHead = (at: string, who: string) => `<b class="th"><span class="tm">[$
 
 function attachStrip() {
   if (!refusals.length) {
-    return `<div id="attach-strip" class="strip"><i aria-hidden="true" class="ic big">&#xE896;</i>
+    return `<div id="attach-strip" class="strip">${ic("arrow_download", "big")}
       <div class="st"><b>Attach the transcript</b><span>Download the .vtt from this meeting's Teams recap and drop it here.</span></div>
       <button id="attach-choose" class="btn">Choose file</button></div>`;
   }
   const n = refusals.length;
-  return `<div id="attach-strip" class="strip err"><i aria-hidden="true" class="ic big">&#xE7BA;</i>
+  return `<div id="attach-strip" class="strip err">${ic("warning", "big")}
     <div class="st"><b>${n === 1 ? "The file wasn’t attached" : `${n} files weren’t attached`}</b>
     ${refusals
       .map((r) => {
@@ -1288,7 +1289,7 @@ function transcriptBody(t: Transcript | null, q: string) {
   // The corrections applied, one strip above the first turn; Show expands them, each with Add to glossary.
   const open = corrShown === selected;
   const fixes = t.corrections.length || t.rejected.length
-    ? `<div id="corrections" class="corr"><div class="cstrip"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="corr-line">${esc(corrLine(t.corrections, t.rejected.length))}</span><span class="sp"></span>` +
+    ? `<div id="corrections" class="corr"><div class="cstrip">${ic("book_letter")}<span id="corr-line">${esc(corrLine(t.corrections, t.rejected.length))}</span><span class="sp"></span>` +
       `<button class="lnk" id="corr-show" aria-expanded="${open}" aria-controls="corr-rows">${open ? "Hide" : "Show"}</button></div><div id="corr-rows"${open ? "" : " hidden"}>${t.corrections
         .map(
           (c, i) =>
@@ -1340,7 +1341,7 @@ async function renderDetail() {
   const meta = [when, t ? `${t.minutes} min transcript` : "", mark(m)].filter(Boolean).join(`<span class="sep">·</span>`);
   const people = peopleLine(m).map(esc).join(", ");
   const head = `<div class="ttlrow"><h2 id="detail-title" class="ttl">${esc(m.subject || m.id)}</h2>
-      <button id="detail-menu" class="kebab" title="More" aria-label="More actions"><i aria-hidden="true" class="ic">&#xE712;</i></button></div>
+      <button id="detail-menu" class="kebab" title="More" aria-label="More actions">${ic("more_horizontal")}</button></div>
     <div class="dmeta" id="detail-meta">${meta}</div>${people ? `<div class="att">${people}</div>` : ""}`;
 
   const sumStatus =
@@ -1531,8 +1532,8 @@ function drawGlossary() {
           i === editing
             ? editRow(e, "Save")
             : `<div class="qr"><div class="qm"><div class="qw">${pairHtml(e)}</div></div><div class="qa">` +
-              `<button class="lnk q" id="entry-edit-${i}" data-edit="${i}"><i aria-hidden="true" class="ic">&#xE70F;</i>Edit</button>` +
-              `<button class="lnk" id="entry-remove-${i}" data-remove="${i}"><i aria-hidden="true" class="ic">&#xE74D;</i>Remove</button></div></div>`,
+              `<button class="lnk q" id="entry-edit-${i}" data-edit="${i}">${ic("edit")}Edit</button>` +
+              `<button class="lnk" id="entry-remove-${i}" data-remove="${i}">${ic("delete")}Remove</button></div></div>`,
         )
         .join("") || (editing === "new" ? "" : `<div class="gempty">No glossary entries yet. Add a correction to review, or one of your own with Add entry.</div>`)
     }</div>`;

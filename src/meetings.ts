@@ -1,5 +1,7 @@
 // Meeting states, day groups and the row menu.
 
+import type { Icon } from "./icons";
+
 export type State =
   | "scheduled"
   | "inCall"
@@ -227,7 +229,7 @@ export function awaitingLine(m: Meeting, now: Date): string {
 export interface MenuItem {
   id: string;
   label: string;
-  icon: string;
+  icon: Icon;
   key?: string;
   bold?: boolean;
   danger?: boolean;
@@ -236,32 +238,32 @@ export interface MenuItem {
 
 /** The row menu, in order: Open, the fix for the meeting's state, then its other actions. */
 export function menuFor(m: Meeting): MenuItem[] {
-  const items: MenuItem[] = [{ id: "open", label: "Open", icon: "", key: "Enter" }];
-  if (needsTranscript(m.state)) items.push({ id: "import", label: "Import transcript", icon: "", bold: true });
+  const items: MenuItem[] = [{ id: "open", label: "Open", icon: "open", key: "Enter" }];
+  if (needsTranscript(m.state)) items.push({ id: "import", label: "Import transcript", icon: "arrow_download", bold: true });
   // Nothing that starts another run while one is going (a second run could finish first and be overwritten).
   const busy = m.state === "summarising";
-  if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "", bold: true });
-  else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "" });
-  if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "" });
+  if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "arrow_sync", bold: true });
+  else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "arrow_sync" });
+  if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "arrow_swap" });
   // Read the Teams transcript again (a part published after the capture): never alongside another fetch or run.
   if (m.hasTranscript && m.transcriptUrl && !busy && !m.fetching && m.state !== "skipped" && !m.excluded)
-    items.push({ id: "fetch-again", label: "Fetch again from Teams", icon: "" });
+    items.push({ id: "fetch-again", label: "Fetch again from Teams", icon: "arrow_download" });
   // A meeting from the calendar cache has no folder until it is captured.
   // Copy to the clipboard: summary.md as Markdown, or the summary's action items.
-  if (m.hasSummary) items.push({ id: "copy-summary", label: "Copy summary", icon: "" }, { id: "copy-actions", label: "Copy actions", icon: "" });
-  if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "" });
+  if (m.hasSummary) items.push({ id: "copy-summary", label: "Copy summary", icon: "copy" }, { id: "copy-actions", label: "Copy actions", icon: "copy" });
+  if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "folder_open" });
   const group: MenuItem[] = [];
   // Skip stops a capture, so only a meeting a fetch can still reach has it: not once fetching is over.
-  if (m.state !== "skipped" && !m.hasTranscript && !busy && !needsTranscript(m.state)) group.push({ id: "skip", label: "Skip", icon: "", key: "S" });
+  if (m.state !== "skipped" && !m.hasTranscript && !busy && !needsTranscript(m.state)) group.push({ id: "skip", label: "Skip", icon: "next", key: "S" });
   // A series is keyed by its join URL.
   if (m.joinUrl)
-    group.push(m.excluded ? { id: "include", label: "Include series", icon: "" } : { id: "exclude", label: "Exclude series", icon: "", key: "E" });
+    group.push(m.excluded ? { id: "include", label: "Include series", icon: "prohibited" } : { id: "exclude", label: "Exclude series", icon: "prohibited", key: "E" });
   // Delete moves the folder to the Recycle Bin; a calendar-cache meeting has none yet, and a running summary
   // would write into it.
-  if (m.source !== "calendar" && !busy) group.push({ id: "delete", label: "Delete", icon: "", key: "Del", danger: true });
+  if (m.source !== "calendar" && !busy) group.push({ id: "delete", label: "Delete", icon: "delete", key: "Del", danger: true });
   if (group.length) group[0].sep = true;
   items.push(...group);
-  if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "" });
+  if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "text_bullet_list" });
   return items;
 }
 

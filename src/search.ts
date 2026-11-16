@@ -1,4 +1,5 @@
 // Search hits in the list: snippet lines with the match marked in lavender.
+import type { Icon } from "./icons";
 import { esc } from "./summary";
 
 export type Tab = "summary" | "transcript" | "notes";
@@ -14,7 +15,7 @@ export interface Hit {
 }
 
 export type Field = "Title" | "Organiser" | "Attendees";
-export const FIELDS: Record<Field, string> = { Title: "&#xE8EC;", Organiser: "&#xE77B;", Attendees: "&#xE716;" };
+export const FIELDS: Record<Field, Icon> = { Title: "tag", Organiser: "person", Attendees: "people" };
 
 /** Title and people hits, from what the list already holds, ahead of the file hits: one per field that holds `q`
  * (ignoring case, as the backend does), the matching attendees joined. They open the meeting's Summary tab. */
@@ -32,10 +33,10 @@ export interface Part {
   was: string | null;
 }
 
-export const TABS: Record<Tab, { name: string; icon: string }> = {
-  summary: { name: "Summary", icon: "&#xE8FD;" },
-  transcript: { name: "Transcript", icon: "&#xE8BD;" },
-  notes: { name: "My notes", icon: "&#xE70F;" },
+export const TABS: Record<Tab, { name: string; icon: Icon }> = {
+  summary: { name: "Summary", icon: "text_bullet_list" },
+  transcript: { name: "Transcript", icon: "chat" },
+  notes: { name: "My notes", icon: "edit" },
 };
 
 /** Every match of `q`, ignoring case, as the backend matched it. */
