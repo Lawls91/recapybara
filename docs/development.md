@@ -198,9 +198,10 @@ makes a GitHub Release (which creates the tag) with all of them, their `.sig` fi
 both platforms (`windows-x86_64`, `darwin-aarch64`). The notes
 are the release's body and latest.json's `notes`, which What's new shows.
 
-A **dry run** (`gh workflow run Release --ref <branch> -f dry_run=true`, from any branch) builds and signs both
-platforms and writes `latest.json` but publishes nothing: no tag, no release. The packages and `latest.json` are the
-run's `dry-run` artifact. Do one after changing the release workflow, since its first real run is a real release.
+A **dry run** (`gh workflow run Release --ref <branch> -f dry_run=true`, from any branch) builds both platforms,
+signs them with a throwaway key made in the run (never the real one, which signs only real releases from `main`) and
+writes `latest.json`, but publishes nothing: no tag, no release. The packages and `latest.json` are the run's `dry-run`
+artifact (7 days). Do one after changing the release workflow, since its first real run is a real release.
 A failed macOS build stops the Windows release too: one `latest.json` names both, so both ship or neither does.
 
 Pull requests never run the release workflow, so they never see the secrets. Tests use a throwaway key made at run

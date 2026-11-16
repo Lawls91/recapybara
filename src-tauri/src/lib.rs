@@ -888,7 +888,7 @@ fn build_tray(app: &AppHandle, logon: bool) -> tauri::Result<(CheckMenuItem<Wry>
     let menu = Menu::with_items(app, &[&open, &settings, &refresh, &logon_item, &updates, &quit])?;
     // macOS: a template image (alpha only), which the menu bar tints for light and dark like every item up there.
     #[cfg(target_os = "macos")]
-    let (icon, template) = (tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?, true);
+    let (icon, template) = (tauri::include_image!("icons/tray-template.png"), true); // decoded at compile time
     #[cfg(not(target_os = "macos"))]
     let (icon, template) = (app.default_window_icon().unwrap().clone(), false);
     TrayIconBuilder::with_id("main")

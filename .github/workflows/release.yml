@@ -35,7 +35,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      # A dry run may start from any branch (gh workflow run Release --ref <branch> -f dry_run=true): it publishes nothing.
+      # A dry run may start from any branch (gh workflow run Release --ref <branch> -f dry_run=true): it publishes nothing
+      # and signs with a throwaway key.
       - name: Only from main
         if: github.ref != 'refs/heads/main' && !inputs.dry_run
         run: |
@@ -123,10 +124,19 @@ jobs:
           }
           "unpacked $($exe.FullName), SHA256 $got, as built"
 
+      # A dry run never touches the real updater key: it signs with a throwaway one made here, so only a real release
+      # from main is ever signed with it (and a dry run's packages, verifying against no installed app, are inert).
+      - name: Throwaway key (dry run)
+        if: inputs.dry_run
+        run: |
+          npx tauri signer generate --ci -w "$env:RUNNER_TEMP/dry-run.key" -f | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          "DRY_RUN_KEY=$(Get-Content -Raw "$env:RUNNER_TEMP/dry-run.key")".Trim() >> $env:GITHUB_ENV
+
       - name: Sign the MSI
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.dry_run && env.DRY_RUN_KEY || secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ !inputs.dry_run && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           New-Item -ItemType Directory -Force out/release | Out-Null
           Copy-Item '${{ steps.release.outputs.msi }}' 'out/release/${{ steps.release.outputs.asset }}'
@@ -139,6 +149,7 @@ jobs:
         with:
           name: release-windows
           path: out/release/
+          retention-days: 1 # only for this run's publish job
 
   macos:
     needs: prepare
@@ -191,10 +202,17 @@ jobs:
           cp target/release/bundle/dmg/*.dmg 'out/release/${{ steps.release.outputs.dmg }}'
           ls -l out/release
 
+      # As on Windows: a dry run signs with a throwaway key, never the real one.
+      - name: Throwaway key (dry run)
+        if: inputs.dry_run
+        run: |
+          npx tauri signer generate --ci -w "$RUNNER_TEMP/dry-run.key" -f > /dev/null
+          echo "DRY_RUN_KEY=$(cat "$RUNNER_TEMP/dry-run.key")" >> "$GITHUB_ENV"
+
       - name: Sign the update package
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.dry_run && env.DRY_RUN_KEY || secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ !inputs.dry_run && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         # Bound to the version, as the MSI's is (requireSignedVersion).
         run: npx tauri signer sign --app-version '${{ steps.release.outputs.version }}' 'out/release/${{ steps.release.outputs.macUpdate }}'
 
@@ -202,6 +220,7 @@ jobs:
         with:
           name: release-macos
           path: out/release/
+          retention-days: 1 # only for this run's publish job
 
   publish:
     needs: [prepare, windows, macos]
@@ -241,7 +260,8 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: dry-run
-          path: out/release/
+          path: out/release/ # signed with the run's throwaway key: installable by hand, never by the updater
+          retention-days: 7
 
       # Makes the tag vX.Y.Z on this commit, and the release, marked latest so the app's updater finds it.
       - name: GitHub Release
