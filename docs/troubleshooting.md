@@ -10,7 +10,8 @@ Refresh calendar." Fix it, then press the Refresh calendar arrow. The list keeps
 or add it to PATH, then restart the app (or press Try again on the meeting).
 
 **A meeting is No transcript.** Teams had no transcript for it after every check, usually because transcription was
-off. If you know there is one, press **Try again**, or download the `.vtt` from the meeting's Teams recap and
+off. If the card says "Transcription wasn't on", the meeting chat showed the call end without transcription
+starting, so no check ran. If you know there is one, press **Try again**, or download the `.vtt` from the meeting's Teams recap and
 [import it](importing.md#attach-a-transcript-to-a-meeting).
 
 **A meeting is Not reachable.** Microsoft refused access (403). This happens when you are not the organiser, or the

@@ -61,7 +61,7 @@ Each row shows a coloured dot and a state:
 | **Summarising** | Claude is writing the summary. | Summary ready or Summary failed. |
 | **Summary ready** | The summary is written and its citations checked. | Nothing: it's done. A notification says "Summary ready: 2 decisions, 3 actions." |
 | **Summary failed** | Claude returned no valid summary (the card says why). | Press **Re-run summary** (or **Run summary**). |
-| **No transcript** | Teams had no transcript after every check (transcription may have been off). | Nothing more on its own. Try again, or import the transcript. |
+| **No transcript** | Teams had no transcript after every check (transcription may have been off), or the meeting's chat showed the call end without transcription ever starting. That card reads "Transcription wasn't on: the meeting chat shows the call ended without it starting." | Nothing more on its own. Try again, or import the transcript. |
 | **Didn't happen** | The meeting's chat showed no call by 30 minutes after the scheduled end. Its card reads "The call never started, so there's nothing to capture." Listed under Skipped, with a grey dot. | Nothing more on its own. If the meeting did happen, Try again, or import the transcript. |
 | **Not reachable** | Microsoft refused access to the transcript (403: you are not the organiser, or the organiser restricted downloads). | Nothing more on its own. Try again, or import the transcript. |
 | **Capture failed** | Every attempt failed, or Teams sent something that isn't a transcript. The card gives the last reason in plain words. | Nothing more on its own. Try again, or import the transcript. |
@@ -77,6 +77,8 @@ ended**. Then:
 - still nothing after the last check: **No transcript**;
 - the meeting's chat (see below) shows no call by 30 minutes after the scheduled end: **Didn't happen** at once,
   with no more checks;
+- the meeting's chat shows the call ended without transcription ever starting: **No transcript** at once, with no
+  attempts;
 - still failing after the last check: **Capture failed**;
 - a 403 (access refused): **Not reachable** at once, with no more attempts;
 - Teams sends a size-limit notice or something else that isn't a transcript: **Capture failed** at once, with a
@@ -121,6 +123,10 @@ It uses only those system events.
   retries count from the real end. A call that runs over its scheduled end is fetched once its end is seen, the
   retries again counting from the real end. If the chat checks stop (two failed reads) or the call is still on 2 hours
   after the scheduled end, the meeting goes back to its usual schedule.
+- **No transcription, no wait**: when the call ends and transcription never started, the meeting is No transcript at
+  once and no fetch runs. Only when the chat was read from the call's start to its end with no gap over 6 minutes and
+  only one call started; otherwise (the app was asleep, reads failed, everyone left and rejoined) it fetches as above,
+  in case a transcript event was missed.
 
 **Privacy.** The ordinary chat messages are passed over unread: their text is never parsed, stored, logged or
 summarised. The app keeps only three times (call started, transcription started, call ended) in the meeting's

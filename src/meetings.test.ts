@@ -169,6 +169,11 @@ test("a meeting with a summary offers Copy summary and Copy actions; one without
 test("each capture failure's card says why: its state's reason, and Capture failed the recorded attempt's", () => {
   const failed = (state: Meeting["state"], fetchError?: string) => failureReason({ ...meeting(state), hasTranscript: false, hasSummary: false, fetchError });
   expect(failed("noTranscript")).toBe("Teams had no transcript for this meeting (transcription may have been off).");
+  const call = { startedAt: "2026-11-09T10:00:00Z", endedAt: "2026-11-09T10:20:00Z" };
+  const noTranscript = (chat: Meeting["chat"]) => failureReason({ ...meeting("noTranscript"), hasTranscript: false, hasSummary: false, chat });
+  expect(noTranscript(call)).toBe("Transcription wasn't on: the meeting chat shows the call ended without it starting.");
+  expect(noTranscript({ ...call, transcriptStartedAt: "2026-11-09T10:01:00Z" })).toBe("Teams had no transcript for this meeting (transcription may have been off).");
+  expect(noTranscript({ startedAt: call.startedAt })).toBe("Teams had no transcript for this meeting (transcription may have been off).");
   expect(failed("didNotHappen")).toBe("The call never started, so there's nothing to capture.");
   expect(failed("notReachable")).toBe("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
   expect(failed("captureFailed", "Teams sent a size-limit notice instead of the transcript.")).toBe("Teams sent a size-limit notice instead of the transcript.");

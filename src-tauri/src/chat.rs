@@ -25,6 +25,8 @@ pub const OVERRUN: Duration = Duration::hours(2);
 pub const FAILURES: u32 = 2;
 /// A started call with no transcription-started event this long after its start: transcription is off.
 pub const NUDGE_AFTER: Duration = Duration::minutes(5);
+/// Good reads no further apart than this: an event can't have scrolled off the latest page between them unseen.
+const GAP: Duration = Duration::minutes(6);
 /// A recurring meeting shares one chat: only events from this long before the scheduled start ...
 const EARLY: Duration = Duration::minutes(15);
 /// ... to this long after the scheduled end belong to this occurrence.
@@ -42,6 +44,10 @@ pub struct Chat {
     pub started_at: Option<DateTime<Utc>>,
     pub transcript_started_at: Option<DateTime<Utc>>,
     pub ended_at: Option<DateTime<Utc>>,
+    /// More than one call started in this occurrence's window (everyone left and rejoined): a transcript may sit with
+    /// an earlier call. Not kept in `meeting.json`.
+    #[serde(skip)]
+    pub restarted: bool,
 }
 
 impl Chat {
@@ -51,6 +57,7 @@ impl Chat {
             started_at: newer.started_at.or(self.started_at),
             transcript_started_at: newer.transcript_started_at.or(self.transcript_started_at),
             ended_at: newer.ended_at.or(self.ended_at),
+            restarted: self.restarted || newer.restarted,
         }
     }
 
@@ -182,6 +189,7 @@ pub fn parse(captured: &[Value], uri: &str, start: DateTime<Utc>, end: DateTime<
         started_at: started.map(|s| s.at),
         transcript_started_at: of(Kind::Transcript).filter(call).map(|s| s.at).min(),
         ended_at: of(Kind::Ended).filter(call).map(|s| s.at).max(),
+        restarted: of(Kind::Started).count() > 1,
     })
 }
 
@@ -207,6 +215,8 @@ struct Watch {
     chat: Chat,
     /// The last read that worked: what `chat` was last confirmed at.
     read_at: Option<DateTime<Utc>>,
+    /// When the current run of good reads, none more than `GAP` apart, began.
+    since: Option<DateTime<Utc>>,
     next: Option<DateTime<Utc>>,
     failures: u32,
     nudged: bool,
@@ -216,6 +226,16 @@ impl Watch {
     /// Its reads stopped after `FAILURES`: the meeting is back on its scheduled behaviour.
     fn stopped(&self) -> bool {
         self.failures >= FAILURES
+    }
+
+    /// Its reads ran unbroken from the call's start (or before) to now, so the chat has every event of the call.
+    fn covered(&self) -> bool {
+        !self.stopped() && self.chat.started_at.zip(self.since).is_some_and(|(start, since)| since <= start + GAP)
+    }
+
+    /// The call ended, one call only, every event seen, and transcription never started: no transcript to wait for.
+    fn untranscribed(&self) -> bool {
+        self.covered() && !self.chat.restarted && self.chat.ended_at.is_some() && self.chat.transcript_started_at.is_none()
     }
 
     /// Transcription off as the last read found it, while still read.
@@ -316,13 +336,13 @@ pub fn tick(chats: &Chats, lib: &Path, events: &[Event], excluded: &[String], no
         run(&run_for(uri)).map_err(|err| err.to_string()).and_then(|o| parse(&o.captured, uri, e.start, e.end))
     });
     let mut news = vec![];
-    let mut changed = |e: &Event, chat: Chat, nudge: bool| {
+    let mut changed = |e: &Event, chat: Chat, untranscribed: bool| {
         let ended = chat.ended_at.is_some();
-        let id = crate::fetch::note_chat(lib, e, chat, ended, now).unwrap_or_else(|| e.uri.clone());
-        news.push(News { event: e.clone(), id, chat, nudge });
+        let id = crate::fetch::note_chat(lib, e, chat, ended, untranscribed, now).unwrap_or_else(|| e.uri.clone());
+        news.push(News { event: e.clone(), id, chat, nudge: false });
     };
     for ((e, _), got) in due.iter().zip(read) {
-        let (before, after) = {
+        let (before, after, untranscribed) = {
             let mut w = chats.lock();
             let x = w.get_mut(&e.id).expect("watched above");
             x.next = Some(now + EVERY);
@@ -330,6 +350,9 @@ pub fn tick(chats: &Chats, lib: &Path, events: &[Event], excluded: &[String], no
             match got {
                 Ok(c) => {
                     x.chat = x.chat.merge(c);
+                    if x.read_at.is_none_or(|r| now - r > GAP) {
+                        x.since = Some(now);
+                    }
                     x.read_at = Some(now);
                 }
                 Err(why) => {
@@ -338,10 +361,10 @@ pub fn tick(chats: &Chats, lib: &Path, events: &[Event], excluded: &[String], no
                     eprintln!("chat: {} check {} failed: {why}{stop}", e.subject, x.failures);
                 }
             }
-            (before, x.chat)
+            (before, x.chat, x.untranscribed())
         };
         if after != before {
-            changed(e, after, false);
+            changed(e, after, untranscribed);
         }
     }
     // No call by `UNTIL` past the end, still read: Didn't happen. Only a good read at or after the scheduled end counts
@@ -444,6 +467,7 @@ mod tests {
                 started_at: Some(t("2026-11-09T10:01:00Z")),
                 transcript_started_at: Some(t("2026-11-09T10:01:30Z")),
                 ended_at: Some(t("2026-11-09T10:20:00Z")),
+                restarted: false,
             })
         );
     }
@@ -464,7 +488,8 @@ mod tests {
             system("2026-11-09T10:08:00Z", "callEnded", "c-one"),
             system("2026-11-09T09:50:00Z", "callStarted", "c-one"),
         ])]);
-        assert_eq!(got.map(|c| (c.started_at, c.ended_at)), Ok((Some(t("2026-11-09T10:10:00Z")), None)));
+        // Two calls in the window: restarted, as a transcript may sit with the first.
+        assert_eq!(got.map(|c| (c.started_at, c.ended_at, c.restarted)), Ok((Some(t("2026-11-09T10:10:00Z")), None, true)));
         // From 15 minutes before the start to 2 hours after the end.
         let edge = of(&[page(vec![system("2026-11-09T12:30:00Z", "callEnded", "x"), system("2026-11-09T09:45:00Z", "callStarted", "x")])]).unwrap();
         assert_eq!((edge.started_at, edge.ended_at), (Some(t("2026-11-09T09:45:00Z")), Some(t("2026-11-09T12:30:00Z"))));
@@ -737,10 +762,10 @@ mod tests {
     }
 
     /// Minute by minute from -10 to 200, the chat ticks then the fetch ticks (held while the chat has the call live), as
-    /// the scheduler runs them, except while `asleep`; the call starts at 10:00 if `started` and ends at minute `ended`
-    /// (if ever), chat reads fail from minute `fail_from`, the transcript list stays empty. Returns the minutes each
-    /// fetch ran, and the meeting at the end.
-    fn fetches(name: &str, started: bool, ended: Option<i64>, fail_from: i64, asleep: std::ops::Range<i64>) -> (Vec<i64>, library::Meeting) {
+    /// the scheduler runs them, except while `asleep`; the call starts at 10:00 if `started` (transcription with it if
+    /// `transcribed`) and ends at minute `ended` (if ever), chat reads fail from minute `fail_from`, the transcript list
+    /// stays empty. Returns the minutes each fetch ran, and the meeting at the end.
+    fn fetches(name: &str, started: bool, transcribed: bool, ended: Option<i64>, fail_from: i64, asleep: std::ops::Range<i64>) -> (Vec<i64>, library::Meeting) {
         let (lib, chats) = (temp(name), Chats::default());
         let (minute, fetches) = (Mutex::new(0), Mutex::new(vec![]));
         let e = event(1);
@@ -751,6 +776,9 @@ mod tests {
                     return Err(io::Error::other("synthetic"));
                 }
                 let mut msgs = if started { vec![system(&at(0), "callStarted", "c")] } else { vec![] };
+                if started && transcribed {
+                    msgs.push(system(&at(0), "callTranscript", "c"));
+                }
                 if let Some(e) = ended.filter(|e| m >= *e) {
                     msgs.push(system(&at(e), "callEnded", "c"));
                 }
@@ -771,7 +799,7 @@ mod tests {
     }
 
     fn fetches_when_the_call_ends_at(name: &str, ended: i64) -> Vec<i64> {
-        let (got, m) = fetches(name, true, Some(ended), i64::MAX, 0..0);
+        let (got, m) = fetches(name, true, true, Some(ended), i64::MAX, 0..0);
         assert_eq!((m.state, m.chat.and_then(|c| c.ended_at), m.fetch_error), (State::NoTranscript, Some(start() + Duration::minutes(ended)), None), "{name}");
         got
     }
@@ -786,16 +814,51 @@ mod tests {
     }
 
     #[test]
+    fn a_call_that_ended_with_transcription_never_on_is_no_transcript_at_once_with_no_attempts() {
+        // Read every 3 minutes from 09:55, never more than 6 minutes apart: the 10:22 read sees the 10:20 end, no
+        // transcription and one call, so No transcript then; the 10:22 attempt and the retries never run.
+        let (got, m) = fetches("untranscribed", true, false, Some(20), i64::MAX, 0..0);
+        assert_eq!((got, m.state, m.next_attempt, m.chat.and_then(|c| c.transcript_started_at)), (vec![], State::NoTranscript, None, None));
+    }
+
+    #[test]
+    fn an_untranscribed_call_whose_reads_had_a_gap_or_that_restarted_keeps_its_schedule() {
+        // Asleep 10:05 to 10:15: an event may have scrolled off unseen, so the 10:21 read of the 10:20 end makes it due as
+        // before, the retries counting from 10:20.
+        let (got, m) = fetches("untranscribed-gap", true, false, Some(20), i64::MAX, 5..15);
+        assert_eq!((got, m.state), (vec![21, 22, 30, 50, 140], State::NoTranscript));
+        // Reads fail at 10:10 and 10:13: stopped, so the scheduled end's slots run.
+        let (got, _) = fetches("untranscribed-stopped", true, false, Some(20), 10, 0..0);
+        assert_eq!(got, [30, 32, 40, 60, 150]);
+        // Two calls started in the window: a transcript may be with the first, so the end makes it due as before.
+        let (lib, chats) = (temp("untranscribed-restart"), Chats::default());
+        let (log, minute) = (Mutex::new(vec![]), Mutex::new(0));
+        let run = chat_runner(&log, &minute, |_, m| {
+            let mut msgs = vec![system(&at(-1), "callStarted", "a"), system(&at(0), "callStarted", "b")];
+            if m >= 20 {
+                msgs.push(system(&at(20), "callEnded", "b"));
+            }
+            Some(msgs)
+        });
+        for m in -5..=22 {
+            *minute.lock().unwrap() = m;
+            tick(&chats, &lib, &[event(1)], &[], start() + Duration::minutes(m), &run);
+        }
+        let m = library::list(&lib).remove(0).meeting;
+        assert_eq!((m.state, m.next_attempt.is_some()), (State::AwaitingTranscript, true));
+    }
+
+    #[test]
     fn a_call_running_over_whose_chat_reads_stop_goes_back_to_its_schedule() {
         // Reads fail at 10:31 and 10:34: stopped, so the attempt due since 10:30 runs at 10:34, then the slots left.
-        let (got, m) = fetches("over-stopped", true, None, 31, 0..0);
+        let (got, m) = fetches("over-stopped", true, true, None, 31, 0..0);
         assert_eq!((got, m.state), (vec![34, 40, 60, 150], State::NoTranscript));
     }
 
     #[test]
     fn a_call_never_seen_to_end_is_held_only_until_2_hours_past_the_scheduled_end() {
         // 10:30 + 2 h is minute 150: held through it, then the attempt due runs, the last slot, so No transcript.
-        let (got, m) = fetches("over-never-ends", true, None, i64::MAX, 0..0);
+        let (got, m) = fetches("over-never-ends", true, true, None, i64::MAX, 0..0);
         assert_eq!((got, m.state), (vec![151], State::NoTranscript));
     }
 
@@ -803,18 +866,18 @@ mod tests {
     fn a_call_that_never_started_did_not_happen_once_30_minutes_past_the_end_with_no_more_attempts() {
         // Reads every 3 minutes to 10:58 find no call: the attempts at 10:30, 10:32 and 10:40 run, then at 11:00 it is
         // Didn't happen; the 11:00 and 12:30 attempts never run.
-        let (got, m) = fetches("no-call", false, None, i64::MAX, 0..0);
+        let (got, m) = fetches("no-call", false, false, None, i64::MAX, 0..0);
         assert_eq!((got, m.state, m.next_attempt, m.fetch_error), (vec![30, 32, 40], State::DidNotHappen, None, None));
     }
 
     #[test]
     fn a_call_not_seen_to_start_keeps_its_schedule_when_the_reads_stopped_or_came_only_before_the_start() {
         // Good reads to 10:37, then the 10:40 and 10:43 reads fail: stopped, so the schedule runs out as before.
-        let (got, m) = fetches("no-call-stopped", false, None, 40, 0..0);
+        let (got, m) = fetches("no-call-stopped", false, false, None, 40, 0..0);
         assert_eq!((got, m.state, m.fetch_error), (vec![30, 32, 40, 60, 150], State::NoTranscript, None));
         // Read at 09:55 and 09:58, then asleep until 11:10: nothing read the call window, so the catch-up attempt and
         // the last slot run.
-        let (got, m) = fetches("no-call-asleep", false, None, i64::MAX, 0..70);
+        let (got, m) = fetches("no-call-asleep", false, false, None, i64::MAX, 0..70);
         assert_eq!((got, m.state, m.fetch_error), (vec![70, 150], State::NoTranscript, None));
     }
 
@@ -912,7 +975,7 @@ mod tests {
         let e = event(1);
         let id = crate::fetch::skip(&lib, &e.uri, std::slice::from_ref(&e), start()).unwrap();
         let ended = Chat { started_at: Some(start()), ended_at: Some(start() + Duration::minutes(20)), ..Chat::default() };
-        assert_eq!(crate::fetch::note_chat(&lib, &e, ended, true, start() + Duration::minutes(21)).as_deref(), Some(id.as_str()));
+        assert_eq!(crate::fetch::note_chat(&lib, &e, ended, true, false, start() + Duration::minutes(21)).as_deref(), Some(id.as_str()));
         let m = library::load(&lib.join(&id)).unwrap();
         assert_eq!((m.state, m.skipped, m.next_attempt), (State::Skipped, true, None));
     }
