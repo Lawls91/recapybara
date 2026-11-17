@@ -44,6 +44,8 @@ export interface Meeting {
   transcriptUrl?: string | null;
   /** In progress, and the meeting chat shows no transcription 5 minutes after the call started. */
   transcriptionOff?: boolean;
+  /** What the meeting chat showed of the call: when it started, transcription started and it ended. */
+  chat?: { startedAt?: string | null; transcriptStartedAt?: string | null; endedAt?: string | null } | null;
 }
 
 /** Dot family and label for each state. */
@@ -138,7 +140,10 @@ export const needsTranscript = (s: State) => s === "noTranscript" || s === "didN
 /** Why a meeting with no transcript has none, for its card: the state's own reason, and Capture failed's from the
  * recorded attempt. The card's actions are Try again and Import transcript. */
 export function failureReason(m: Meeting): string {
-  if (m.state === "noTranscript") return "Teams had no transcript for this meeting (transcription may have been off).";
+  if (m.state === "noTranscript")
+    return m.chat?.startedAt && m.chat.endedAt && !m.chat.transcriptStartedAt
+      ? "Transcription wasn't on: the meeting chat shows the call ended without it starting."
+      : "Teams had no transcript for this meeting (transcription may have been off).";
   if (m.state === "didNotHappen") return "The call never started, so there's nothing to capture.";
   if (m.state === "notReachable")
     return "Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).";

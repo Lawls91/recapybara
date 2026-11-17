@@ -275,22 +275,25 @@ pub(crate) fn folder_for(e: &Event, now: DateTime<Utc>) -> Meeting {
 
 /// A chat check's news for event `e` (chat::tick): the chat goes in its folder's `meeting.json`. `ended`: the call has
 /// ended, so a meeting waiting on its schedule is due for an attempt now (the first, early, or one extra), and one with
-/// no folder yet gets it, due now, as at its end. Under the event's claim; while a fetch has the meeting, nothing is
-/// written. Returns the folder id, if any.
+/// no folder yet gets it, due now, as at its end. `untranscribed` too (chat::Watch::untranscribed): transcription
+/// never started, so instead it is No transcript at once, no attempt run. Under the event's claim; while a fetch has
+/// the meeting, nothing is written. Returns the folder id, if any.
 // ponytail: an ended event seen while a fetch has the meeting adds no attempt; that fetch is the early one.
-pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, now: DateTime<Utc>) -> Option<String> {
+pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, untranscribed: bool, now: DateTime<Utc>) -> Option<String> {
     let known = || library::list(lib).into_iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str()));
+    let (state, next_attempt) = if untranscribed { (State::NoTranscript, None) } else { (State::AwaitingTranscript, Some(now.with_timezone(&Local).fixed_offset())) };
     let _one = claim(lib, &e.id)?;
     let Some(l) = known() else {
-        return ended.then(|| library::create(lib, &Meeting { chat: Some(chat), ..folder_for(e, now) }).map_err(|err| eprintln!("chat: no folder for {}: {err}", e.subject)).ok()).flatten();
+        let m = Meeting { chat: Some(chat), state, next_attempt, ..folder_for(e, now) };
+        return ended.then(|| library::create(lib, &m).map_err(|err| eprintln!("chat: no folder for {}: {err}", e.subject)).ok()).flatten();
     };
     let dir = lib.join(&l.id);
     let _note = noting();
     let mut m = library::load(&dir).ok()?;
     m.chat = Some(chat);
     if ended && matches!(m.state, State::Scheduled | State::AwaitingTranscript) && !m.skipped && !dir.join(library::VTT).exists() {
-        m.state = State::AwaitingTranscript;
-        m.next_attempt = Some(now.with_timezone(&Local).fixed_offset());
+        m.state = state;
+        m.next_attempt = next_attempt;
     }
     if let Err(err) = library::save(&dir, &m) {
         eprintln!("chat: {} not updated: {err}", l.id);
