@@ -1,0 +1,117 @@
+/* One rule per icon in icons.ts: the SVG is the mask, so the icon is drawn in currentColor. */
+.ic[data-i="add"] {
+  -webkit-mask-image: url("./icons/add.svg");
+  mask-image: url("./icons/add.svg");
+}
+.ic[data-i="arrow_clockwise"] {
+  -webkit-mask-image: url("./icons/arrow_clockwise.svg");
+  mask-image: url("./icons/arrow_clockwise.svg");
+}
+.ic[data-i="arrow_download"] {
+  -webkit-mask-image: url("./icons/arrow_download.svg");
+  mask-image: url("./icons/arrow_download.svg");
+}
+.ic[data-i="arrow_left"] {
+  -webkit-mask-image: url("./icons/arrow_left.svg");
+  mask-image: url("./icons/arrow_left.svg");
+}
+.ic[data-i="arrow_swap"] {
+  -webkit-mask-image: url("./icons/arrow_swap.svg");
+  mask-image: url("./icons/arrow_swap.svg");
+}
+.ic[data-i="book"] {
+  -webkit-mask-image: url("./icons/book.svg");
+  mask-image: url("./icons/book.svg");
+}
+.ic[data-i="calendar_ltr"] {
+  -webkit-mask-image: url("./icons/calendar_ltr.svg");
+  mask-image: url("./icons/calendar_ltr.svg");
+}
+.ic[data-i="chat"] {
+  -webkit-mask-image: url("./icons/chat.svg");
+  mask-image: url("./icons/chat.svg");
+}
+.ic[data-i="checkmark"] {
+  -webkit-mask-image: url("./icons/checkmark.svg");
+  mask-image: url("./icons/checkmark.svg");
+}
+.ic[data-i="chevron_right"] {
+  -webkit-mask-image: url("./icons/chevron_right.svg");
+  mask-image: url("./icons/chevron_right.svg");
+}
+.ic[data-i="copy"] {
+  -webkit-mask-image: url("./icons/copy.svg");
+  mask-image: url("./icons/copy.svg");
+}
+.ic[data-i="delete"] {
+  -webkit-mask-image: url("./icons/delete.svg");
+  mask-image: url("./icons/delete.svg");
+}
+.ic[data-i="dismiss"] {
+  -webkit-mask-image: url("./icons/dismiss.svg");
+  mask-image: url("./icons/dismiss.svg");
+}
+.ic[data-i="document"] {
+  -webkit-mask-image: url("./icons/document.svg");
+  mask-image: url("./icons/document.svg");
+}
+.ic[data-i="edit"] {
+  -webkit-mask-image: url("./icons/edit.svg");
+  mask-image: url("./icons/edit.svg");
+}
+.ic[data-i="folder_open"] {
+  -webkit-mask-image: url("./icons/folder_open.svg");
+  mask-image: url("./icons/folder_open.svg");
+}
+.ic[data-i="funnel"] {
+  -webkit-mask-image: url("./icons/funnel.svg");
+  mask-image: url("./icons/funnel.svg");
+}
+.ic[data-i="lock_closed"] {
+  -webkit-mask-image: url("./icons/lock_closed.svg");
+  mask-image: url("./icons/lock_closed.svg");
+}
+.ic[data-i="more_horizontal"] {
+  -webkit-mask-image: url("./icons/more_horizontal.svg");
+  mask-image: url("./icons/more_horizontal.svg");
+}
+.ic[data-i="next"] {
+  -webkit-mask-image: url("./icons/next.svg");
+  mask-image: url("./icons/next.svg");
+}
+.ic[data-i="open"] {
+  -webkit-mask-image: url("./icons/open.svg");
+  mask-image: url("./icons/open.svg");
+}
+.ic[data-i="people"] {
+  -webkit-mask-image: url("./icons/people.svg");
+  mask-image: url("./icons/people.svg");
+}
+.ic[data-i="person"] {
+  -webkit-mask-image: url("./icons/person.svg");
+  mask-image: url("./icons/person.svg");
+}
+.ic[data-i="person_prohibited"] {
+  -webkit-mask-image: url("./icons/person_prohibited.svg");
+  mask-image: url("./icons/person_prohibited.svg");
+}
+.ic[data-i="search"] {
+  -webkit-mask-image: url("./icons/search.svg");
+  mask-image: url("./icons/search.svg");
+}
+.ic[data-i="settings"] {
+  -webkit-mask-image: url("./icons/settings.svg");
+  mask-image: url("./icons/settings.svg");
+}
+.ic[data-i="tag"] {
+  -webkit-mask-image: url("./icons/tag.svg");
+  mask-image: url("./icons/tag.svg");
+}
+.ic[data-i="text_bullet_list"] {
+  -webkit-mask-image: url("./icons/text_bullet_list.svg");
+  mask-image: url("./icons/text_bullet_list.svg");
+}
+.ic[data-i="warning"] {
+  -webkit-mask-image: url("./icons/warning.svg");
+  mask-image: url("./icons/warning.svg");
+}

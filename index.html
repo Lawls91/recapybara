@@ -4,26 +4,27 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/tokens.css" />
     <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/icons.css" />
   </head>
   <body>
     <div id="list-view" class="frame">
       <aside class="col">
         <div class="colhd">
           <label class="search">
-            <i aria-hidden="true" class="ic">&#xE721;</i>
+            <i aria-hidden="true" class="ic" data-i="search"></i>
             <input id="search" placeholder="Search meetings" aria-label="Search meetings" />
-            <button id="search-clear" class="ib sm" title="Clear search" tabindex="-1" hidden><i aria-hidden="true" class="ic">&#xE711;</i></button>
+            <button id="search-clear" class="ib sm" title="Clear search" tabindex="-1" hidden><i aria-hidden="true" class="ic" data-i="dismiss"></i></button>
           </label>
-          <button id="filter-button" class="ib" title="Filter" aria-haspopup="menu" aria-expanded="false" aria-controls="filter-menu"><i aria-hidden="true" class="ic">&#xE71C;</i><span id="filter-badge" class="bdg" aria-hidden="true" hidden></span></button>
+          <button id="filter-button" class="ib" title="Filter" aria-haspopup="menu" aria-expanded="false" aria-controls="filter-menu"><i aria-hidden="true" class="ic" data-i="funnel"></i><span id="filter-badge" class="bdg" aria-hidden="true" hidden></span></button>
           <span id="dev-badge" class="devbadge" title="A dev instance: its state is apart from the installed copy's" hidden>DEV</span>
           <button id="update-pill" class="pill" aria-haspopup="dialog" hidden>Update</button>
-          <button id="import-button" class="ib" title="Import transcript" aria-haspopup="menu" aria-expanded="false" aria-controls="import-menu"><i aria-hidden="true" class="ic">&#xE896;</i></button>
-          <button id="glossary-button" class="ib" title="Glossary"><i aria-hidden="true" class="ic">&#xE82D;</i><span id="glossary-badge" class="bdg" aria-hidden="true" hidden></span></button>
-          <button id="settings-button" class="ib" title="Settings"><i aria-hidden="true" class="ic">&#xE713;</i></button>
+          <button id="import-button" class="ib" title="Import transcript" aria-haspopup="menu" aria-expanded="false" aria-controls="import-menu"><i aria-hidden="true" class="ic" data-i="arrow_download"></i></button>
+          <button id="glossary-button" class="ib" title="Glossary"><i aria-hidden="true" class="ic" data-i="book"></i><span id="glossary-badge" class="bdg" aria-hidden="true" hidden></span></button>
+          <button id="settings-button" class="ib" title="Settings"><i aria-hidden="true" class="ic" data-i="settings"></i></button>
         </div>
         <div class="status">
           <span id="calendar-status" role="status" aria-live="polite">Calendar not loaded</span>
-          <button id="refresh-button" class="ib sm" title="Refresh calendar"><i aria-hidden="true" class="ic">&#xE72C;</i></button>
+          <button id="refresh-button" class="ib sm" title="Refresh calendar"><i aria-hidden="true" class="ic" data-i="arrow_clockwise"></i></button>
         </div>
         <div id="banners" aria-live="polite">
           <div id="library-missing" class="import-error" hidden>
@@ -32,11 +33,11 @@
           </div>
           <p id="import-error" class="import-error" hidden>
             <span id="import-error-text"></span>
-            <button id="import-error-close" class="ib sm" title="Dismiss"><i aria-hidden="true" class="ic">&#xE711;</i></button>
+            <button id="import-error-close" class="ib sm" title="Dismiss"><i aria-hidden="true" class="ic" data-i="dismiss"></i></button>
           </p>
           <p id="import-report" class="import-error report" hidden>
             <span id="import-report-text"></span>
-            <button id="import-report-close" class="ib sm" title="Dismiss"><i aria-hidden="true" class="ic">&#xE711;</i></button>
+            <button id="import-report-close" class="ib sm" title="Dismiss"><i aria-hidden="true" class="ic" data-i="dismiss"></i></button>
           </p>
         </div>
         <div id="series-filter" class="sfilter" hidden></div>
@@ -50,9 +51,9 @@
     <div id="settings-view" class="frame settings" hidden>
       <div class="det">
         <div class="set">
-          <button id="settings-back" class="lnk"><i aria-hidden="true" class="ic">&#xE72B;</i> Meetings</button>
+          <button id="settings-back" class="lnk"><i aria-hidden="true" class="ic" data-i="arrow_left"></i> Meetings</button>
           <h1>Settings</h1>
-          <p class="banner" id="data-banner-row"><i aria-hidden="true" class="ic">&#xE72E;</i><span id="data-banner">Meeting data is stored in your library folder and sent only to Claude, through your own claude.ai account.</span></p>
+          <p class="banner" id="data-banner-row"><i aria-hidden="true" class="ic" data-i="lock_closed"></i><span id="data-banner">Meeting data is stored in your library folder and sent only to Claude, through your own claude.ai account.</span></p>
           <section>
             <h3>Library folder</h3>
             <p class="desc">Meetings are saved here as files.</p>
@@ -107,7 +108,7 @@
     <div id="glossary-view" class="frame settings" hidden>
       <div class="det">
         <div class="set gl">
-          <button id="glossary-back" class="lnk"><i aria-hidden="true" class="ic">&#xE72B;</i> Meetings</button>
+          <button id="glossary-back" class="lnk"><i aria-hidden="true" class="ic" data-i="arrow_left"></i> Meetings</button>
           <h1>Glossary</h1>
           <section>
             <div class="ghd">
@@ -120,7 +121,7 @@
           <section>
             <div class="ghd">
               <h3>Glossary</h3><span class="n" id="entry-count"></span><span class="sp"></span>
-              <button id="entry-add" class="lnk"><i aria-hidden="true" class="ic">&#xE710;</i>Add entry</button>
+              <button id="entry-add" class="lnk"><i aria-hidden="true" class="ic" data-i="add"></i>Add entry</button>
             </div>
             <p class="desc">glossary.md in your library. Every summary gets these.</p>
             <div id="entry-list" tabindex="-1"></div>
@@ -169,8 +170,8 @@
       <button class="btn" id="range-apply">Apply</button>
     </div>
     <div id="import-menu" class="menu" role="menu" aria-label="Import transcript" hidden>
-      <button class="mi" id="import-file" role="menuitem"><i aria-hidden="true" class="ic">&#xE8E5;</i><span>Transcript file…</span></button>
-      <button class="mi" id="import-teams" role="menuitem"><i aria-hidden="true" class="ic">&#xE787;</i><span>From Teams…</span></button>
+      <button class="mi" id="import-file" role="menuitem"><i aria-hidden="true" class="ic" data-i="document"></i><span>Transcript file…</span></button>
+      <button class="mi" id="import-teams" role="menuitem"><i aria-hidden="true" class="ic" data-i="calendar_ltr"></i><span>From Teams…</span></button>
     </div>
 
     <dialog id="teams" class="confirm teams" aria-labelledby="teams-title">

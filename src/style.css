@@ -27,13 +27,21 @@ button {
   outline: 2px solid var(--mc-focus);
   outline-offset: 2px;
 }
+/* An icon (icons.ts): an em square painted in the text colour through its SVG mask (icons.css), so font-size
+   sizes it and color colours it. The SVGs leave about a tenth of their 20px box empty on each side while a Segoe
+   glyph fills its em, so the mask is drawn at 125%: the icon matches the font's size and the box (and the layout)
+   stays 1em. */
 .ic {
-  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
   font-style: normal;
-  font-weight: normal;
   font-size: 14px;
   line-height: 1;
   display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  background-color: currentColor;
+  -webkit-mask: center / 125% no-repeat;
+  mask: center / 125% no-repeat;
 }
 /* thin overlay-style scrollbars: no arrow buttons, thumb shown while the pointer is over the pane */
 ::-webkit-scrollbar {
@@ -1358,10 +1366,13 @@ button.chip:hover {
 }
 .mi .ck {
   width: 14px;
-  font: 12px "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  height: 12px;
+  flex: none;
 }
-.mi[aria-checked="true"] .ck::before {
-  content: "\E73E";
+.mi[aria-checked="true"] .ck {
+  background-color: currentColor;
+  -webkit-mask: url("./icons/checkmark.svg") center / 15px no-repeat;
+  mask: url("./icons/checkmark.svg") center / 15px no-repeat;
 }
 .mi:disabled {
   color: var(--mc-dis);
