@@ -242,8 +242,8 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (needsTranscript(m.state)) items.push({ id: "import", label: "Import transcript", icon: "arrow_download", bold: true });
   // Nothing that starts another run while one is going (a second run could finish first and be overwritten).
   const busy = m.state === "summarising";
-  if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "arrow_sync", bold: true });
-  else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "arrow_sync" });
+  if (m.state === "summaryFailed") items.push({ id: "summarise", label: summaryAction(m), icon: "arrow_clockwise", bold: true });
+  else if (m.hasSummary && !busy) items.push({ id: "summarise", label: "Re-run summary", icon: "arrow_clockwise" });
   if (m.hasTranscript && !busy) items.push({ id: "replace", label: "Replace transcript…", icon: "arrow_swap" });
   // Read the Teams transcript again (a part published after the capture): never alongside another fetch or run.
   if (m.hasTranscript && m.transcriptUrl && !busy && !m.fetching && m.state !== "skipped" && !m.excluded)
@@ -257,7 +257,7 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (m.state !== "skipped" && !m.hasTranscript && !busy && !needsTranscript(m.state)) group.push({ id: "skip", label: "Skip", icon: "next", key: "S" });
   // A series is keyed by its join URL.
   if (m.joinUrl)
-    group.push(m.excluded ? { id: "include", label: "Include series", icon: "prohibited" } : { id: "exclude", label: "Exclude series", icon: "prohibited", key: "E" });
+    group.push(m.excluded ? { id: "include", label: "Include series", icon: "person_prohibited" } : { id: "exclude", label: "Exclude series", icon: "person_prohibited", key: "E" });
   // Delete moves the folder to the Recycle Bin; a calendar-cache meeting has none yet, and a running summary
   // would write into it.
   if (m.source !== "calendar" && !busy) group.push({ id: "delete", label: "Delete", icon: "delete", key: "Del", danger: true });

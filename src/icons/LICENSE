@@ -1,6 +1,7 @@
 The SVG files in this folder are the 20px regular icons from Fluent UI System Icons
 (https://github.com/microsoft/fluentui-system-icons, npm @fluentui/svg-icons 1.1.346), renamed without the
-_20_regular suffix and otherwise unchanged. They are used under this licence:
+_20_regular suffix and otherwise unchanged, except funnel.svg, which was drawn for Recapybara and is under the
+project's own licence. The Fluent icons are used under this licence:
 
 MIT License
 

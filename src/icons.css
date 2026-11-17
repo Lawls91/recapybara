@@ -3,6 +3,10 @@
   -webkit-mask-image: url("./icons/add.svg");
   mask-image: url("./icons/add.svg");
 }
+.ic[data-i="arrow_clockwise"] {
+  -webkit-mask-image: url("./icons/arrow_clockwise.svg");
+  mask-image: url("./icons/arrow_clockwise.svg");
+}
 .ic[data-i="arrow_download"] {
   -webkit-mask-image: url("./icons/arrow_download.svg");
   mask-image: url("./icons/arrow_download.svg");
@@ -15,13 +19,9 @@
   -webkit-mask-image: url("./icons/arrow_swap.svg");
   mask-image: url("./icons/arrow_swap.svg");
 }
-.ic[data-i="arrow_sync"] {
-  -webkit-mask-image: url("./icons/arrow_sync.svg");
-  mask-image: url("./icons/arrow_sync.svg");
-}
-.ic[data-i="book_letter"] {
-  -webkit-mask-image: url("./icons/book_letter.svg");
-  mask-image: url("./icons/book_letter.svg");
+.ic[data-i="book"] {
+  -webkit-mask-image: url("./icons/book.svg");
+  mask-image: url("./icons/book.svg");
 }
 .ic[data-i="calendar_ltr"] {
   -webkit-mask-image: url("./icons/calendar_ltr.svg");
@@ -59,13 +59,13 @@
   -webkit-mask-image: url("./icons/edit.svg");
   mask-image: url("./icons/edit.svg");
 }
-.ic[data-i="filter"] {
-  -webkit-mask-image: url("./icons/filter.svg");
-  mask-image: url("./icons/filter.svg");
-}
 .ic[data-i="folder_open"] {
   -webkit-mask-image: url("./icons/folder_open.svg");
   mask-image: url("./icons/folder_open.svg");
+}
+.ic[data-i="funnel"] {
+  -webkit-mask-image: url("./icons/funnel.svg");
+  mask-image: url("./icons/funnel.svg");
 }
 .ic[data-i="lock_closed"] {
   -webkit-mask-image: url("./icons/lock_closed.svg");
@@ -91,9 +91,9 @@
   -webkit-mask-image: url("./icons/person.svg");
   mask-image: url("./icons/person.svg");
 }
-.ic[data-i="prohibited"] {
-  -webkit-mask-image: url("./icons/prohibited.svg");
-  mask-image: url("./icons/prohibited.svg");
+.ic[data-i="person_prohibited"] {
+  -webkit-mask-image: url("./icons/person_prohibited.svg");
+  mask-image: url("./icons/person_prohibited.svg");
 }
 .ic[data-i="search"] {
   -webkit-mask-image: url("./icons/search.svg");

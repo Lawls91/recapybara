@@ -1289,7 +1289,7 @@ function transcriptBody(t: Transcript | null, q: string) {
   // The corrections applied, one strip above the first turn; Show expands them, each with Add to glossary.
   const open = corrShown === selected;
   const fixes = t.corrections.length || t.rejected.length
-    ? `<div id="corrections" class="corr"><div class="cstrip">${ic("book_letter")}<span id="corr-line">${esc(corrLine(t.corrections, t.rejected.length))}</span><span class="sp"></span>` +
+    ? `<div id="corrections" class="corr"><div class="cstrip">${ic("book")}<span id="corr-line">${esc(corrLine(t.corrections, t.rejected.length))}</span><span class="sp"></span>` +
       `<button class="lnk" id="corr-show" aria-expanded="${open}" aria-controls="corr-rows">${open ? "Hide" : "Show"}</button></div><div id="corr-rows"${open ? "" : " hidden"}>${t.corrections
         .map(
           (c, i) =>
