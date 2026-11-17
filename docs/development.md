@@ -230,7 +230,9 @@ ends.
 - **Summary** (the summary model): `glossary.md` on stdin (as a hint; old `never:` lines are left out), a JSON schema for the output (`--json-schema`), and only
   the Atlassian Jira reads (`getAccessibleAtlassianResources`, `getJiraIssue`, `searchJiraIssuesUsingJql`,
   `listJiraIssueComments`). A key counts as found when a clean Jira read's response names it as an issue `"key"`.
-- Refresh, search and fetch runs set `ENABLE_TOOL_SEARCH=false` (one turn fewer). `claude --version` runs once per app
+- Refresh, search and fetch runs set `ENABLE_TOOL_SEARCH=false` (one turn fewer). Every run that uses claude.ai
+  connector tools (refresh, search, fetch, chat, summary) sets `MCP_CONNECTION_NONBLOCKING=false`: otherwise
+  `claude -p` sends its first request before the connectors connect, and the run has no Microsoft 365 or Jira tools. `claude --version` runs once per app
   session.
 
 ## Library format
