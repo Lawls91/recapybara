@@ -215,10 +215,11 @@ capture hook (per-run `--settings`, PostToolUse and PostToolUseFailure), never f
 writes each raw payload to its own file under `runs\hooks-<pid>-<n>\`, which the app reads and deletes when the run
 ends.
 
-- **Calendar refresh** (haiku; `outlook_calendar_search` and `read_resource` only): follows the captured search pages,
-  keeps events with `onlineMeeting.joinUrl` from 2 hours ago to the end of the next working day, and lists cached
-  events in the prompt so unchanged ones aren't read again. Events not read, or whose read failed, get one follow-up
-  run. Only UTC times or times with an offset convert. The cache is in memory only.
+- **Calendar refresh** (haiku, `MAX_MCP_OUTPUT_TOKENS=200000`; `outlook_calendar_search` and `read_resource` only):
+  follows the captured search pages, keeps events with `onlineMeeting.joinUrl` from 2 hours ago to the end of the
+  next working day, and lists cached events in the prompt so unchanged ones aren't read again. Events not read, or
+  whose read failed, get one follow-up run. Only UTC times or times with an offset convert. The cache is in memory
+  only. A search page Claude Code still saves to a file as too big fails the refresh with its own message.
 - **Fetch** (haiku, `MAX_MCP_OUTPUT_TOKENS=200000`): only a captured `read_resource` of exactly the event's
   `meetingTranscriptUrl` counts. The capture must be `{meeting, transcripts[]}`; transcripts created from 30 minutes
   before the start to the end are kept, each must be VTT with a cue. Several parts are saved as

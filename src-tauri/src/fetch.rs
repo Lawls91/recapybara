@@ -87,7 +87,7 @@ pub fn run_for(url: &str) -> ClaudeRun {
         allowed_tools: TOOLS,
         capture: &[READ],
         args: vec![],
-        env: &[("MAX_MCP_OUTPUT_TOKENS", "200000"), crate::calendar::NO_TOOL_SEARCH, crate::calendar::WAIT_FOR_CONNECTORS],
+        env: &[crate::calendar::BIG_RESULTS, crate::calendar::NO_TOOL_SEARCH, crate::calendar::WAIT_FOR_CONNECTORS],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }

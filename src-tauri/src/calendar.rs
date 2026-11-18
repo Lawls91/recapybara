@@ -73,6 +73,11 @@ pub const NO_TOOL_SEARCH: (&str, &str) = ("ENABLE_TOOL_SEARCH", "false");
 /// they connect in the background and the first request goes out without their tools, so the run never searches.
 pub const WAIT_FOR_CONNECTORS: (&str, &str) = ("MCP_CONNECTION_NONBLOCKING", "false");
 
+/// Lets a tool result reach the model and the capture hook whole. Over Claude Code's default (25,000 tokens) it is
+/// saved to a file and both get a notice instead: a search page holding an invite with hundreds of attendees went
+/// over (2026-11-18).
+pub const BIG_RESULTS: (&str, &str) = ("MAX_MCP_OUTPUT_TOKENS", "200000");
+
 /// The most characters of cached events a refresh prompt lists for the run to skip.
 const SKIP_LIST: usize = 12_000;
 
@@ -107,7 +112,7 @@ pub fn run_window(from: DateTime<Utc>, to: DateTime<Utc>, cached: &[Event]) -> C
         allowed_tools: TOOLS,
         capture: TOOLS,
         args: vec![],
-        env: &[NO_TOOL_SEARCH, WAIT_FOR_CONNECTORS],
+        env: &[BIG_RESULTS, NO_TOOL_SEARCH, WAIT_FOR_CONNECTORS],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -123,7 +128,7 @@ pub fn read_run(uris: &[String]) -> ClaudeRun {
         allowed_tools: &[READ],
         capture: &[READ],
         args: vec![],
-        env: &[NO_TOOL_SEARCH, WAIT_FOR_CONNECTORS],
+        env: &[BIG_RESULTS, NO_TOOL_SEARCH, WAIT_FOR_CONNECTORS],
         stdin: String::new(),
         timeout: crate::claude::RUN_TIMEOUT,
     }
@@ -167,6 +172,12 @@ fn time(v: &Value) -> Option<DateTime<Utc>> {
 
 pub const NO_SEARCH: &str = "Claude didn't search the calendar. Check the Microsoft 365 connector is connected in claude.ai, then Refresh calendar.";
 pub const STOPPED: &str = "The calendar search stopped before its last page. Refresh calendar to try again.";
+pub const TOO_BIG: &str = "A calendar search page was too big for Claude Code to pass on, so the calendar wasn't read. An invite with hundreds of attendees can do this.";
+
+/// Claude Code's notice in place of a tool result over `MAX_MCP_OUTPUT_TOKENS`: it saved the result to a file.
+fn too_big(p: &Value) -> bool {
+    summary::answers(&p["tool_response"]).iter().any(|a| a.as_str().is_some_and(|t| t.contains("exceeds maximum allowed tokens")))
+}
 
 /// What a calendar search found.
 #[derive(Debug, Default, PartialEq)]
@@ -207,7 +218,10 @@ pub fn counted_in(captured: &[Value], from: DateTime<Utc>, to: DateTime<Utc>, ca
     let mut found: Vec<&Value> = vec![];
     let mut at = 0;
     loop {
-        let page = pages.get(&at).ok_or(if at == 0 { NO_SEARCH } else { STOPPED })?;
+        let Some(page) = pages.get(&at) else {
+            let cut = captured.iter().any(|p| p["tool_name"] == SEARCH && offset(&p["tool_input"]["offset"]) == at && too_big(p));
+            return Err(if cut { TOO_BIG } else if at == 0 { NO_SEARCH } else { STOPPED }.into());
+        };
         found.extend(page.iter().filter(|v| v["uri"].is_string()));
         match page.iter().find(|v| v.get("moreResults").is_some()) {
             Some(paging) if paging["moreResults"] == true => {
@@ -591,6 +605,14 @@ mod tests {
         assert_eq!(subjects(&parse(&extra, now()).unwrap()), ["Backlog Refinement", "Focus", "Partner sync"]);
         // No search at all: the refresh fails with its fix.
         assert_eq!(parse(&all_teams()[2..], now()), Err(NO_SEARCH.into()));
+        // A page Claude Code saved to a file instead (its notice as observed, the path a stand-in) says so, page 0 or later.
+        let notice = "Error: result (61,149 characters) exceeds maximum allowed tokens. Output has been saved to C:\\x\\tool-results\\search.txt.";
+        let mut cut = all_teams();
+        cut[0] = search(None, notice);
+        assert_eq!(parse(&cut, now()), Err(TOO_BIG.into()));
+        let mut cut = all_teams();
+        cut[1] = search(Some(2), notice);
+        assert_eq!(parse(&cut, now()), Err(TOO_BIG.into()));
         // Another zone isn't guessed: that event is left out.
         let other_zone = PAGE_2.replace(r#""timeZone":"UTC""#, r#""timeZone":"Pacific Standard Time""#);
         let mut tz = all_teams();
@@ -953,12 +975,13 @@ mod tests {
     }
 
     #[test]
-    fn the_refresh_search_and_fetch_runs_turn_the_tool_search_off_and_wait_for_the_connectors() {
+    fn the_refresh_search_and_fetch_runs_turn_the_tool_search_off_wait_for_the_connectors_and_take_big_results() {
         // Through the paths that start them: a refresh and an import search, each with its read retry.
         let kinds = Mutex::new(vec![]);
         let check = |r: &ClaudeRun| {
             assert!(r.env.contains(&("ENABLE_TOOL_SEARCH", "false")), "{}", r.kind);
             assert!(r.env.contains(&("MCP_CONNECTION_NONBLOCKING", "false")), "{}", r.kind);
+            assert!(r.env.contains(&("MAX_MCP_OUTPUT_TOKENS", "200000")), "{}", r.kind);
             kinds.lock().unwrap().push(r.kind);
             Ok(Output { stdout: String::new(), captured: vec![all_teams()[0].clone(), all_teams()[1].clone(), failed(1)] })
         };
