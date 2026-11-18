@@ -276,12 +276,12 @@ pub(crate) fn folder_for(e: &Event, now: DateTime<Utc>) -> Meeting {
 /// A chat check's news for event `e` (chat::tick): the chat goes in its folder's `meeting.json`. `ended`: the call has
 /// ended, so a meeting waiting on its schedule is due for an attempt now (the first, early, or one extra), and one with
 /// no folder yet gets it, due now, as at its end. `untranscribed` too (chat::Watch::untranscribed): transcription
-/// never started, so instead it is No transcript at once, no attempt run. Under the event's claim; while a fetch has
+/// never started, so instead it is Not transcribed at once, no attempt run. Under the event's claim; while a fetch has
 /// the meeting, nothing is written. Returns the folder id, if any.
 // ponytail: an ended event seen while a fetch has the meeting adds no attempt; that fetch is the early one.
 pub fn note_chat(lib: &Path, e: &Event, chat: crate::chat::Chat, ended: bool, untranscribed: bool, now: DateTime<Utc>) -> Option<String> {
     let known = || library::list(lib).into_iter().find(|l| l.meeting.event_id.as_deref() == Some(e.id.as_str()));
-    let (state, next_attempt) = if untranscribed { (State::NoTranscript, None) } else { (State::AwaitingTranscript, Some(now.with_timezone(&Local).fixed_offset())) };
+    let (state, next_attempt) = if untranscribed { (State::NotTranscribed, None) } else { (State::AwaitingTranscript, Some(now.with_timezone(&Local).fixed_offset())) };
     let _one = claim(lib, &e.id)?;
     let Some(l) = known() else {
         let m = Meeting { chat: Some(chat), state, next_attempt, ..folder_for(e, now) };
@@ -590,7 +590,7 @@ pub fn tick(
     done
 }
 
-/// Try again on a No transcript, Didn't happen, Not reachable or Capture failed meeting: one attempt now, through the scheduler's own
+/// Try again on a No transcript, Didn't happen, Not transcribed, Not reachable or Capture failed meeting: one attempt now, through the scheduler's own
 /// fetch code and claim, so a late transcript or newly granted access can change the answer. `started` is called once
 /// the meeting is taken, so its row can show it fetching. Refused when another fetch has it, it isn't in one of
 /// those states, or its series is excluded. Returns the meeting as it now stands.
@@ -609,7 +609,7 @@ pub fn retry(
     let _one = claim(lib, m.event_id.as_deref().unwrap_or(id)).ok_or("This meeting is being fetched already.")?;
     // Read again once taken: a fetch or an import may have landed meanwhile.
     let m = library::load(&dir).map_err(|e| e.to_string())?;
-    if !matches!(m.state, State::NoTranscript | State::DidNotHappen | State::NotReachable | State::CaptureFailed) || dir.join(library::VTT).exists() {
+    if !matches!(m.state, State::NoTranscript | State::DidNotHappen | State::NotTranscribed | State::NotReachable | State::CaptureFailed) || dir.join(library::VTT).exists() {
         return Err("Only a meeting whose capture failed can be fetched again.".into());
     }
     // Never fetched, from a stale page or a direct call alike.
@@ -692,7 +692,7 @@ pub fn import_report(lib: &Path, ids: &[String], excluded: &[String]) -> String 
         let i = match m.state {
             State::Done => 0,
             State::NotReachable => 1,
-            State::NoTranscript => 2,
+            State::NoTranscript | State::NotTranscribed => 2,
             State::CaptureFailed | State::SummaryFailed | State::TranscriptReady | State::Summarising => 3,
             State::AwaitingTranscript => 4,
             _ => continue,
@@ -1398,6 +1398,10 @@ mod tests {
 
         // Unskip on a meeting that isn't skipped changes nothing; one with a transcript goes back to it.
         assert_eq!(unskip(&lib.join(&ids[1]), &[], now).unwrap().state, State::NoTranscript);
+        // One whose fetching is over (No transcript) can be skipped too, out of Needs attention; Unskip puts it back.
+        assert_eq!(skip(&lib, &ids[1], &[], now).unwrap(), ids[1]);
+        assert_eq!(library::load(&lib.join(&ids[1])).unwrap().state, State::Skipped);
+        assert_eq!(unskip(&lib.join(&ids[1]), &[], now).unwrap().state, State::NoTranscript);
         let dir = lib.join(&ids[1]);
         library::save(&dir, &Meeting { state: State::Skipped, ..library::load(&dir).unwrap() }).unwrap();
         fs::write(dir.join(library::VTT), VTT_A).unwrap();
@@ -1764,6 +1768,10 @@ mod tests {
         assert!(fs::read_to_string(lib.join(&id).join(library::META)).unwrap().contains(r#""state": "didNotHappen""#));
         let m = retry(&lib, &id, now, answer(blocks(&body(&[]))), none, Vec::new, || {}).unwrap();
         assert_eq!((m.state, m.fetch_error, m.attempts), (State::NoTranscript, None, 9));
+        // Not transcribed: Try again as on No transcript.
+        library::save(&lib.join(&id), &Meeting { state: State::NotTranscribed, ..only(&lib) }).unwrap();
+        let m = retry(&lib, &id, now, answer(blocks(&body(&[]))), none, Vec::new, || {}).unwrap();
+        assert_eq!((m.state, m.attempts), (State::NoTranscript, 10));
 
         // Its series excluded (a stale page, a direct call): refused before any run.
         assert_eq!(retry(&lib, &id, now, |_| panic!("excluded"), none, || vec!["https://teams.example/j/1".into()], || panic!("excluded")).unwrap_err(), "This meeting's series is excluded.");

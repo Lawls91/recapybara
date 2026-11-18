@@ -97,16 +97,16 @@ describe("meeting list", () => {
     await expect($("#detail-title")).toHaveText(subject);
   });
 
-  it("Exclude series needs a join URL, and a Skipped meeting or one whose fetching is over offers no Skip", async () => {
+  it("a one-off Teams meeting offers Skip and no Exclude series, Skip stays once fetching is over, and a Skipped one has none", async () => {
     await kebab("transcriptReady"); // seeded without a join URL
     expect(await menuLabels()).not.toContain("Exclude series");
     await closeMenu();
-    await kebab("awaitingTranscript");
-    expect(await menuLabels()).toEqual(expect.arrayContaining(["Skip", "Exclude series"]));
+    await kebab("awaitingTranscript"); // each seed has its own join URL: a one-off (series.e2e covers a series)
+    expect(await menuLabels()).toContain("Skip");
+    expect(await menuLabels()).not.toContain("Exclude series");
     await closeMenu();
-    await kebab("captureFailed"); // fetching is over: nothing left to skip
-    expect(await menuLabels()).toContain("Exclude series");
-    expect(await menuLabels()).not.toContain("Skip");
+    await kebab("captureFailed"); // fetching is over: Skip takes it out of Needs attention
+    expect(await menuLabels()).toContain("Skip");
     await closeMenu();
     await kebab("skipped");
     expect(await menuLabels()).not.toContain("Skip");

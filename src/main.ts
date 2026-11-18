@@ -16,6 +16,7 @@ import {
   filterChips,
   GROUPS,
   groupOf,
+  markSeries,
   menuFor,
   NO_FILTER,
   passes,
@@ -367,7 +368,7 @@ function mark(m: Meeting) {
 async function loadMeetings() {
   const was = libraryMissing;
   libraryMissing = null;
-  meetings = current.libraryPath ? await invoke<Meeting[]>("list_meetings").catch((e) => ((libraryMissing = String(e)), [])) : [];
+  meetings = markSeries(current.libraryPath ? await invoke<Meeting[]>("list_meetings").catch((e) => ((libraryMissing = String(e)), [])) : []);
   $("library-missing").hidden = !libraryMissing;
   // Set only when it changes, so the live region doesn't announce it again on every reload.
   if (libraryMissing !== was) $("library-missing-text").textContent = libraryMissing ?? "";

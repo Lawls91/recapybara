@@ -34,7 +34,7 @@ If an event couldn't be read, or is in a time zone the app can't convert, the st
 **Filter** (the funnel beside the search box, or Ctrl+Shift+F) opens a menu:
 
 - **Show**: tick or untick Needs attention (any failure), In flight (in progress, awaiting or fetching a transcript,
-  transcript ready, summarising), Summary ready, Upcoming and Skipped (skipped, and Didn't happen). Each shows how many meetings it holds.
+  transcript ready, summarising), Summary ready, Upcoming and Skipped (skipped, Didn't happen and Not transcribed). Each shows how many meetings it holds.
 - **Date**: Any time, Today, Last 7 days, Last 30 days, or Custom range... (two dates, Apply). The date limits Earlier
   meetings only; upcoming ones stay unless you untick Upcoming.
 - **Series**: one Teams series. The row's **Show all in this series** sets the same filter.
@@ -61,7 +61,8 @@ Each row shows a coloured dot and a state:
 | **Summarising** | Claude is writing the summary. | Summary ready or Summary failed. |
 | **Summary ready** | The summary is written and its citations checked. | Nothing: it's done. A notification says "Summary ready: 2 decisions, 3 actions." |
 | **Summary failed** | Claude returned no valid summary (the card says why). | Press **Re-run summary** (or **Run summary**). |
-| **No transcript** | Teams had no transcript after every check (transcription may have been off), or the meeting's chat showed the call end without transcription ever starting. That card reads "Transcription wasn't on: the meeting chat shows the call ended without it starting." | Nothing more on its own. Try again, or import the transcript. |
+| **No transcript** | Teams had no transcript after every check, and the app doesn't know why (transcription may have been off). | Nothing more on its own. Try again, import the transcript, or Skip it. |
+| **Not transcribed** | The meeting's chat showed the call end without transcription ever starting. Its card reads "Transcription wasn't on during the call, so there's nothing to capture." Listed under Skipped, with a grey dot. | Nothing more on its own. If there is a transcript after all, Try again, or import it. |
 | **Didn't happen** | The meeting's chat showed no call by 30 minutes after the scheduled end. Its card reads "The call never started, so there's nothing to capture." Listed under Skipped, with a grey dot. | Nothing more on its own. If the meeting did happen, Try again, or import the transcript. |
 | **Not reachable** | Microsoft refused access to the transcript (403: you are not the organiser, or the organiser restricted downloads). | Nothing more on its own. Try again, or import the transcript. |
 | **Capture failed** | Every attempt failed, or Teams sent something that isn't a transcript. The card gives the last reason in plain words. | Nothing more on its own. Try again, or import the transcript. |
@@ -74,10 +75,11 @@ If Teams has no transcript yet, or the attempt fails, it tries again **2, 10, 30
 ended**. Then:
 
 - a transcript that arrives at any attempt is saved and summarised;
-- still nothing after the last check: **No transcript**;
+- still nothing after the last check: **No transcript**, or **Not transcribed** if the meeting's chat showed the call
+  end without transcription starting;
 - the meeting's chat (see below) shows no call by 30 minutes after the scheduled end: **Didn't happen** at once,
   with no more checks;
-- the meeting's chat shows the call ended without transcription ever starting: **No transcript** at once, with no
+- the meeting's chat shows the call ended without transcription ever starting: **Not transcribed** at once, with no
   attempts;
 - still failing after the last check: **Capture failed**;
 - a 403 (access refused): **Not reachable** at once, with no more attempts;
@@ -98,8 +100,8 @@ schedule, up to 30 minutes after the call ended, then saves what is there.
 
 ![A No transcript card](images/no-transcript.png)
 
-No transcript, Not reachable and Capture failed each show a card with the reason and two buttons. So does Didn't
-happen, in case the meeting did take place:
+No transcript, Not reachable and Capture failed each show a card with the reason and two buttons. So do Didn't
+happen and Not transcribed, in case there is a transcript after all:
 
 - **Try again** runs one fetch attempt now. A transcript published late, or access granted since, can change the
   answer. The row reads "Fetching transcript" while it runs.
@@ -123,8 +125,8 @@ It uses only those system events.
   retries count from the real end. A call that runs over its scheduled end is fetched once its end is seen, the
   retries again counting from the real end. If the chat checks stop (two failed reads) or the call is still on 2 hours
   after the scheduled end, the meeting goes back to its usual schedule.
-- **No transcription, no wait**: when the call ends and transcription never started, the meeting is No transcript at
-  once and no fetch runs. Only when the chat was read from the call's start to its end with no gap over 6 minutes and
+- **No transcription, no wait**: when the call ends and transcription never started, the meeting is Not transcribed
+  at once and no fetch runs. Only when the chat was read from the call's start to its end with no gap over 6 minutes and
   only one call started; otherwise (the app was asleep, reads failed, everyone left and rejoined) it fetches as above,
   in case a transcript event was missed.
 
