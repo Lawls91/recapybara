@@ -4,7 +4,9 @@
 
 **The status line under the search box is red.** The last calendar refresh failed, and the line says why and what to
 do, for example "Claude didn't search the calendar. Check the Microsoft 365 connector is connected in claude.ai, then
-Refresh calendar." Fix it, then press the Refresh calendar arrow. The list keeps the meetings it already had.
+Refresh calendar." Fix it, then press the Refresh calendar arrow. The list keeps the meetings it already had. If it
+says a calendar search page was too big, an event in the window (usually an invite with hundreds of attendees) made
+Claude Code's answer too long to pass on; refreshing again won't help until that event is out of the window.
 
 **"Claude Code not found."** The app runs the first `claude.exe` (or `claude.cmd`) on your PATH. Install Claude Code
 or add it to PATH, then restart the app (or press Try again on the meeting).
