@@ -8,16 +8,16 @@ Each row's **...** button (or a right-click on the row) opens its menu. An open 
 | Action | Key | Shown when |
 | --- | --- | --- |
 | Open | Enter | Always. |
-| Import transcript | | No transcript, Didn't happen, Not reachable or Capture failed (shown first, in bold). |
+| Import transcript | | No transcript, Didn't happen, Not transcribed, Not reachable or Capture failed (shown first, in bold). |
 | Re-run summary | | There is a summary and no summary is running. On Summary failed it is shown first, in bold (Run summary if there was never a summary). |
 | Replace transcript… | | There is a transcript and no summary is running. |
 | Fetch again from Teams | | A Teams meeting with a transcript, not skipped or excluded, and no summary or fetch running for it. |
 | Copy summary, Copy actions | | There is a summary. |
 | Open folder | | The meeting has a folder in the library. |
 | Skip | S | The meeting can still be fetched: Scheduled, In progress or Awaiting transcript. |
-| Exclude series (or Include series) | E | It is a Teams meeting. |
+| Exclude series (or Include series) | E | It is a Teams meeting in a series (see below), or an excluded one. |
 | Delete | Del | The meeting has a folder, and no summary is running. |
-| Show all in this series | | It is a Teams meeting. |
+| Show all in this series | | It is a Teams meeting in a series. |
 
 ## Skip, Delete or Exclude series?
 
@@ -36,15 +36,16 @@ checked. Use it for a meeting you don't want recorded in your library, before or
 "Transcription isn't on" notification has a **Skip this meeting** button that does the same.
 
 Skip is offered only while a fetch can still happen: on Scheduled, In progress and Awaiting transcript meetings. Once
-fetching is over (No transcript, Didn't happen, Not reachable, Capture failed) there is nothing left to skip, so Skip isn't offered;
-use Delete to get rid of such a meeting. A meeting that already has a transcript has no Skip either.
+fetching is over (No transcript, Didn't happen, Not transcribed, Not reachable, Capture failed), Skip moves it out
+of Needs attention into Skipped, keeping its folder and notes; Delete removes it altogether. A meeting that already has a transcript has no Skip either.
 
 The skip is kept in the meeting's folder, so it survives a restart. **Unskip**, on the Skipped meeting's card, undoes
 it:
 
 - an upcoming meeting is fetched when it ends, as usual;
 - one that ended less than 2 hours ago is fetched at once;
-- one that ended earlier becomes No transcript (import its transcript by hand if you have it).
+- one that ended earlier becomes No transcript, or Not transcribed if its chat showed no transcription (import its
+  transcript by hand if you have it).
 
 ### Delete
 
@@ -59,7 +60,10 @@ offered while the meeting's summary is being written, or for a calendar meeting 
 ### Exclude series
 
 Exclude series stops the app capturing every occurrence of a recurring meeting (the occurrences share one Teams
-link). Occurrences without a transcript list as Skipped, and their card offers **Include series**. Occurrences
+link). It is offered only on a meeting in a series: two or more meetings in the list share its Teams link, or the
+calendar marks one of them as an occurrence of a series (its transcript link is scoped to one occurrence). A one-off
+meeting has Skip alone; one excluded before still offers Include series. A one-off later made recurring joins its
+series once the calendar shows the new occurrences, if Teams kept its link. Occurrences without a transcript list as Skipped, and their card offers **Include series**. Occurrences
 already captured keep their transcript and summary. An exclusion made while a fetch is running still holds: that
 capture is dropped and no summary starts.
 

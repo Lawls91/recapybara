@@ -26,6 +26,9 @@ pub enum State {
     NoTranscript,
     /// The meeting chat showed no call (fetch::no_call): nothing to capture, listed with Skipped.
     DidNotHappen,
+    /// No transcript, and the meeting chat showed the call end without transcription starting (`Chat::untranscribed`):
+    /// nothing to capture, listed with Skipped.
+    NotTranscribed,
     NotReachable,
     CaptureFailed,
     TranscriptReady,
@@ -253,9 +256,12 @@ pub fn delete(library: &Path, id: &str, owner: isize, first: impl FnOnce(&Meetin
 
 pub fn load(dir: &Path) -> io::Result<Meeting> {
     let m: Meeting = serde_json::from_slice(&fs::read(dir.join(META))?)?;
-    // 0.5.1 stored a call that never started as No transcript with this reason: it is Didn't happen.
+    // 0.5.1 stored a call that never started as No transcript with this reason: it is Didn't happen. No transcript
+    // whose chat shows the call ended without transcription (saved so by 0.7.0, or by the schedule running out) is Not
+    // transcribed.
     Ok(match m.fetch_error.as_deref() {
         Some("The call never started.") if m.state == State::NoTranscript => Meeting { state: State::DidNotHappen, fetch_error: None, ..m },
+        _ if m.state == State::NoTranscript && m.chat.is_some_and(|c| c.untranscribed()) => Meeting { state: State::NotTranscribed, ..m },
         _ => m,
     })
 }
@@ -1024,6 +1030,22 @@ Ask Robin about the 403
         assert_eq!((load(&dir).unwrap().state, load(&dir).unwrap().fetch_error), (State::DidNotHappen, None));
         old("Something else.");
         assert_eq!(load(&dir).unwrap().state, State::NoTranscript);
+    }
+
+    #[test]
+    fn no_transcript_whose_chat_shows_the_call_ended_without_transcription_loads_as_not_transcribed() {
+        let dir = temp("lib-untranscribed");
+        let call = r#""startedAt":"2026-11-09T10:00:00Z","endedAt":"2026-11-09T10:20:00Z""#;
+        let saved = |state: &str, chat: &str| {
+            fs::write(dir.join(META), format!(r#"{{"subject":"Synthetic","state":"{state}","chat":{{{chat}}}}}"#)).unwrap();
+            load(&dir).unwrap().state
+        };
+        assert_eq!(saved("noTranscript", call), State::NotTranscribed);
+        assert_eq!(saved("noTranscript", &format!(r#"{call},"transcriptStartedAt":"2026-11-09T10:01:00Z""#)), State::NoTranscript, "transcription on");
+        assert_eq!(saved("noTranscript", r#""startedAt":"2026-11-09T10:00:00Z""#), State::NoTranscript, "no end seen");
+        assert_eq!(saved("noTranscript", ""), State::NoTranscript, "no chat events");
+        assert_eq!(saved("captureFailed", call), State::CaptureFailed, "only No transcript");
+        assert_eq!(saved("notTranscribed", call), State::NotTranscribed);
     }
 
     #[test]

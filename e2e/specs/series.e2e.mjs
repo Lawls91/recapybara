@@ -1,7 +1,8 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 import { at, freshFixture, invoke, seed } from "../helpers.mjs";
 
-// Show all in this series. A series is the meetings sharing one Teams join URL.
+// Show all in this series. A series is the meetings sharing one Teams join URL, or one whose transcript URL is scoped to
+// an occurrence (the guild: the only occurrence listed). Partner sync is a one-off.
 const REFINEMENT = "https://teams.example/j/refinement";
 const SEEDS = [
   // [folder, subject, days from today, join URL]
@@ -20,7 +21,8 @@ describe("show all in this series", () => {
   before(async () => {
     await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance: "light" } });
     for (const [folder, subject, days, joinUrl] of SEEDS) {
-      seed(folder, { subject, start: at(days, 14), end: at(days, 15), joinUrl, eventId: folder, state: "noTranscript", source: "connector" });
+      const transcriptUrl = folder === "guild" ? `meeting-transcript:///events/Z3VpbGQ?start=${at(days, 14)}` : null;
+      seed(folder, { subject, start: at(days, 14), end: at(days, 15), joinUrl, eventId: folder, state: "noTranscript", source: "connector", transcriptUrl });
     }
     await browser.refresh();
     await expect($$("#meeting-list .row")).toBeElementsArrayOfSize(5);
@@ -38,7 +40,7 @@ describe("show all in this series", () => {
     expect(await ids()).toHaveLength(5);
   });
 
-  it("an imported ad-hoc meeting has no Show all in this series item, while a Teams meeting does", async () => {
+  it("an imported ad-hoc meeting and a one-off Teams meeting have no series items, while a series' meeting does", async () => {
     await invoke("import_transcript", { path: freshFixture(), id: null });
     const adHoc = (await invoke("list_meetings")).find((m) => m.source === "import");
     await row(adHoc.id, ".kebab").click();
@@ -46,8 +48,15 @@ describe("show all in this series", () => {
     expect(await menuLabels()).not.toContain("Show all in this series");
     await browser.keys("Escape");
     await row("partner", ".kebab").click();
-    expect(await menuLabels()).toContain("Show all in this series");
+    expect(await menuLabels()).toContain("Skip");
+    expect(await menuLabels()).not.toEqual(expect.arrayContaining(["Show all in this series"]));
+    expect(await menuLabels()).not.toContain("Exclude series");
     await browser.keys("Escape");
+    for (const id of ["ref week 1", "guild"]) {
+      await row(id, ".kebab").click();
+      expect(await menuLabels()).toEqual(expect.arrayContaining(["Show all in this series", "Exclude series"]));
+      await browser.keys("Escape");
+    }
   });
 
   it("Show all in this series keeps focus on the row it was opened from", async () => {

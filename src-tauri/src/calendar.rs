@@ -504,6 +504,8 @@ pub fn listed(events: &[Event], mut library: Vec<Listed>) -> Vec<Listed> {
                 attendees: e.attendees.clone(),
                 state: State::Scheduled,
                 source: Some("calendar".into()),
+                // Scoped to the occurrence (`?start=`) for a meeting in a series: the page tells series by it.
+                transcript_url: e.meeting_transcript_url.clone(),
                 ..Meeting::default()
             },
             has_transcript: false,
@@ -800,6 +802,9 @@ mod tests {
         assert_eq!(l[0].id, "calendar:///events/SYNTH-EVENT-3");
         assert_eq!(l[0].meeting.source.as_deref(), Some("calendar"));
         assert_eq!(l[0].meeting.join_url.as_deref(), Some("https://teams.example/l/meetup-join/partner"));
+        // Its transcript URL too: the page tells a series' occurrence by its `?start=` scope.
+        assert!(l[0].meeting.transcript_url.is_some());
+        assert_eq!(l[0].meeting.transcript_url, events.iter().find(|e| e.uri == l[0].id).unwrap().meeting_transcript_url);
     }
 
     #[test]

@@ -25,7 +25,9 @@ describe("the meeting list's Filter", () => {
   before(async () => {
     await invoke("save_settings", { settings: { ...(await invoke("get_settings")), appearance: "light" } });
     for (const [folder, subject, days, state, joinUrl] of SEEDS) {
-      seed(folder, { subject, start: at(days, 14), end: at(days, 15), joinUrl, eventId: folder, state, source: "connector" });
+      // Partner sync is the one occurrence listed of a series: its transcript URL is scoped to it.
+      const transcriptUrl = joinUrl === PARTNER ? `meeting-transcript:///events/UGFydG5lcg?start=${at(days, 14)}` : null;
+      seed(folder, { subject, start: at(days, 14), end: at(days, 15), joinUrl, eventId: folder, state, source: "connector", transcriptUrl });
     }
     await browser.refresh();
     await expect($$("#meeting-list .row")).toBeElementsArrayOfSize(5);

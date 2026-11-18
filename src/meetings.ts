@@ -8,6 +8,7 @@ export type State =
   | "awaitingTranscript"
   | "noTranscript"
   | "didNotHappen"
+  | "notTranscribed"
   | "notReachable"
   | "captureFailed"
   | "transcriptReady"
@@ -44,8 +45,8 @@ export interface Meeting {
   transcriptUrl?: string | null;
   /** In progress, and the meeting chat shows no transcription 5 minutes after the call started. */
   transcriptionOff?: boolean;
-  /** What the meeting chat showed of the call: when it started, transcription started and it ended. */
-  chat?: { startedAt?: string | null; transcriptStartedAt?: string | null; endedAt?: string | null } | null;
+  /** Part of a series (markSeries): only then does it offer Exclude series and Show all in this series. */
+  series?: boolean;
 }
 
 /** Dot family and label for each state. */
@@ -55,6 +56,7 @@ export const STATES: Record<State, { family: string; label: string }> = {
   awaitingTranscript: { family: "wait", label: "Awaiting transcript" },
   noTranscript: { family: "fail", label: "No transcript" },
   didNotHappen: { family: "skip", label: "Didn't happen" },
+  notTranscribed: { family: "skip", label: "Not transcribed" },
   notReachable: { family: "fail", label: "Not reachable" },
   captureFailed: { family: "fail", label: "Capture failed" },
   transcriptReady: { family: "ready", label: "Transcript ready" },
@@ -135,15 +137,14 @@ export const STATE_CARDS: Partial<Record<State, string>> = {
 
 /** States with no transcript and no more checks: their card offers Try again and Import transcript. Didn't happen too,
  * in case its meeting did happen after all. */
-export const needsTranscript = (s: State) => s === "noTranscript" || s === "didNotHappen" || s === "notReachable" || s === "captureFailed";
+export const needsTranscript = (s: State) =>
+  s === "noTranscript" || s === "didNotHappen" || s === "notTranscribed" || s === "notReachable" || s === "captureFailed";
 
 /** Why a meeting with no transcript has none, for its card: the state's own reason, and Capture failed's from the
  * recorded attempt. The card's actions are Try again and Import transcript. */
 export function failureReason(m: Meeting): string {
-  if (m.state === "noTranscript")
-    return m.chat?.startedAt && m.chat.endedAt && !m.chat.transcriptStartedAt
-      ? "Transcription wasn't on: the meeting chat shows the call ended without it starting."
-      : "Teams had no transcript for this meeting (transcription may have been off).";
+  if (m.state === "noTranscript") return "Teams had no transcript for this meeting (transcription may have been off).";
+  if (m.state === "notTranscribed") return "Transcription wasn't on during the call, so there's nothing to capture.";
   if (m.state === "didNotHappen") return "The call never started, so there's nothing to capture.";
   if (m.state === "notReachable")
     return "Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).";
@@ -258,18 +259,31 @@ export function menuFor(m: Meeting): MenuItem[] {
   if (m.hasSummary) items.push({ id: "copy-summary", label: "Copy summary", icon: "copy" }, { id: "copy-actions", label: "Copy actions", icon: "copy" });
   if (m.source !== "calendar") items.push({ id: "folder", label: "Open folder", icon: "folder_open" });
   const group: MenuItem[] = [];
-  // Skip stops a capture, so only a meeting a fetch can still reach has it: not once fetching is over.
-  if (m.state !== "skipped" && !m.hasTranscript && !busy && !needsTranscript(m.state)) group.push({ id: "skip", label: "Skip", icon: "next", key: "S" });
-  // A series is keyed by its join URL.
-  if (m.joinUrl)
+  // Skip stops a capture, and once fetching is over takes a meeting out of Needs attention, notes kept.
+  if (m.state !== "skipped" && !m.hasTranscript && !busy) group.push({ id: "skip", label: "Skip", icon: "next", key: "S" });
+  // A series is keyed by its join URL; a one-off has Skip alone, but an excluded one can still be included again.
+  if (m.joinUrl && (m.series || m.excluded))
     group.push(m.excluded ? { id: "include", label: "Include series", icon: "person_prohibited" } : { id: "exclude", label: "Exclude series", icon: "person_prohibited", key: "E" });
   // Delete moves the folder to the Recycle Bin; a calendar-cache meeting has none yet, and a running summary
   // would write into it.
   if (m.source !== "calendar" && !busy) group.push({ id: "delete", label: "Delete", icon: "delete", key: "Del", danger: true });
   if (group.length) group[0].sep = true;
   items.push(...group);
-  if (m.joinUrl) items.push({ id: "series", label: "Show all in this series", icon: "text_bullet_list" });
+  if (m.joinUrl && m.series) items.push({ id: "series", label: "Show all in this series", icon: "text_bullet_list" });
   return items;
+}
+
+/** Marks each meeting of a series: its join URL is shared by two or more meetings, or one of them has a transcript
+ * URL scoped to an occurrence (`?start=`), which the connector gives only a series' occurrences. Returns the list. */
+export function markSeries(list: Meeting[]): Meeting[] {
+  const seen = new Map<string, number>();
+  const scoped = new Set<string>();
+  for (const m of list.filter((m) => m.joinUrl)) {
+    seen.set(m.joinUrl!, (seen.get(m.joinUrl!) ?? 0) + 1);
+    if (/[?&]start=/.test(m.transcriptUrl ?? "")) scoped.add(m.joinUrl!);
+  }
+  for (const m of list) m.series = !!m.joinUrl && ((seen.get(m.joinUrl) ?? 0) > 1 || scoped.has(m.joinUrl));
+  return list;
 }
 
 /** The calendar refresh's state, as the backend reports it. */

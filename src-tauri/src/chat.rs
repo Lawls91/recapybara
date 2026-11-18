@@ -61,6 +61,11 @@ impl Chat {
         }
     }
 
+    /// The call started and ended, and transcription never started.
+    pub fn untranscribed(&self) -> bool {
+        self.started_at.is_some() && self.ended_at.is_some() && self.transcript_started_at.is_none()
+    }
+
     /// Started and not ended, whoever is on the call.
     pub fn in_progress(&self) -> bool {
         self.started_at.is_some() && self.ended_at.is_none()
@@ -235,7 +240,7 @@ impl Watch {
 
     /// The call ended, one call only, every event seen, and transcription never started: no transcript to wait for.
     fn untranscribed(&self) -> bool {
-        self.covered() && !self.chat.restarted && self.chat.ended_at.is_some() && self.chat.transcript_started_at.is_none()
+        self.covered() && !self.chat.restarted && self.chat.untranscribed()
     }
 
     /// Transcription off as the last read found it, while still read.
@@ -814,19 +819,20 @@ mod tests {
     }
 
     #[test]
-    fn a_call_that_ended_with_transcription_never_on_is_no_transcript_at_once_with_no_attempts() {
+    fn a_call_that_ended_with_transcription_never_on_is_not_transcribed_at_once_with_no_attempts() {
         // Read every 3 minutes from 09:55, never more than 6 minutes apart: the 10:22 read sees the 10:20 end, no
-        // transcription and one call, so No transcript then; the 10:22 attempt and the retries never run.
+        // transcription and one call, so Not transcribed then; the 10:22 attempt and the retries never run.
         let (got, m) = fetches("untranscribed", true, false, Some(20), i64::MAX, 0..0);
-        assert_eq!((got, m.state, m.next_attempt, m.chat.and_then(|c| c.transcript_started_at)), (vec![], State::NoTranscript, None, None));
+        assert_eq!((got, m.state, m.next_attempt, m.chat.and_then(|c| c.transcript_started_at)), (vec![], State::NotTranscribed, None, None));
     }
 
     #[test]
     fn an_untranscribed_call_whose_reads_had_a_gap_or_that_restarted_keeps_its_schedule() {
         // Asleep 10:05 to 10:15: an event may have scrolled off unseen, so the 10:21 read of the 10:20 end makes it due as
-        // before, the retries counting from 10:20.
+        // before, the retries counting from 10:20. Once they run out, the chat still shows no transcription: Not
+        // transcribed.
         let (got, m) = fetches("untranscribed-gap", true, false, Some(20), i64::MAX, 5..15);
-        assert_eq!((got, m.state), (vec![21, 22, 30, 50, 140], State::NoTranscript));
+        assert_eq!((got, m.state), (vec![21, 22, 30, 50, 140], State::NotTranscribed));
         // Reads fail at 10:10 and 10:13: stopped, so the scheduled end's slots run.
         let (got, _) = fetches("untranscribed-stopped", true, false, Some(20), 10, 0..0);
         assert_eq!(got, [30, 32, 40, 60, 150]);
