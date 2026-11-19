@@ -1,7 +1,7 @@
-import { $, browser, expect } from "@wdio/globals";
+import { $, $$, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import path from "node:path";
-import { body, calendar, claudeRecords, event, freshFixture, invoke, M365, root, scenario, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
+import { body, calendar, claudeRecords, event, freshFixture, invoke, M365, root, scenario, transcriptRead, transcriptUrl, fetchUrl, vtt } from "../helpers.mjs";
 
 // Auto-fetch after a meeting. Every payload is synthetic, in the shapes headless Claude Code returns:
 // the transcript read answers {meeting, transcripts[]} as a text block.
@@ -18,7 +18,20 @@ const fetched = justEnded(1, "Fetched retro");
 const stubbed = justEnded(2, "Stubbed sync");
 const forbidden = justEnded(3, "Shared mailbox review");
 const failed = justEnded(4, "Partner briefing");
-const all = [fetched, stubbed, forbidden, failed];
+const split = justEnded(5, "Split standup");
+const all = [fetched, stubbed, forbidden, failed, split];
+/** A 5-minute pre-call 20 minutes before `e` starts, then the meeting itself, as the transcript read answers them. */
+const withPreCall = (e) => {
+  const start = Date.parse(`${e.start.dateTime.slice(0, 19)}Z`);
+  const iso = (ms) => new Date(ms).toISOString();
+  return JSON.stringify({
+    meeting: { id: "SYNTH", subject: e.subject },
+    transcripts: [
+      { id: "T1", createdDateTime: iso(start - 20 * 60e3), endDateTime: iso(start - 15 * 60e3), content: vtt("quick chat") },
+      { id: "T2", createdDateTime: iso(start), endDateTime: `${e.end.dateTime}Z`, content: vtt("standup") },
+    ],
+  });
+};
 
 const meetingOf = async (e) => (await invoke("list_meetings")).find((m) => m.eventId === e.id);
 // Four fetches run one at a time, each firing every captured read through Git Bash: allow a minute.
@@ -37,9 +50,10 @@ describe("auto-fetch after a meeting", () => {
     // Every run fires every hook its --settings matches; each fetch keeps only the read of its own meetingTranscriptUrl.
     s.hooks.push(
       transcriptRead(fetched, body(fetched, vtt("retro"))),
+      transcriptRead(split, withPreCall(split)),
       transcriptRead(stubbed, STUB),
       transcriptRead(forbidden, JSON.stringify({ error: { code: "Forbidden", message: "Request failed with status code 403" } })),
-      { event: "PostToolUseFailure", tool_name: READ, tool_input: { uri: transcriptUrl(failed) }, error: "MCP error 3003: synthetic access denied" },
+      { event: "PostToolUseFailure", tool_name: READ, tool_input: { uri: fetchUrl(failed) }, error: "MCP error 3003: synthetic access denied" },
     );
     scenario(s);
     await browser.reloadSession(); // app start: the events ended a minute ago
@@ -79,9 +93,20 @@ describe("auto-fetch after a meeting", () => {
     await expect(row((await meetingOf(failed)).id, ".lbl")).toHaveText("Not reachable");
   });
 
+  it("a pre-call 20 minutes before the start is kept, behind a Separate call divider on the Transcript tab", async () => {
+    await until(split, "done");
+    const m = await meetingOf(split);
+    expect(fs.readFileSync(folder(m, "transcript.vtt"), "utf8")).toContain("NOTE Separate call");
+    expect(fs.readFileSync(folder(m, "transcript.md"), "utf8")).toContain("*Separate call*");
+    await row(m.id).click();
+    await $("#tab-transcript").click();
+    await expect($("#transcript .callbreak")).toHaveText("Separate call");
+    expect(await $$("#transcript .turn").length).toBe(2);
+  });
+
   it("the fetch run sets MAX_MCP_OUTPUT_TOKENS=200000, hooks PostToolUse on read_resource and uses haiku", async () => {
     await until(fetched, "done");
-    const rec = claudeRecords().find((r) => r.argv.some((a) => a.includes(transcriptUrl(fetched))));
+    const rec = claudeRecords().find((r) => r.argv.some((a) => a.includes(fetchUrl(fetched))));
     expect(rec.env.MAX_MCP_OUTPUT_TOKENS).toBe("200000");
     expect(argAfter(rec.argv, "--model")).toBe("haiku");
     const settings = JSON.parse(argAfter(rec.argv, "--settings"));

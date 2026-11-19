@@ -342,6 +342,8 @@ PROJ-123. Look up every ticket key you mention in Jira with getJiraIssue (getAcc
 its cloudId), and never guess a key. corrections: words Teams misheard (names from the attendee list, terms from the glossary, ticket keys, \
 jargon), as whole words, each with a short reason; a glossary entry is a hint, not a rule: correct a word only where the \
 context shows it was misheard, never where the speaker meant the word as transcribed. \
+A \"NOTE Separate call\" line in the transcript starts a separate call held before the meeting: when there is one, say in \
+the overview that the meeting had separate sessions, and keep each session's points apart. \
 Never invent attendees, owners or tickets.";
 
 /// The summary run: the summary model, `--json-schema`, attendees, glossary and transcript on stdin.

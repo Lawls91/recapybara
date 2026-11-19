@@ -333,6 +333,8 @@ pub struct Turn {
     pub text: String,
     pub speaker_parts: Vec<Part>,
     pub parts: Vec<Part>,
+    /// The first turn of a separate call: a divider goes before it.
+    pub new_call: bool,
 }
 
 /// One place a correction marked: its turn and about five words either side of the word, for the
@@ -392,23 +394,33 @@ pub struct Cue {
     pub text: String,
     /// Index of the speaker turn holding this cue.
     pub turn: usize,
+    /// The first cue after a `SEPARATE_CALL` note: it starts a turn of its own.
+    pub new_call: bool,
 }
+
+/// The WebVTT note `fetch::merge` puts between two transcripts of separate calls.
+pub const SEPARATE_CALL: &str = "NOTE Separate call";
 
 pub fn cues(vtt: &str) -> Vec<Cue> {
     let mut out: Vec<Cue> = vec![];
     let mut lines = vtt.lines();
+    let mut new_call = false;
     while let Some(line) = lines.next() {
+        if line.trim_end() == SEPARATE_CALL {
+            new_call = true;
+            continue;
+        }
         let Some((from, to)) = line.split_once("-->") else { continue };
         let (Some(start), Some(end)) = (millis(from), to.split_whitespace().next().and_then(millis)) else { continue };
         let cue: Vec<&str> = lines.by_ref().take_while(|l| !l.trim().is_empty()).collect();
         let (speaker, text) = voice(&cue.join(" "));
         let speaker = speaker.unwrap_or_default();
         let turn = match out.last() {
-            Some(prev) if prev.speaker == speaker => prev.turn,
+            Some(prev) if prev.speaker == speaker && !new_call => prev.turn,
             Some(prev) => prev.turn + 1,
             None => 0,
         };
-        out.push(Cue { start, end, speaker, text, turn });
+        out.push(Cue { start, end, speaker, text, turn, new_call: std::mem::take(&mut new_call) });
     }
     out
 }
@@ -484,7 +496,7 @@ pub fn transcript(vtt: &str, fixes: &[Correction]) -> Transcript {
             }
             None => {
                 let speaker_parts = correct(&c.speaker, fixes, &mut used);
-                turns.push(Turn { at: hms(c.start), speaker: c.speaker, text: c.text, speaker_parts, parts });
+                turns.push(Turn { at: hms(c.start), speaker: c.speaker, text: c.text, speaker_parts, parts, new_call: c.new_call });
             }
         }
     }
@@ -546,10 +558,14 @@ fn joined(parts: &[Part]) -> String {
 
 pub const TRANSCRIPT_MD: &str = "transcript.md";
 
-/// `transcript.md`: one paragraph per turn, `**[hh:mm:ss] Speaker:**` first, then the corrections
-/// applied with their reasons. Left out when none applied.
+/// `transcript.md`: one paragraph per turn, `**[hh:mm:ss] Speaker:**` first, a separate call's first turn after
+/// `---` and *Separate call*, then the corrections applied with their reasons. Left out when none applied.
 pub fn transcript_md(t: &Transcript) -> String {
-    let mut md: Vec<String> = t.turns.iter().map(|u| format!("**[{}] {}:** {}", u.at, joined(&u.speaker_parts), joined(&u.parts))).collect();
+    let mut md: Vec<String> = t
+        .turns
+        .iter()
+        .map(|u| format!("{}**[{}] {}:** {}", if u.new_call { "---\n\n*Separate call*\n\n" } else { "" }, u.at, joined(&u.speaker_parts), joined(&u.parts)))
+        .collect();
     if !t.corrections.is_empty() {
         let list = t.corrections.iter().map(|a| format!("- {} → {}: {}", a.correction.from, a.correction.to, a.correction.reason));
         md.push(format!("## Corrections applied\n\n{}", list.collect::<Vec<_>>().join("\n")));
@@ -1138,6 +1154,20 @@ Ask Robin about the 403
         assert_eq!(md, include_str!("../tests/golden/transcript.md").replace("\r\n", "\n"));
         // No correction applied: turns only.
         assert!(!transcript_md(&transcript(FELTER, &[])).contains("Corrections"));
+    }
+
+    #[test]
+    fn a_separate_call_note_starts_a_new_turn_even_for_the_same_speaker_and_shows_as_a_divider() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Speaker A>Synthetic quick chat.</v>\n\n\
+                   NOTE Separate call\n\n00:20:01.000 --> 00:20:03.000\n<v Speaker A>Synthetic meeting opens.</v>\n";
+        let t = transcript(vtt, &[]);
+        assert_eq!(t.turns.iter().map(|u| (u.at.as_str(), u.new_call)).collect::<Vec<_>>(), [("00:00:01", false), ("00:20:01", true)]);
+        assert_eq!(
+            transcript_md(&t),
+            "**[00:00:01] Speaker A:** Synthetic quick chat.\n\n---\n\n*Separate call*\n\n**[00:20:01] Speaker A:** Synthetic meeting opens.\n"
+        );
+        // The note is never a cue: the citation check reads the same two cues.
+        assert_eq!(cues(vtt).len(), 2);
     }
 
     #[test]

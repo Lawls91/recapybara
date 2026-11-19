@@ -1,7 +1,7 @@
 import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import path from "node:path";
-import { body, calendar, claudeRecords, event, invoke, M365, root, scenario, transcriptRead, transcriptUrl, vtt } from "../helpers.mjs";
+import { body, calendar, claudeRecords, event, invoke, M365, root, scenario, transcriptRead, fetchUrl, vtt } from "../helpers.mjs";
 
 // Chat events: the meeting chat's system events (call started, transcription started, call ended) drive In
 // progress, the transcription-off notification and an early fetch. Every id, name and message is synthetic, in
@@ -84,7 +84,7 @@ describe("meeting chat events", () => {
 
   it("an ended event in the chat fetches the transcript at once, before the scheduled end, and the summary follows", async () => {
     await browser.waitUntil(async () => (await meetingOf(early))?.state === "done", { timeout: 75000, timeoutMsg: "the early meeting was never summarised" });
-    const fetch = claudeRecords().find((r) => r.argv.some((a) => a.includes(transcriptUrl(early))));
+    const fetch = claudeRecords().find((r) => r.argv.some((a) => a.includes(fetchUrl(early))));
     expect(fetch.startedMs).toBeLessThan(new Date(`${early.end.dateTime}Z`).getTime());
     const m = await meetingOf(early);
     const json = JSON.parse(fs.readFileSync(root("library", m.id, "meeting.json"), "utf8"));
@@ -110,7 +110,7 @@ describe("meeting chat events", () => {
       return !!up && before(up, r) && (!earlier || before(r, earlier));
     }, (await meetingOf(over)).id);
     expect(upcoming).toBe(true);
-    expect(claudeRecords().some((r) => r.argv.some((a) => a.includes(transcriptUrl(over))))).toBe(false);
+    expect(claudeRecords().some((r) => r.argv.some((a) => a.includes(fetchUrl(over))))).toBe(false);
   });
 
   it("a started call with no transcription shows In progress, says so on its card, and raises one Skip-able notification", async () => {
@@ -122,7 +122,7 @@ describe("meeting chat events", () => {
     const mine = toasts().filter((t) => t.title === live.subject);
     expect(mine).toEqual([{ title: live.subject, body: "Transcription isn't on. Turn it on in Teams to capture this meeting.", buttons: ["Skip this meeting"] }]);
     // Not fetched: it hasn't ended.
-    expect(claudeRecords().some((r) => r.argv.some((a) => a.includes(transcriptUrl(live))))).toBe(false);
+    expect(claudeRecords().some((r) => r.argv.some((a) => a.includes(fetchUrl(live))))).toBe(false);
   });
 
   it("chat checks are haiku runs allowed only read_resource, logged as kind chat, and never for an excluded series", async () => {

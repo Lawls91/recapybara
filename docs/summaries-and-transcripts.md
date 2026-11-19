@@ -58,7 +58,8 @@ transcript or your notes.
 
 ![The Transcript tab with its corrections](images/transcript.png)
 
-The Transcript tab shows one paragraph per speaker turn, with its time and speaker.
+The Transcript tab shows one paragraph per speaker turn, with its time and speaker. A call held just before the
+meeting comes first, then a **Separate call** divider (see [the meeting list](meeting-list.md#the-automatic-fetch-schedule)).
 
 ### Corrections
 
