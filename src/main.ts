@@ -1066,7 +1066,8 @@ getCurrentWebview().onDragDropEvent((e) => {
 
 interface Transcript {
   /** `speaker` and `text` raw, as the citation check read them; the parts corrected. */
-  turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[] }[];
+  /** `newCall`: the first turn of a separate call, shown after a divider. */
+  turns: { at: string; speaker: string; text: string; speakerParts: Part[]; parts: Part[]; newCall: boolean }[];
   minutes: number;
   corrections: Fix[];
   /** Rejected on the Glossary page for this meeting: listed with Restore, not applied. Places: where Teams' word shows. */
@@ -1284,7 +1285,8 @@ function transcriptBody(t: Transcript | null, q: string) {
   const turns = t.turns
     .map((u, i) => {
       const mq = i === scrollToTurn ? q : "";
-      return `<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}">${turnHead(u.at, partsHtml(u.speakerParts, mq))}<span class="tx">${partsHtml(u.parts, mq)}</span></p>`;
+      const divider = u.newCall ? `<div class="callbreak" role="separator" id="callbreak-${i}">Separate call</div>` : "";
+      return `${divider}<p class="turn${i === scrollToTurn ? " hl" : ""}" id="turn-${i}">${turnHead(u.at, partsHtml(u.speakerParts, mq))}<span class="tx">${partsHtml(u.parts, mq)}</span></p>`;
     })
     .join("");
   // The corrections applied, one strip above the first turn; Show expands them, each with Add to glossary.

@@ -149,6 +149,9 @@ export const event = (n, subject, start, end = new Date(start.getTime() + 3600e3
 /** The event's meetingTranscriptUrl, in the connector's shape. */
 export const transcriptUrl = (e) =>
   `meeting-transcript:///events/${Buffer.from(`https://teams.example/j/${e.id}`).toString("base64url")}?start=${e.start.dateTime}Z&end=${e.end.dateTime}Z`;
+/** The link a fetch reads: the meetingTranscriptUrl with its start 30 minutes sooner (fetch::widened). */
+export const fetchUrl = (e) =>
+  transcriptUrl(e).replace(/start=[^&]+/, `start=${wall(new Date(Date.parse(`${e.start.dateTime.slice(0, 19)}Z`) - 30 * 60e3)).dateTime}Z`);
 const search = (events) => ({
   tool_name: `${M365}outlook_calendar_search`,
   tool_input: { query: "*", limit: 25 },
@@ -172,6 +175,6 @@ export const body = (e, content) =>
     meeting: { id: "SYNTH", subject: e.subject, startDateTime: `${e.start.dateTime}Z`, endDateTime: `${e.end.dateTime}Z` },
     transcripts: content ? [{ id: "T1", createdDateTime: `${e.start.dateTime}Z`, endDateTime: `${e.end.dateTime}Z`, content }] : [],
   });
-export const transcriptRead = (e, text) => ({ tool_name: `${M365}read_resource`, tool_input: { uri: transcriptUrl(e) }, tool_response: [{ type: "text", text }] });
-/** The fake claude's records of fetches for event `e`: each fetch's prompt names the event's meetingTranscriptUrl. */
-export const fetchesOf = (e) => claudeRecords().filter((r) => r.argv.some((a) => a.includes(transcriptUrl(e))));
+export const transcriptRead = (e, text) => ({ tool_name: `${M365}read_resource`, tool_input: { uri: fetchUrl(e) }, tool_response: [{ type: "text", text }] });
+/** The fake claude's records of fetches for event `e`: each fetch's prompt names the event's widened link. */
+export const fetchesOf = (e) => claudeRecords().filter((r) => r.argv.some((a) => a.includes(fetchUrl(e))));

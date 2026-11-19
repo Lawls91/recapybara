@@ -96,6 +96,12 @@ When Teams saved the call as several transcripts, the parts are merged into one 
 parts found stop more than 5 minutes before the call ended (seen in its chat), the app waits for the rest on the same
 schedule, up to 30 minutes after the call ended, then saves what is there.
 
+A transcript belongs to the meeting when it started from 30 minutes before the scheduled start to the scheduled end,
+or was still running at the start however early it began. So a quick call just before the meeting (say 13:40 to 13:45
+for a 14:00 meeting) is part of it: the Transcript tab shows it first, then a **Separate call** divider before the
+meeting itself, and the summary says the meeting had separate sessions. A call that ended more than 30 minutes before
+the start, or one after the meeting, isn't fetched; import it if you want it.
+
 ## The failure cards: Try again and Import transcript
 
 ![A No transcript card](images/no-transcript.png)

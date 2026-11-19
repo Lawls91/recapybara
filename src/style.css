@@ -720,6 +720,22 @@ button {
   display: flex;
   flex-direction: column;
 }
+/* before the first turn of a separate call: a rule with its label */
+.callbreak {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mc-txt3);
+}
+.callbreak::before,
+.callbreak::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--mc-stroke2);
+}
 /* a turn's head, **[hh:mm:ss] Speaker:**, bold throughout */
 .turn .th {
   font-size: 12.5px;

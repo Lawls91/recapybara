@@ -15,8 +15,10 @@ use std::{io, path::{Path, PathBuf}, sync::{mpsc, Mutex}};
 pub const RETRIES: [i64; 5] = [0, 2, 10, 30, 120];
 /// An event that ended less than this long ago gets a catch-up attempt.
 pub const CATCH_UP: Duration = Duration::minutes(120);
-/// Transcripts created this long before the event's start still belong to it.
+/// Transcripts created this long before the event's start still belong to it (and any still running at the start).
 pub const EARLY: Duration = Duration::minutes(30);
+/// A gap this long between one transcript's end and the next one's start: a separate call, marked in the merge.
+pub const SESSION_GAP: Duration = Duration::minutes(5);
 /// A capture whose parts stop more than this short of the call's ended time waits for the parts still to come ...
 pub const PART_GAP: Duration = Duration::minutes(5);
 /// ... until this long after the call ended, when what is there is captured.
@@ -155,7 +157,8 @@ fn text(v: &Value) -> String {
 
 /// The attempt's verdict from the run's captured payloads. Only a read whose `tool_input.uri` equals
 /// `url` exactly counts. Its response must be `{meeting, transcripts[]}` (text blocks or one string); the transcripts
-/// created from 30 minutes before `start` to `end` are kept, and each must be VTT with at least one cue.
+/// created by `end` and either from 30 minutes before `start` or still running at `start` are kept, and each must be
+/// VTT with at least one cue.
 pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<Utc>) -> Attempt {
     let Some(p) = captured.iter().rev().find(|p| p["tool_name"] == READ && p["tool_input"]["uri"].as_str() == Some(url)) else {
         return Attempt::Missed("Claude didn't read the transcript link.".into());
@@ -184,7 +187,8 @@ pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<
         let Some(created) = t["createdDateTime"].as_str().and_then(utc) else {
             return Attempt::Invalid("Teams sent a transcript with no creation time.".into());
         };
-        if created < start - EARLY || created > end {
+        let running = t["endDateTime"].as_str().and_then(utc).is_some_and(|e| e > start);
+        if created > end || (created < start - EARLY && !running) {
             continue;
         }
         let content = t["content"].as_str().unwrap_or_default();
@@ -203,12 +207,19 @@ fn stamp(ms: i64) -> String {
 }
 
 /// The parts on one timeline: part 1 as captured, then each later part's cues with their times shifted by its
-/// `createdDateTime` minus part 1's. A later part's header (up to its first blank line) is dropped.
-pub fn merge(parts: &[Part]) -> String {
+/// `createdDateTime` minus part 1's. A later part's header (up to its first blank line) is dropped. After a part that
+/// ended before the meeting's `start`, a part starting `SESSION_GAP` or more later is a separate call (a pre-call, then
+/// the meeting): a `library::SEPARATE_CALL` note goes first. A gap within the meeting is not marked.
+pub fn merge(parts: &[Part], start: Option<DateTime<Utc>>) -> String {
     let mut out = parts[0].content.trim_end().to_string();
-    for p in &parts[1..] {
+    for w in parts.windows(2) {
+        let (before, p) = (&w[0], &w[1]);
         let shift = (p.created - parts[0].created).num_milliseconds();
         out.push_str("\n\n");
+        if ends(before).is_some_and(|e| start.is_some_and(|s| e < s) && p.created - e >= SESSION_GAP) {
+            out.push_str(library::SEPARATE_CALL);
+            out.push_str("\n\n");
+        }
         for line in p.content.lines().skip_while(|l| !l.trim().is_empty()).skip(1) {
             let shifted = line.split_once("-->").and_then(|(a, b)| {
                 let (end, rest) = b.trim_start().split_once(' ').unwrap_or((b.trim(), ""));
@@ -223,10 +234,14 @@ pub fn merge(parts: &[Part]) -> String {
     out + "\n"
 }
 
-/// Where the parts stop: the last part's `createdDateTime` plus its last cue's end.
-fn covered(parts: &[Part]) -> Option<DateTime<Utc>> {
-    let p = parts.last()?;
+/// Where a part stops: its `createdDateTime` plus its last cue's end.
+fn ends(p: &Part) -> Option<DateTime<Utc>> {
     Some(p.created + Duration::milliseconds(library::cues(&p.content).last()?.end.into()))
+}
+
+/// Where the parts stop: the last part's end.
+fn covered(parts: &[Part]) -> Option<DateTime<Utc>> {
+    ends(parts.last()?)
 }
 
 /// The first scheduled attempt after `at`, or none when the schedule is over.
@@ -417,14 +432,14 @@ pub fn unskip(dir: &Path, events: &[Event], now: DateTime<Utc>) -> Result<Meetin
 }
 
 /// The capture's `transcript.vtt`: one part exactly as captured, several merged.
-fn transcript_of(parts: &[Part]) -> String {
-    if parts.len() == 1 { parts[0].content.clone() } else { merge(parts) }
+fn transcript_of(parts: &[Part], start: Option<DateTime<Utc>>) -> String {
+    if parts.len() == 1 { parts[0].content.clone() } else { merge(parts, start) }
 }
 
 /// Writes the capture: one part as `transcript.vtt` exactly; several as `transcript.part<n>.vtt` each, plus
 /// the merged `transcript.vtt`.
-fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
-    let vtt = transcript_of(parts);
+fn write_capture(dir: &Path, parts: &[Part], start: Option<DateTime<Utc>>) -> io::Result<String> {
+    let vtt = transcript_of(parts, start);
     if parts.len() > 1 {
         for (n, p) in parts.iter().enumerate() {
             library::write_atomic(&dir.join(format!("transcript.part{}.vtt", n + 1)), p.content.as_bytes())?;
@@ -434,9 +449,31 @@ fn write_capture(dir: &Path, parts: &[Part]) -> io::Result<String> {
     Ok(library::sha256(vtt.as_bytes()))
 }
 
-/// The fetch run for meeting `m`, judged.
+/// The transcript link with its `start=` moved `EARLY` sooner. The connector keeps the transcripts that overlap the
+/// window, so a call held just before a series occurrence (ended before its start) comes back for `judge` to weigh.
+/// No `start=` (a one-off meeting: every transcript comes back), or one that isn't a time: left as it is.
+fn widened(url: &str) -> String {
+    let Some((path, query)) = url.split_once('?') else { return url.into() };
+    let params: Vec<String> = query
+        .split('&')
+        .map(|p| {
+            let at = p.strip_prefix("start=").and_then(|v| utc(&v.replace("%3A", ":")).map(|at| (v, at)));
+            match at {
+                Some((v, at)) => {
+                    // The calendar's 7-digit fraction (chrono has no %.7f; the 100 ns digit is always 0 there).
+                    let s = (at - EARLY).format("%Y-%m-%dT%H:%M:%S%.6f0Z").to_string();
+                    format!("start={}", if v.contains("%3A") { s.replace(':', "%3A") } else { s })
+                }
+                None => p.into(),
+            }
+        })
+        .collect();
+    format!("{path}?{}", params.join("&"))
+}
+
+/// The fetch run for meeting `m` (its link widened), judged.
 fn verdict(m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>) -> Attempt {
-    let url = m.transcript_url.clone().unwrap_or_default();
+    let url = widened(m.transcript_url.as_deref().unwrap_or_default());
     // No end, no schedule to keep: fail closed rather than retry forever.
     let end: DateTime<Utc> = m.end.map(Into::into).unwrap_or(now);
     let start = m.start.map(Into::into).unwrap_or(end);
@@ -496,7 +533,7 @@ fn attempt(
     match outcome {
         Attempt::Captured(parts) if partial(&parts) => retry(&mut m, State::NoTranscript),
         Attempt::Captured(parts) => {
-            m.transcript_sha256 = Some(write_capture(dir, &parts)?);
+            m.transcript_sha256 = Some(write_capture(dir, &parts, m.start.map(Into::into))?);
             m.source = Some("connector".into());
             m.state = State::TranscriptReady;
         }
@@ -661,14 +698,14 @@ pub fn again(
         Attempt::Unreachable => return Err("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).".into()),
         Attempt::Invalid(why) | Attempt::Missed(why) => return Err(why),
     };
-    if transcript_of(&parts).as_bytes() == was {
+    if transcript_of(&parts, m.start.map(Into::into)).as_bytes() == was {
         return Ok(false);
     }
     let (mut m, vtt) = check()?;
     if vtt != was {
         return Err("The transcript changed during the fetch, so it was left as it is.".into());
     }
-    m.transcript_sha256 = Some(write_capture(&dir, &parts).map_err(|e| e.to_string())?);
+    m.transcript_sha256 = Some(write_capture(&dir, &parts, m.start.map(Into::into)).map_err(|e| e.to_string())?);
     m.source = Some("connector".into());
     m.state = State::TranscriptReady;
     m.last_fetch = Some(now.with_timezone(&Local).fixed_offset());
@@ -926,7 +963,7 @@ mod tests {
         let Attempt::Captured(parts) = judged(&captured) else { panic!() };
         assert_eq!(parts.iter().map(|p| p.created).collect::<Vec<_>>(), [start(), t("2026-11-05T11:20:00Z")], "09:00 ignored, oldest first");
         assert_eq!(
-            merge(&parts),
+            merge(&parts, Some(start())),
             "WEBVTT\n\nsynth/1-0\n00:00:01.000 --> 00:00:04.000\n<v Speaker A>Synthetic part one opens.</v>\n\n\
              synth/2-0\n00:20:05.000 --> 00:20:09.500\n<v Speaker B>Synthetic part two resumes.</v>\n"
         );
@@ -934,6 +971,53 @@ mod tests {
         assert!(matches!(judged(&early), Attempt::Captured(p) if p.len() == 1), "10:58 for an 11:00 event is kept");
         let too_early = [read(URL, blocks(&body(&[("2026-11-05T10:29:59Z", VTT_A)])))];
         assert_eq!(judged(&too_early), Attempt::Empty);
+    }
+
+    /// `body` with each transcript's own end time.
+    fn spans(transcripts: &[(&str, &str, &str)]) -> String {
+        let ts: Vec<Value> = transcripts.iter().enumerate()
+            .map(|(i, (created, ended, content))| json!({ "id": format!("T{i}"), "createdDateTime": created, "endDateTime": ended, "content": content }))
+            .collect();
+        json!({ "meeting": { "id": "SYNTH" }, "transcripts": ts }).to_string()
+    }
+
+    #[test]
+    fn a_call_still_running_at_the_start_is_kept_however_early_it_began_and_one_over_30_minutes_early_is_not() {
+        let running = [read(URL, blocks(&spans(&[("2026-11-05T10:20:00Z", "2026-11-05T11:10:00Z", VTT_A)])))];
+        assert!(matches!(judged(&running), Attempt::Captured(p) if p.len() == 1), "10:20 to 11:10 runs into the 11:00 slot");
+        let over_early = [read(URL, blocks(&spans(&[("2026-11-05T10:20:00Z", "2026-11-05T10:25:00Z", VTT_A)])))];
+        assert_eq!(judged(&over_early), Attempt::Empty, "a 10:20 call that ended at 10:25 is too early");
+    }
+
+    #[test]
+    fn a_pre_call_that_ended_before_the_start_is_kept_behind_a_separate_call_note_and_a_gap_inside_the_slot_is_not() {
+        let captured = [read(URL, blocks(&spans(&[("2026-11-05T10:40:00Z", "2026-11-05T10:45:00Z", VTT_A), ("2026-11-05T11:00:00Z", "2026-11-05T11:50:00Z", VTT_B)])))];
+        let Attempt::Captured(parts) = judged(&captured) else { panic!() };
+        assert_eq!(parts.len(), 2, "the 10:40 pre-call stays");
+        let vtt = merge(&parts, Some(start()));
+        assert_eq!(
+            vtt,
+            "WEBVTT\n\nsynth/1-0\n00:00:01.000 --> 00:00:04.000\n<v Speaker A>Synthetic part one opens.</v>\n\n\
+             NOTE Separate call\n\n\
+             synth/2-0\n00:20:05.000 --> 00:20:09.500\n<v Speaker B>Synthetic part two resumes.</v>\n"
+        );
+        assert!(library::validate("t.vtt", vtt.as_bytes()).is_ok());
+        // Less than 5 minutes between them: one session. No start known: no note.
+        let close = [Part { created: t("2026-11-05T10:56:00Z"), content: VTT_A.into() }, Part { created: t("2026-11-05T10:59:00Z"), content: VTT_B.into() }];
+        assert!(!merge(&close, Some(start())).contains("NOTE"));
+        assert!(!merge(&parts, None).contains("NOTE"));
+    }
+
+    #[test]
+    fn the_fetch_reads_the_link_with_its_start_30_minutes_sooner_in_the_same_spelling() {
+        assert_eq!(
+            widened("meeting-transcript:///events/U1lOVEg?start=2026-11-18T10%3A45%3A00.0000000Z&end=2026-11-18T11%3A00%3A00.0000000Z"),
+            "meeting-transcript:///events/U1lOVEg?start=2026-11-18T10%3A15%3A00.0000000Z&end=2026-11-18T11%3A00%3A00.0000000Z"
+        );
+        assert_eq!(widened(URL), "meeting-transcript:///events/U1lOVEgtam9pbg?start=2026-11-05T10:30:00.0000000Z&end=2026-11-05T11:50:00Z");
+        for same in ["meeting-transcript:///events/U1lOVEg", "meeting-transcript:///events/SYNTH-1?start=x&end=y", ""] {
+            assert_eq!(widened(same), same, "a one-off's link, or a start that isn't a time, is left alone");
+        }
     }
 
     // --- the schedule, on a fake clock ---
