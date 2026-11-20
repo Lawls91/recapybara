@@ -424,6 +424,15 @@ fn get_summary(app: AppHandle, id: String) -> Result<Option<summary::Summary>, S
     Ok(summary::load(&library::meeting_dir(&library_path(&app)?, &id)?))
 }
 
+/// A 1:1 or group call's Open in Stream: its Stream link from `meeting.json`, opened in the default browser only if it
+/// is an https SharePoint link (it came from a chat). The transcript downloads there.
+#[tauri::command]
+fn open_stream(app: AppHandle, id: String) -> Result<(), String> {
+    let m = library::load(&library::meeting_dir(&library_path(&app)?, &id)?).map_err(|e| e.to_string())?;
+    let url = m.stream_url.filter(|u| adhoc::openable(u)).ok_or("This call has no Stream link the app can open.")?;
+    platform::open_url(&url).map_err(|e| format!("Couldn't open Stream: {e}"))
+}
+
 #[tauri::command]
 fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
     let dir = library::meeting_dir(&library_path(&app)?, &id)?;
@@ -1131,6 +1140,7 @@ pub fn run() {
             pick_transcript_file,
             import_transcript,
             open_folder,
+            open_stream,
             summarise,
             get_summary,
             get_summary_md,

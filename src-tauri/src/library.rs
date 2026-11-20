@@ -46,6 +46,9 @@ pub struct Meeting {
     /// An ad-hoc call's Teams call id (adhoc): the meeting has no calendar event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
+    /// A 1:1 or group call's Stream link (adhoc): where its transcript downloads, as the connector can't fetch it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_url: Option<String>,
     pub join_url: Option<String>,
     pub subject: String,
     pub start: Option<DateTime<FixedOffset>>,

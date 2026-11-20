@@ -26,8 +26,10 @@ export interface Meeting {
   attendees: string[];
   joinUrl: string | null;
   eventId: string | null;
-  /** An ad-hoc call's Teams call id: a call in a meeting chat, not on the calendar. */
+  /** An ad-hoc call's Teams call id: a call in a chat, not on the calendar. */
   callId?: string | null;
+  /** A 1:1 or group call's Stream link, where its transcript downloads (the app can't fetch it). */
+  streamUrl?: string | null;
   source: string | null;
   state: State;
   hasTranscript: boolean;
@@ -142,9 +144,17 @@ export const STATE_CARDS: Partial<Record<State, string>> = {
 export const needsTranscript = (s: State) =>
   s === "noTranscript" || s === "didNotHappen" || s === "notTranscribed" || s === "notReachable" || s === "captureFailed";
 
+/** A call in a 1:1 or group chat: an ad-hoc call with no join URL, so there is nothing the app can fetch. Its card
+ * offers Open in Stream (when Teams gave a link) instead of Try again. */
+export const chatCall = (m: Meeting) => !!m.callId && !m.joinUrl;
+
 /** Why a meeting with no transcript has none, for its card: the state's own reason, and Capture failed's from the
  * recorded attempt. The card's actions are Try again and Import transcript. */
 export function failureReason(m: Meeting): string {
+  if (chatCall(m))
+    return m.streamUrl
+      ? "Teams doesn't let the app fetch the transcript of a call in a 1:1 or group chat. Open the call in Stream, download its transcript (.vtt), then import it here."
+      : "Teams doesn't let the app fetch the transcript of a call in a 1:1 or group chat. Download it (.vtt) from the call's recap in Teams, then import it here.";
   if (m.state === "noTranscript") return "Teams had no transcript for this meeting (transcription may have been off).";
   if (m.state === "notTranscribed") return "Transcription wasn't on during the call, so there's nothing to capture.";
   if (m.state === "didNotHappen") return "The call never started, so there's nothing to capture.";

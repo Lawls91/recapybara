@@ -12,6 +12,7 @@ import {
   dayGroups,
   DATES,
   deletePrompt,
+  chatCall,
   failureReason,
   filterChips,
   GROUPS,
@@ -1138,8 +1139,14 @@ function fetchCard(m: Meeting) {
   const busy = !!m.fetching || retrying.has(m.id);
   const title = busy ? `<i class="spin"></i>Fetching transcript` : STATES[m.state].label;
   const why = busy ? "Asking Teams for this meeting’s transcript again…" : failureReason(m);
+  // A 1:1 or group call has nothing to fetch: Open in Stream, where its transcript downloads, instead of Try again.
+  const first = chatCall(m)
+    ? m.streamUrl
+      ? `<button class="btn pri" id="open-stream">Open in Stream</button>`
+      : ""
+    : `<button class="btn pri" id="fetch-retry"${busy ? ` aria-disabled="true"` : ""}>Try again</button>`;
   return `<div class="card${busy || STATES[m.state].family !== "fail" ? "" : " err"}" id="fetch-card"><h5>${title}</h5><p id="fetch-reason">${esc(why)}</p>
-    <div class="acts"><button class="btn pri" id="fetch-retry"${busy ? ` aria-disabled="true"` : ""}>Try again</button><button class="btn" id="import-now">Import transcript</button></div></div>`;
+    <div class="acts">${first}<button class="btn" id="import-now">Import transcript</button></div></div>`;
 }
 
 /** Meetings whose Try again is in flight: a second press does nothing, and the card stays busy until it lands. */
@@ -1393,6 +1400,13 @@ async function renderDetail() {
   }
   const retry = document.getElementById("fetch-retry");
   if (retry) retry.onclick = () => tryAgain(m);
+  const stream = document.getElementById("open-stream");
+  if (stream)
+    stream.onclick = () =>
+      invoke("open_stream", { id: m.id }).catch((e) => {
+        $("sr-status").textContent = String(e);
+        failed(e);
+      });
   const action = document.getElementById("summary-action");
   if (action) action.onclick = () => runSummary(m.id);
   det.querySelectorAll<HTMLElement>(".chip[data-cite]").forEach((b) => (b.onclick = () => openPeek(b)));

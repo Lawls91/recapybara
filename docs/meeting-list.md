@@ -26,7 +26,8 @@ Each row has a **...** button (or right-click the row) with the meeting's action
   library, and stays in the list for good unless you [delete](meeting-actions.md#delete) it.
 - **Imports.** A `.vtt` transcript file, or past meetings fetched with [Import from Teams](importing.md).
 - **Calls in your meeting chats.** A transcribed call in a meeting's chat that no meeting on your calendar accounts
-  for, such as an ad-hoc call between a series' meetings: see [below](#calls-in-your-meeting-chats).
+  for, such as an ad-hoc call between a series' meetings, and a transcribed call in a 1:1 or group chat: see
+  [below](#calls-in-your-meeting-chats).
 
 If an event couldn't be read, or is in a time zone the app can't convert, the status line says so, for example
 "Updated 14:00 · 1 event couldn't be read".
@@ -160,22 +161,30 @@ finds it:
   any other meeting, and **Show all in this series**, Skip, Delete and Exclude series work on it as usual.
 - A call from 30 minutes before a meeting's start, or one still running at the start, stays part of that meeting.
 - Every transcribed call is captured, whether you joined it or not.
+- **A call in a 1:1 or group chat** is found the same way, but Teams doesn't let the app fetch its transcript. It shows
+  as **No transcript**, named after its recording ("Call with …"), and its card has **Open in Stream** in place of Try
+  again: the call opens in your browser, where you can download its transcript as a `.vtt`. Then use **Import
+  transcript**, or drop the file on the card, and it is summarised like any meeting. The link is the recording's,
+  posted in the chat; when there is none, the card says to download the `.vtt` from the call's recap in Teams.
 
 What it can't find:
 
 - Calls before the app first looked at your chats: it starts from then, and doesn't bring in older calls.
 - A call whose chat fell out of your 25 most recently active chats, or whose call events scrolled past that chat's
   latest 50 messages, before the app looked (for example, after days with the app closed).
-- Calls in 1:1 and group chats, and ad-hoc calls in a channel: Teams doesn't make those transcripts available to the
-  app. Download the `.vtt` from the call's recap and [import it](importing.md).
+- Ad-hoc calls in a channel: channel conversations aren't in the chat list. Download the `.vtt` from the call's
+  recap and [import it](importing.md).
 
-**Privacy.** The chat list gives the app each chat's id, type, topic, members and last-updated time. It keeps only each
-meeting chat's id and last-updated time, in `chat-cursors.json` in its settings folder, and the topic of a chat it
-makes a meeting from; 1:1 and group chats, and every member list, are passed over unread. Message text is never read,
-as above.
+**Privacy.** The chat list gives the app each chat's id, type, topic, members and last-updated time; it passes through
+the Claude run that asks for it, as any connector answer does. The app keeps only each meeting, 1:1 and group chat's id
+and last-updated time, in `chat-cursors.json` in its settings folder, plus what a meeting it makes needs (the chat's
+topic or the recording's name, the call's times and participants, and a 1:1 or group call's Stream link). Member lists
+aren't kept. A chat with something new has its latest messages read for call events only, 1:1 and group chats
+included; message text is never read, as above.
 
-**Cost.** The chat list adds about $0.02 to a refresh, about $0.50 a day. A meeting chat with something new costs one
-short read; a captured call costs a fetch and a summary, like any meeting.
+**Cost.** The chat list adds about $0.02 to a refresh, about $0.50 a day. A chat with something new costs one short
+read; a captured meeting-chat call costs a fetch and a summary, like any meeting, and a 1:1 or group call its summary
+once you import the transcript.
 
 ## When the library folder is missing
 

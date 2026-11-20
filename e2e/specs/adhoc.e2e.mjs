@@ -4,8 +4,9 @@ import path from "node:path";
 import { at as dayAt, calendar, claudeRecords, invoke, M365, root, scenario, seed, vtt } from "../helpers.mjs";
 
 // Ad-hoc calls: a transcribed call in a meeting chat with no calendar slot becomes a meeting of its own. The refresh
-// lists the chats; a meeting chat that moved since its cursor is read for its call events; the call is fetched for its
-// own window and summarised. Every id, name and message is synthetic, in the shapes recorded live on 2026-11-19.
+// lists the chats; a chat that moved since its cursor is read for its call events; a meeting chat's call is fetched for
+// its own window and summarised, and a 1:1 call waits for its transcript with its Stream link. Every id, name and
+// message is synthetic, in the shapes recorded live on 2026-11-19.
 const READ = `${M365}read_resource`;
 const LIST = `${M365}teams_list_chats`;
 const SECRET = "Synthetic-adhoc-secret: the walrus roadmap";
@@ -21,6 +22,10 @@ const min = (n) => new Date(base + n * 60e3);
 const started = min(-65);
 const transcribed = min(-64);
 const ended = min(-35);
+// A 1:1 call: recording and transcription from 50 minutes ago, recorded (its Stream link posted) 46 minutes ago.
+const recordingFrom = min(-50);
+const recorded = min(-46);
+const STREAM = "https://example-my.sharepoint.com/:v:/g/personal/synthetic/STREAM";
 // The app's rebuilt join URL (adhoc::join_url) and the call's transcript link (adhoc::transcript_url).
 const joinUrl = `https://teams.microsoft.com/l/meetup-join/19%3ameeting_U1lOVEhhZGhvYw%40thread.v2/0?context=%7b%22Tid%22%3a%22${TENANT}%22%2c%22Oid%22%3a%22${OID}%22%7d`;
 const at = (d) => d.toISOString().replace(/\.\d{3}Z$/, ".0000000Z").replaceAll(":", "%3A");
@@ -32,7 +37,7 @@ const chats = {
   tool_input: { limit: 25 },
   tool_response: text([
     { id: THREAD, chatType: "meeting", topic: "Synthetic design review", lastUpdatedDateTime: ended.toISOString(), memberCount: 2, members: [{ displayName: "Speaker B", email: "b@example.invalid" }] },
-    { id: ONE_TO_ONE, chatType: "oneOnOne", topic: null, lastUpdatedDateTime: ended.toISOString(), memberCount: 2, members: [] },
+    { id: ONE_TO_ONE, chatType: "oneOnOne", topic: null, lastUpdatedDateTime: recorded.toISOString(), memberCount: 2, members: [] },
   ]),
 };
 const organiser = { meetingOrganizer: { user: { id: OID, tenantId: TENANT } } };
@@ -47,20 +52,35 @@ const page = {
     system("callStartedEventMessageDetail", started),
   ]),
 };
+// The 1:1 chat's page as Teams posts a call there: recording and transcription events only, no started or ended event.
+const recording = (status, when, url) =>
+  system("callRecordingEventMessageDetail", when, { callId: "call-p2p", callRecordingStatus: status, callRecordingUrl: url, callRecordingDisplayName: "Call with Speaker C-20261119_134301-Meeting Transcript.mp4" });
+const p2pPage = {
+  tool_name: READ,
+  tool_input: { uri: `teams:///chats/${ONE_TO_ONE}/messages` },
+  tool_response: text([
+    recording("success", recorded, STREAM),
+    { messageType: "message", createdDateTime: min(-48).toISOString(), bodyPreview: SECRET, eventDetail: null },
+    system("callTranscriptEventMessageDetail", recordingFrom, { callId: "call-p2p", callTranscriptICalUid: "" }),
+    recording("initial", recordingFrom, null),
+  ]),
+};
 const transcript = {
   tool_name: READ,
   tool_input: { uri: LINK },
   tool_response: text([{ meeting: { id: "SYNTH" }, transcripts: [{ id: "T1", createdDateTime: transcribed.toISOString(), endDateTime: ended.toISOString(), content: vtt("ad-hoc design") }] }]),
 };
 
-const adhoc = async () => (await invoke("list_meetings")).filter((m) => m.callId);
+// Ad-hoc calls from meeting chats (fetched), and from 1:1 or group chats (no join URL).
+const adhoc = async () => (await invoke("list_meetings")).filter((m) => m.callId && m.joinUrl);
+const chatCalls = async () => (await invoke("list_meetings")).filter((m) => m.callId && !m.joinUrl);
 const chatReads = (id) => claudeRecords().filter((r) => r.argv.some((a) => a.includes(`teams:///chats/${id}/messages`)));
 const files = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? files(path.join(dir, d.name)) : [path.join(dir, d.name)]));
 
 describe("ad-hoc calls", () => {
   before(async () => {
     const s = calendar([], [], { structuredOutput: { overview: "Synthetic summary." } });
-    s.hooks.push(chats, page, transcript);
+    s.hooks.push(chats, page, p2pPage, transcript);
     scenario(s);
     // The chats were last listed two hours ago, the 1:1 chat among them; the meeting chat is new to the list, brought
     // into it by the call, so it is read from that listing on.
@@ -81,16 +101,28 @@ describe("ad-hoc calls", () => {
     expect(fs.readFileSync(root("library", m.id, "transcript.vtt"), "utf8")).toBe(vtt("ad-hoc design"));
   });
 
-  it("only the moved meeting chat is read, never the 1:1 chat, and no chat text is kept", async () => {
+  it("each moved chat is read once, and no chat text is kept", async () => {
     expect(chatReads(THREAD).length).toBe(1);
-    expect(chatReads(ONE_TO_ONE).length).toBe(0);
+    expect(chatReads(ONE_TO_ONE).length).toBe(1);
     for (const f of [...files(root("library")), root("data", "chat-cursors.json")]) {
       expect(fs.readFileSync(f, "utf8")).not.toContain(SECRET);
     }
     const cursors = JSON.parse(fs.readFileSync(root("data", "chat-cursors.json"), "utf8"));
-    expect(cursors.chats[THREAD]).toBe(ended.toISOString().replace(".000Z", "Z")); // the meeting chat's, as listed
-    expect(cursors.chats[ONE_TO_ONE]).toBe(min(-120).toISOString().replace(".000Z", "Z")); // as seeded: not a meeting chat
+    expect(cursors.chats[THREAD]).toBe(ended.toISOString().replace(".000Z", "Z"));
+    expect(cursors.chats[ONE_TO_ONE]).toBe(recorded.toISOString().replace(".000Z", "Z"));
     expect(Object.keys(cursors).sort()).toEqual(["chats", "listedAt"]);
+  });
+
+  it("a transcribed 1:1 call is No transcript, named from its recording, with Open in Stream instead of Try again", async () => {
+    const [c] = await chatCalls();
+    expect([c.subject, c.state, c.streamUrl, c.callId]).toEqual(["Call with Speaker C", "noTranscript", STREAM, "call-p2p"]);
+    const row = $(`.row[data-id="${c.id}"]`);
+    await expect(row.$(".r2")).toHaveText("ad-hoc call", { containing: true });
+    await row.click();
+    await expect($("#fetch-reason")).toHaveText("Open the call in Stream, download its transcript (.vtt), then import it here.", { containing: true });
+    await expect($("#open-stream")).toBeDisplayed();
+    await expect($("#import-now")).toBeDisplayed();
+    await expect($("#fetch-retry")).not.toExist();
   });
 
   it("a refresh by hand lists again, but a chat that hasn't moved isn't read and nothing is made twice", async () => {
