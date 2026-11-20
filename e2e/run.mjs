@@ -8,6 +8,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { keepNewestDriver } from "./driver-cache.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..");
@@ -22,20 +23,29 @@ for (const f of [app, fake]) {
   }
 }
 
-// tauri-driver auto-install needs cargo on PATH.
+// tauri-driver auto-install needs cargo on PATH. The cached msedgedriver goes first (e2e/driver-cache.mjs).
 const cargoBin = path.join(os.homedir(), ".cargo", "bin");
-const PATH = `${cargoBin}${path.delimiter}${process.env.PATH}`;
-// With no msedgedriver on PATH whose version it can read, the service downloads one per spec (24 MB) into
-// %TEMP%\msedgedriver\<major>-<random> and never deletes it. A copy on PATH doesn't help: the service (to 2.0.0-next.0
-// at least) reads the version only as "MSEdgeDriver <v>", and drivers now print "Microsoft Edge WebDriver <v>". So after
-// each spec the runner deletes the folders that appeared during this run, never older ones.
+const driverCache = path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), "recapybara-e2e", "msedgedriver");
+const PATH = [driverCache, cargoBin, process.env.PATH].join(path.delimiter);
+// With no msedgedriver on PATH whose major version matches Edge's, the service downloads one (24 MB) into
+// %TEMP%\msedgedriver\<major>-<random> and never deletes it. Its check reads only "MSEdgeDriver <v>" (to 2.0.0-next.0 at
+// least) while drivers now print "Microsoft Edge WebDriver <v>": patched in patches/@wdio+tauri-service+*.patch. After
+// each spec the runner copies the newest new download into the cache, so later specs and runs reuse it, then deletes
+// the folders that appeared during this run, never older ones.
 // ponytail: a run on another port that is mid-download when this one cleans can lose its folder (its spec then fails);
 // a per-spec TEMP for the wdio child would make each run own its downloads, if concurrent runs ever hit it.
 const downloads = path.join(os.tmpdir(), "msedgedriver");
 const listDownloads = () => (fs.existsSync(downloads) ? fs.readdirSync(downloads) : []);
 const oldDownloads = new Set(listDownloads());
 const removeDownloadedDrivers = () => {
-  for (const d of listDownloads().filter((d) => !oldDownloads.has(d))) {
+  const fresh = listDownloads().filter((d) => !oldDownloads.has(d));
+  try {
+    const kept = keepNewestDriver(downloads, fresh, driverCache);
+    if (kept) console.log(`e2e: msedgedriver cached at ${kept}`);
+  } catch (e) {
+    console.warn(`e2e: couldn't cache msedgedriver: ${e.message}`);
+  }
+  for (const d of fresh) {
     try {
       fs.rmSync(path.join(downloads, d), { recursive: true, force: true, maxRetries: 10 });
     } catch (e) {
@@ -132,6 +142,10 @@ for (const spec of specs) {
     // A debug build appends each toast it raises here (title, body, buttons): dev builds show none.
     RECAPYBARA_TOAST_LOG: path.join(root, "toasts.jsonl"),
   };
+  // The service unzips msedgedriver with Windows PowerShell 5.1 (powershell.exe). Started from a PowerShell 7 shell it
+  // inherits 7's module path, loads 7's Expand-Archive and fails ("Cannot find an overload for ExtractToDirectory").
+  // Without the variable, powershell.exe builds its own.
+  for (const k of Object.keys(env).filter((k) => k.toLowerCase() === "psmodulepath")) delete env[k];
   // Claude Code not installed: nothing at the path it is run from.
   if (name === "first-run-no-claude") env.RECAPYBARA_CLAUDE = path.join(root, "not-installed", "claude.exe");
   // The installed copy's default library, on a dev instance: a debug build's stand-in for the Documents known folder
