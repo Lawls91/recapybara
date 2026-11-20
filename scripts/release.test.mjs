@@ -141,5 +141,6 @@ describe("release", () => {
     fs.mkdirSync(path.join(dir, "release-notes"));
     fs.writeFileSync(path.join(dir, "release-notes", "v0.4.2.md"), "- One synthetic change\r\n- Another\r\n\r\n");
     expect(releaseNotes("v0.4.2", "v0.4.1", dir)).toBe("- One synthetic change\r\n- Another");
-  });
+    // About 10 git processes: at 0.4-0.6 s a process start on some Windows machines, Vitest's 5 s default is too tight.
+  }, 30_000);
 });

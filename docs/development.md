@@ -64,9 +64,12 @@ folders, as a dev instance, against the fake claude. `node e2e/run.mjs <name>` r
 `<name>`. After each spec the runner stops only the tauri-driver on its own port (and its msedgedriver), so runs on
 different ports (`MC_E2E_PORT`) can go at once.
 
-The service downloads a fresh `msedgedriver` for each spec into `%TEMP%\msedgedriver\<major>-<random>`: it can't read
-the version current drivers print, so one already on PATH is never reused. The runner deletes the folders downloaded
-during its run after each spec, never older ones.
+One `msedgedriver` is kept in `%LOCALAPPDATA%\recapybara-e2e\msedgedriver` and put first on PATH, so a run downloads
+none while its major version matches Edge's. When Edge moves to a new major, the service downloads one into
+`%TEMP%\msedgedriver\<major>-<random>`; after the spec the runner copies it into the cache and deletes the folders
+downloaded during its run, never older ones. The service's own check can't read the version current drivers print
+("Microsoft Edge WebDriver <v>"), so `patches/@wdio+tauri-service+1.5.1.patch` widens it; `npm install` applies it
+(`postinstall: patch-package`). Drop the patch once the service reads both forms.
 
 Exceptions: `single-instance`, `real-folders` and `update` run without dev mode (they test the installed copy's path),
 so close Recapybara before running them. The `first-run` specs start with no `settings.json`.
