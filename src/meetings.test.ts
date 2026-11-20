@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { awaitingLine, calendarLine, dayGroups, deletePrompt, failureReason, filterChips, groupOf, markSeries, menuFor, needsTranscript, NO_FILTER, passes, peopleLine, STATES, type Meeting } from "./meetings";
+import { awaitingLine, calendarLine, chatCall, dayGroups, deletePrompt, failureReason, filterChips, groupOf, markSeries, menuFor, needsTranscript, NO_FILTER, passes, peopleLine, STATES, type Meeting } from "./meetings";
 
 const meeting = (state: Meeting["state"]): Meeting => ({
   id: "m",
@@ -199,6 +199,12 @@ test("each capture failure's card says why: its state's reason, and Capture fail
   expect(failed("notReachable")).toBe("Microsoft blocked access to this transcript (403: you are not the organiser, or the organiser restricted downloads).");
   expect(failed("captureFailed", "Teams sent a size-limit notice instead of the transcript.")).toBe("Teams sent a size-limit notice instead of the transcript.");
   expect(failed("captureFailed")).toBe("The last attempt saved no transcript, and recorded no reason."); // a folder from before reasons were kept
+  // A call in a 1:1 or group chat (a call id, no join URL): nothing the app can fetch, so the card says where to get it.
+  const call = { ...meeting("noTranscript"), callId: "p2p", joinUrl: null };
+  expect(chatCall(call)).toBe(true);
+  expect(chatCall({ ...call, joinUrl: "https://teams.example/j/x" })).toBe(false); // a meeting chat's call is fetched
+  expect(failureReason({ ...call, streamUrl: "https://example-my.sharepoint.com/x" })).toMatch(/^Teams doesn't let the app fetch .*Open the call in Stream/);
+  expect(failureReason(call)).toMatch(/Download it \(\.vtt\) from the call's recap in Teams/);
 });
 
 test("the Filter's five groups (G3) hold every state, and a running fetch is In flight", () => {

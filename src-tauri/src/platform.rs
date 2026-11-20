@@ -11,6 +11,12 @@ pub fn no_console(cmd: &mut Command) {
 #[cfg(not(windows))]
 pub fn no_console(_cmd: &mut Command) {}
 
+/// Opens `url` in the default browser. The caller checks it first (adhoc::openable).
+pub fn open_url(url: &str) -> std::io::Result<()> {
+    let program = if cfg!(windows) { "explorer" } else { "open" };
+    Command::new(program).arg(url).spawn().map(|_| ())
+}
+
 /// A toast under the installed shortcut's AUMID. Windows drops toasts whose AUMID has no
 /// Start-menu shortcut, so a dev or E2E build shows none. `on_click` runs when the toast is clicked.
 pub fn toast(title: &str, body: &str, on_click: impl Fn() + Send + 'static) {

@@ -1,5 +1,7 @@
 //! Ad-hoc calls: a transcribed call in a meeting chat that no scheduled meeting owns (a call in a series chat between
-//! occurrences, a follow-up, a call in the chat of a series not started yet) becomes a meeting of its own. The hourly
+//! occurrences, a follow-up, a call in the chat of a series not started yet) becomes a meeting of its own. So does a
+//! transcribed call in a 1:1 or group chat, though the connector can't read its transcript: it waits as No transcript
+//! with its Stream link, where the `.vtt` downloads, to be attached as any import. The hourly
 //! refresh lists the chats (calendar::LIST); a meeting chat whose last-updated time moved since the last look is read
 //! for its call events, as the chat watcher reads one (only `eventDetail` objects, never a message's text); each ended,
 //! transcribed call left over gets an Awaiting transcript folder, which the fetch schedule takes from there.
@@ -18,23 +20,29 @@ use std::{collections::HashMap, fs, io, path::Path};
 /// The cursors, in the app data folder: each meeting chat's last-updated time as last seen.
 pub const CURSORS: &str = "chat-cursors.json";
 
-/// A meeting chat in the list: only what the app keeps of it.
+/// A chat in the list: only what the app keeps of it.
 #[derive(Debug, PartialEq)]
 pub struct Listed {
     pub id: String,
     pub topic: String,
     pub updated: DateTime<Utc>,
+    /// A meeting's chat; else a 1:1 or group chat, whose call transcripts the connector can't read.
+    pub meeting: bool,
 }
 
-/// The meeting chats in a refresh's captured `teams_list_chats` payloads. 1:1 and group chats, and every chat's
-/// members, are passed by unread.
-pub fn meeting_chats(captured: &[Value]) -> Vec<Listed> {
+/// The meeting, 1:1 and group chats in a refresh's captured `teams_list_chats` payloads. Every chat's members are
+/// passed by unread, and so is any other kind of chat.
+pub fn chats(captured: &[Value]) -> Vec<Listed> {
     let mut out: Vec<Listed> = vec![];
     for p in captured.iter().filter(|p| p["hook_event_name"] == "PostToolUse" && p["tool_name"] == LIST) {
-        for c in crate::calendar::values(&p["tool_response"]).iter().filter(|c| c["chatType"] == "meeting") {
+        for c in crate::calendar::values(&p["tool_response"]) {
+            let meeting = c["chatType"] == "meeting";
+            if !meeting && c["chatType"] != "oneOnOne" && c["chatType"] != "group" {
+                continue;
+            }
             let (Some(id), Some(updated)) = (c["id"].as_str(), c["lastUpdatedDateTime"].as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok())) else { continue };
             if !out.iter().any(|l| l.id == id) {
-                out.push(Listed { id: id.into(), topic: c["topic"].as_str().unwrap_or("Teams call").trim().into(), updated: updated.into() });
+                out.push(Listed { id: id.into(), topic: c["topic"].as_str().unwrap_or_default().trim().into(), updated: updated.into(), meeting });
             }
         }
     }
@@ -51,6 +59,12 @@ pub struct Call {
     /// `meetingOrganizer.user`'s tenant and id, carried by the transcription and recording events only.
     pub organiser: Option<(String, String)>,
     pub participants: Vec<String>,
+    /// The recording's first event, and its last ("success"): a 1:1 or group call posts no started or ended event.
+    pub recording_started: Option<DateTime<Utc>>,
+    pub recorded: Option<DateTime<Utc>>,
+    /// The success event's Stream link and file name ("Call with Speaker B-20261119_134301-Meeting Transcript.mp4").
+    pub stream_url: Option<String>,
+    pub recording_name: Option<String>,
 }
 
 /// Every call event under `v`, by call id. Like chat::walk, a message object is looked at only for its `eventDetail`.
@@ -82,6 +96,14 @@ fn walk(v: &Value, calls: &mut Vec<Call>) {
                         }
                     }
                 }
+                "#microsoft.graph.callRecordingEventMessageDetail" => {
+                    c.recording_started = Some(c.recording_started.map_or(at, |s| s.min(at)));
+                    let url = d["callRecordingUrl"].as_str().unwrap_or_default();
+                    if d["callRecordingStatus"] == "success" && !url.is_empty() {
+                        (c.recorded, c.stream_url) = (Some(at), Some(url.into()));
+                        c.recording_name = d["callRecordingDisplayName"].as_str().map(Into::into);
+                    }
+                }
                 _ => {}
             }
             let user = &d["meetingOrganizer"]["user"];
@@ -94,12 +116,47 @@ fn walk(v: &Value, calls: &mut Vec<Call>) {
     }
 }
 
-/// The calls a chat read of `uri` found that can be captured: ended, transcribed, and with their organiser known.
-pub fn calls(captured: &[Value], uri: &str) -> Result<Vec<Call>, String> {
+/// The calls a chat read of `uri` found that can be captured. In a meeting chat: ended, transcribed, and with their
+/// organiser known (for the join URL). In a 1:1 or group chat: transcribed, and ended or recorded.
+pub fn calls(captured: &[Value], uri: &str, meeting: bool) -> Result<Vec<Call>, String> {
     let mut all = vec![];
     chat::page(captured, uri)?.iter().for_each(|v| walk(v, &mut all));
-    all.retain(|c| c.ended.is_some() && c.transcript.is_some() && c.organiser.is_some());
+    all.retain(|c| c.transcript.is_some() && if meeting { c.ended.is_some() && c.organiser.is_some() } else { c.ended.or(c.recorded).is_some() });
     Ok(all)
+}
+
+/// A 1:1 or group call's name: its recording's, up to the `-yyyyMMdd_HHmmss` stamp ("Call with Speaker B"), else the
+/// chat's topic, else "Teams call".
+fn call_name(chat: &Listed, call: &Call) -> String {
+    let from_file = call.recording_name.as_deref().and_then(|n| {
+        let b = n.as_bytes();
+        (0..b.len().saturating_sub(16)).find(|&i| b[i] == b'-' && b[i + 1..i + 9].iter().all(u8::is_ascii_digit) && b[i + 9] == b'_').map(|i| n[..i].trim())
+    });
+    [from_file.unwrap_or_default(), chat.topic.as_str(), "Teams call"].into_iter().find(|s| !s.is_empty()).unwrap_or_default().into()
+}
+
+/// A 1:1 or group call's meeting: no join URL, so nothing for the fetch to read. It is No transcript at once, with
+/// its Stream link, where the `.vtt` is a download away; the transcript is attached as any import.
+fn chat_call(chat: &Listed, call: &Call, now: DateTime<Utc>) -> Meeting {
+    let start = call.started.or(call.recording_started).or(call.transcript).unwrap_or(now);
+    let local = |t: DateTime<Utc>| Some(t.with_timezone(&Local).fixed_offset());
+    Meeting {
+        call_id: Some(call.id.clone()),
+        subject: call_name(chat, call),
+        start: local(start),
+        end: local(call.ended.or(call.recorded).unwrap_or(now)),
+        attendees: call.participants.clone(),
+        state: State::NoTranscript,
+        stream_url: call.stream_url.clone(),
+        ..Meeting::default()
+    }
+}
+
+/// Whether `url` is one the app opens: https on a SharePoint host, as a Teams recording link is. It came from a chat,
+/// so anything else (another scheme, another host) is refused.
+pub fn openable(url: &str) -> bool {
+    let host = url.strip_prefix("https://").and_then(|r| r.split(['/', '?', '#']).next()).unwrap_or_default();
+    !host.contains(['@', ':']) && host.ends_with(".sharepoint.com") && host.len() > ".sharepoint.com".len()
 }
 
 /// The join URL Teams gives a meeting chat's meeting: its thread, its organiser and tenant. None for a chat whose
@@ -138,7 +195,7 @@ fn meeting(chat: &Listed, call: &Call, join_url: &str, now: DateTime<Utc>) -> Me
     Meeting {
         call_id: Some(call.id.clone()),
         join_url: Some(join_url.into()),
-        subject: chat.topic.clone(),
+        subject: if chat.topic.is_empty() { "Teams call".into() } else { chat.topic.clone() },
         start: local(start),
         end: local(end),
         attendees: call.participants.clone(),
@@ -164,8 +221,9 @@ fn load(file: &Path) -> Cursors {
     fs::read(file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-/// After a listing refresh: a meeting chat whose last-updated time moved past its cursor is read once, and each
-/// capturable call on it that ended since the cursor and that no meeting owns gets a folder. A chat seen for the first
+/// After a listing refresh: a meeting, 1:1 or group chat whose last-updated time moved past its cursor is read once,
+/// and each capturable call on it that ended since the cursor and that no meeting owns gets a folder: a meeting
+/// chat's call is fetched, a 1:1 or group call's waits for its transcript, with its Stream link (`chat_call`). A chat seen for the first
 /// time has the last listing's time as its cursor, so a call that brought it into the list is found; at the very first
 /// listing there is none, and each chat only gets a cursor (no backfill of older calls). A call is owned by a library meeting or cached event of the same chat that it `belongs` to
 /// (fetch::belongs, as that meeting's fetch would keep it), by an ad-hoc meeting with its call id, by a deleted
@@ -186,7 +244,7 @@ pub fn find(
     let (since, seen) = (cursors_now.listed_at, &mut cursors_now.chats);
     let mut made = vec![];
     let thread = |url: &str| chat::thread(url);
-    for c in meeting_chats(captured) {
+    for c in chats(captured) {
         let Some(last) = seen.get(&c.id).copied().or(since) else {
             seen.insert(c.id.clone(), c.updated);
             continue;
@@ -200,7 +258,7 @@ pub fn find(
             continue;
         }
         let uri = chat::uri(&c.id);
-        let found = run(&chat::run_for(&uri)).map_err(|e| e.to_string()).and_then(|o| calls(&o.captured, &uri));
+        let found = run(&chat::run_for(&uri)).map_err(|e| e.to_string()).and_then(|o| calls(&o.captured, &uri, c.meeting));
         let found = match found {
             Ok(f) => f,
             Err(e) => {
@@ -217,12 +275,16 @@ pub fn find(
             .filter(|(u, _, _)| thread(u).as_deref() == Some(c.id.as_str()))
             .collect();
         // Only calls that ended since the last look: earlier ones were weighed then, or came before the first sight.
-        for call in found.into_iter().filter(|call| call.ended.is_some_and(|e| e > last)) {
+        for call in found.into_iter().filter(|call| call.ended.or(call.recorded).is_some_and(|e| e > last)) {
             let created = call.transcript.unwrap_or(now);
             let owned = slots.iter().any(|(_, s, e)| fetch::belongs(created, call.ended, *s, *e, fetch::EARLY))
                 || listed.iter().any(|l| l.meeting.call_id.as_deref() == Some(call.id.as_str()))
                 || deleted(&format!("call:{}", call.id));
             if owned {
+                continue;
+            }
+            if !c.meeting {
+                made.push(library::create(lib, &chat_call(&c, &call, now))?);
                 continue;
             }
             let (tenant, oid) = call.organiser.clone().unwrap_or_default();
@@ -274,9 +336,16 @@ mod tests {
     }
 
     #[test]
-    fn only_meeting_chats_id_topic_and_time_are_kept_from_the_list() {
-        let captured = [list(json!([chat(THREAD, "meeting", "2026-11-18T16:00:20Z"), chat("19:a_b@unq.gbl.spaces", "oneOnOne", "2026-11-19T13:47:06Z"), chat("19:c@thread.v2", "group", "2026-11-19T10:00:00Z")]))];
-        assert_eq!(meeting_chats(&captured), [Listed { id: THREAD.into(), topic: "Synthetic sync".into(), updated: t("2026-11-18T16:00:20Z") }]);
+    fn meeting_1_1_and_group_chats_keep_only_id_topic_time_and_kind_from_the_list() {
+        let mut other = chat("19:d@thread.skype", "unknownFutureValue", "2026-11-19T10:00:00Z");
+        other["topic"] = Value::Null;
+        let captured = [list(json!([chat(THREAD, "meeting", "2026-11-18T16:00:20Z"), chat("19:a_b@unq.gbl.spaces", "oneOnOne", "2026-11-19T13:47:06Z"), chat("19:c@thread.v2", "group", "2026-11-19T10:00:00Z"), other]))];
+        let listed = |id: &str, updated: &str, meeting: bool| Listed { id: id.into(), topic: "Synthetic sync".into(), updated: t(updated), meeting };
+        assert_eq!(chats(&captured), [
+            listed(THREAD, "2026-11-18T16:00:20Z", true),
+            listed("19:a_b@unq.gbl.spaces", "2026-11-19T13:47:06Z", false),
+            listed("19:c@thread.v2", "2026-11-19T10:00:00Z", false),
+        ]);
     }
 
     #[test]
@@ -293,7 +362,7 @@ mod tests {
             event("callStarted", "C3", "2026-11-19T09:00:00Z"), // still on
             event("callTranscript", "C3", "2026-11-19T09:00:05Z"),
         ])];
-        let found = calls(&captured, &uri).unwrap();
+        let found = calls(&captured, &uri, true).unwrap();
         assert_eq!(found, [Call {
             id: "C1".into(),
             started: Some(t("2026-11-18T14:59:15Z")),
@@ -301,8 +370,51 @@ mod tests {
             ended: Some(t("2026-11-18T16:00:19Z")),
             organiser: Some((TENANT.into(), OID.into())),
             participants: vec!["Speaker A".into()],
+            recording_started: Some(t("2026-11-18T14:59:19Z")),
+            ..Call::default()
         }]);
-        assert!(calls(&[], &uri).is_err(), "no read is an error, so the cursor stays");
+        assert!(calls(&[], &uri, true).is_err(), "no read is an error, so the cursor stays");
+    }
+
+    /// A 1:1 call as Teams posts it: recording started, transcription started, recording done with its Stream link.
+    fn one_to_one(uri: &str, call: &str, start: &str, done: &str) -> Value {
+        let recording = |status: &str, at: &str, url: &str| {
+            json!({ "messageType": "unknownFutureValue", "createdDateTime": at, "eventDetail": { "@odata.type": "#microsoft.graph.callRecordingEventMessageDetail", "callId": call,
+                "callRecordingStatus": status, "callRecordingUrl": url, "callRecordingDisplayName": "Call with Speaker B-20261119_134301-Meeting Transcript.mp4" } })
+        };
+        page(uri, vec![
+            recording("success", done, "https://example-my.sharepoint.com/:v:/g/personal/synthetic/ABC"),
+            recording("chunkFinished", done, ""),
+            json!({ "messageType": "unknownFutureValue", "createdDateTime": start, "eventDetail": { "@odata.type": "#microsoft.graph.callTranscriptEventMessageDetail", "callId": call, "callTranscriptICalUid": "" } }),
+            recording("initial", start, ""),
+            message(start),
+        ])
+    }
+
+    #[test]
+    fn a_1_1_call_becomes_a_no_transcript_meeting_named_from_its_recording_with_its_stream_link() {
+        let d = temp("one-to-one");
+        let (lib, cursors) = (d.join("lib"), d.join(CURSORS));
+        const ONE: &str = "19:aaaa_bbbb@unq.gbl.spaces";
+        let none = |_: &str| false;
+        find(&lib, &cursors, &[list(json!([chat(ONE, "oneOnOne", "2026-11-19T12:00:00Z")]))], &[], &[], none, t("2026-11-19T12:00:00Z"), |_| panic!()).unwrap();
+        let mut moved = chat(ONE, "oneOnOne", "2026-11-19T13:47:06Z");
+        moved["topic"] = Value::Null;
+        let made = find(&lib, &cursors, &[list(json!([moved]))], &[], &[], none, t("2026-11-19T14:00:00Z"), answer(vec![one_to_one(&chat::uri(ONE), "P2P", "2026-11-19T13:43:03Z", "2026-11-19T13:47:06Z")])).unwrap();
+        let m = library::load(&lib.join(&made[0])).unwrap();
+        assert_eq!((m.subject.as_str(), m.call_id.as_deref(), m.state), ("Call with Speaker B", Some("P2P"), State::NoTranscript));
+        assert_eq!(m.stream_url.as_deref(), Some("https://example-my.sharepoint.com/:v:/g/personal/synthetic/ABC"));
+        assert_eq!((m.start.map(|s| s.to_utc()), m.end.map(|e| e.to_utc())), (Some(t("2026-11-19T13:43:03Z")), Some(t("2026-11-19T13:47:06Z"))));
+        assert_eq!((m.join_url, m.transcript_url, m.next_attempt), (None, None, None), "nothing for the fetch to read");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn only_an_https_sharepoint_link_is_opened() {
+        assert!(openable("https://example-my.sharepoint.com/:v:/g/personal/synthetic/ABC"));
+        for bad in ["http://example-my.sharepoint.com/x", "https://example.com/x.sharepoint.com", "https://evil.com#.sharepoint.com", "https://a@evil.sharepoint.com.evil.com/", "https://.sharepoint.com/", "file:///C:/x", "javascript:alert(1)", ""] {
+            assert!(!openable(bad), "{bad}");
+        }
     }
 
     #[test]
