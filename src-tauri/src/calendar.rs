@@ -14,10 +14,16 @@ use std::{collections::HashMap, fs, io, path::PathBuf, sync::Mutex};
 
 pub const SEARCH: &str = "mcp__claude_ai_Microsoft_365__outlook_calendar_search";
 pub const READ: &str = "mcp__claude_ai_Microsoft_365__read_resource";
+pub const LIST: &str = "mcp__claude_ai_Microsoft_365__teams_list_chats";
 /// The refresh run's only tools, and the ones its hook captures.
 pub const TOOLS: &[&str] = &[SEARCH, READ];
+/// ... and when it also lists the chats (adhoc).
+const TOOLS_LISTING: &[&str] = &[SEARCH, READ, LIST];
 /// Refresh interval.
 pub const EVERY: Duration = Duration::minutes(30);
+/// A scheduled refresh also lists the chats once this has passed since the last list: every other refresh, so hourly
+/// (about $0.02 a list, measured 2026-11-20). A refresh pressed by hand always lists.
+pub const LIST_EVERY: Duration = Duration::minutes(55);
 /// The cache keeps events that ended less than this long ago.
 pub const LOOK_BACK: Duration = Duration::hours(2);
 /// How often the scheduler looks at the clock. A sleeping laptop wakes to a due refresh within this.
@@ -38,9 +44,11 @@ pub struct Event {
 }
 
 /// The refresh run: haiku, the two calendar tools, both captured. `cached` events aren't read again unless
-/// they moved.
-pub fn run_for(now: DateTime<Utc>, cached: &[Event]) -> ClaudeRun {
-    ClaudeRun { kind: "refresh", ..run_window(now - LOOK_BACK, ahead(now), cached) }
+/// they moved. With `list`, it then lists the 25 most recently active chats once, captured too (adhoc).
+pub fn run_for(now: DateTime<Utc>, cached: &[Event], list: bool) -> ClaudeRun {
+    let run = ClaudeRun { kind: "refresh", ..run_window(now - LOOK_BACK, ahead(now), cached) };
+    let Some(search) = run.prompt.strip_suffix(" Reply DONE.").filter(|_| list) else { return run };
+    ClaudeRun { prompt: format!("{search} Then call teams_list_chats once with limit 25. Reply DONE."), allowed_tools: TOOLS_LISTING, capture: TOOLS_LISTING, ..run }
 }
 
 /// ... and that start before the end of the next working day in local time, so it lists as scheduled: tomorrow's
@@ -322,6 +330,9 @@ struct Inner {
     events: Vec<Event>,
     status: Status,
     last_start: Option<DateTime<Utc>>,
+    /// When a good refresh last listed the chats, and that list's captured payloads until adhoc takes them.
+    last_list: Option<DateTime<Utc>>,
+    chats: Vec<Value>,
     /// Events of deleted meetings, so neither the list nor the fetch brings them back, and the file keeping them.
     deleted: Vec<Deleted>,
     deleted_file: Option<PathBuf>,
@@ -445,9 +456,18 @@ impl Calendar {
         self.0.lock().unwrap().status.clone()
     }
 
-    /// One refresh through `run`, unless one is going (then nothing, and false). A good one replaces the cache; a
-    /// failed one keeps it and records why. `changed` is called as it starts and as it ends.
-    pub fn refresh(&self, now: DateTime<Utc>, mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
+    /// The chat list the last listing refresh captured, taken once (adhoc::find).
+    pub fn take_chats(&self) -> Vec<Value> {
+        std::mem::take(&mut self.0.lock().unwrap().chats)
+    }
+
+    /// One refresh through `run`, listing the chats too, unless one is going (then nothing, and false). A good one
+    /// replaces the cache; a failed one keeps it and records why. `changed` is called as it starts and as it ends.
+    pub fn refresh(&self, now: DateTime<Utc>, run: impl FnMut(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
+        self.refresh_listing(now, true, run, changed)
+    }
+
+    fn refresh_listing(&self, now: DateTime<Utc>, list: bool, mut run: impl FnMut(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
         let cached = {
             let mut i = self.0.lock().unwrap();
             if i.status.refreshing {
@@ -458,13 +478,22 @@ impl Calendar {
             i.events.clone()
         };
         changed();
-        let attempt = std::panic::AssertUnwindSafe(|| search_run(run_for(now, &cached), now - LOOK_BACK, ahead(now), &cached, &mut run));
+        let mut chats = vec![];
+        let mut keep_list = |r: &ClaudeRun| {
+            let o = run(r)?;
+            chats.extend(o.captured.iter().filter(|p| p["tool_name"] == LIST).cloned());
+            Ok(o)
+        };
+        let attempt = std::panic::AssertUnwindSafe(|| search_run(run_for(now, &cached, list), now - LOOK_BACK, ahead(now), &cached, &mut keep_list));
         let outcome = std::panic::catch_unwind(attempt).unwrap_or_else(|_| Err("The calendar refresh crashed. Refresh calendar to try again.".into()));
         {
             let mut i = self.0.lock().unwrap();
             i.status.refreshing = false;
             match outcome {
                 Ok(found) => {
+                    if list {
+                        (i.chats, i.last_list) = (chats, Some(now));
+                    }
                     i.events = found.events;
                     i.status.skipped = found.skipped;
                     i.status.unreadable = found.unreadable.len();
@@ -481,8 +510,11 @@ impl Calendar {
     /// The scheduler's look at the clock: a refresh at the first tick, then once `EVERY` has passed since the last
     /// one started, whatever started it.
     pub fn tick(&self, now: DateTime<Utc>, run: impl FnMut(&ClaudeRun) -> io::Result<Output>, changed: impl Fn()) -> bool {
-        let due = self.0.lock().unwrap().last_start.is_none_or(|t| now - t >= EVERY);
-        due && self.refresh(now, run, changed)
+        let (due, list) = {
+            let i = self.0.lock().unwrap();
+            (i.last_start.is_none_or(|t| now - t >= EVERY), i.last_list.is_none_or(|t| now - t >= LIST_EVERY))
+        };
+        due && self.refresh_listing(now, list, run, changed)
     }
 }
 
@@ -718,6 +750,39 @@ mod tests {
     }
 
     #[test]
+    fn a_scheduled_refresh_lists_the_chats_every_other_time_a_manual_one_always_and_the_list_is_taken_once() {
+        let list = json!({ "hook_event_name": "PostToolUse", "tool_name": LIST, "tool_input": { "limit": 25 }, "tool_response": [{ "type": "text", "text": "{}" }] });
+        let captured = [all_teams(), vec![list.clone()]].concat();
+        let cal = Calendar::default();
+        let t0 = now();
+        let mut listing = vec![];
+        for m in [0, 30, 60, 90, 120] {
+            let mut g = good(captured.clone());
+            cal.tick(t0 + Duration::minutes(m), |r| {
+                listing.push((m, r.allowed_tools.contains(&LIST) && r.prompt.contains("Then call teams_list_chats once with limit 25.")));
+                g(r)
+            }, || {});
+        }
+        assert_eq!(listing, [(0, true), (30, false), (60, true), (90, false), (120, true)]);
+        assert_eq!(cal.take_chats(), [list.clone()]);
+        assert!(cal.take_chats().is_empty(), "taken once");
+        let mut manual = false;
+        let mut g = good(captured.clone());
+        cal.refresh(t0 + Duration::minutes(130), |r| {
+            manual = r.capture.contains(&LIST);
+            g(r)
+        }, || {});
+        assert!(manual, "Refresh calendar pressed by hand lists too");
+        // A failed refresh keeps no list, and the next tick lists again.
+        let cal = Calendar::default();
+        cal.tick(t0, |_| Ok(Output { stdout: String::new(), captured: vec![list.clone()] }), || {});
+        assert!(cal.take_chats().is_empty());
+        let mut again = false;
+        cal.tick(t0 + EVERY, |r| { again = r.capture.contains(&LIST); Ok(Output::default()) }, || {});
+        assert!(again);
+    }
+
+    #[test]
     fn a_deleted_meetings_event_stays_out_of_the_cache_and_the_list_through_later_refreshes_and_a_restart() {
         let dir = std::env::temp_dir().join(format!("mc-deleted-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -809,7 +874,7 @@ mod tests {
 
     #[test]
     fn the_refresh_run_is_haiku_with_the_two_tools_captured_and_a_window_from_2_hours_ago_to_the_end_of_the_next_working_day() {
-        let r = run_for(now(), &[]); // Thursday the 5th, 12:00 UTC
+        let r = run_for(now(), &[], false); // Thursday the 5th, 12:00 UTC
         assert_eq!(r.model, "haiku");
         assert_eq!(r.allowed_tools, ["mcp__claude_ai_Microsoft_365__outlook_calendar_search", "mcp__claude_ai_Microsoft_365__read_resource"]);
         assert_eq!(r.capture, r.allowed_tools);
@@ -940,11 +1005,11 @@ mod tests {
 
     #[test]
     fn all_day_and_cancelled_events_and_cached_ones_that_havent_moved_are_not_read_and_a_moved_one_is() {
-        let r = run_for(now(), &[]);
+        let r = run_for(now(), &[], false);
         assert!(r.prompt.contains("except events whose isAllDay or isCancelled is true. Reply DONE."), "{}", r.prompt);
         // A crowded calendar's skip list stops short of the command-line limit; the rest are read.
         let crowded: Vec<Event> = (0..200).map(|n| Event { uri: format!("calendar:///events/{}{n}", "A".repeat(300)), ..parse(&all_teams(), now()).unwrap()[0].clone() }).collect();
-        let prompt = run_for(now(), &crowded).prompt;
+        let prompt = run_for(now(), &crowded, false).prompt;
         assert!(prompt.len() < 13_000 && prompt.contains(&crowded[0].uri) && !prompt.contains(&crowded[199].uri), "{}", prompt.len());
         // All-day or cancelled: never cached, nor counted unreadable, read or not.
         for flag in ["isAllDay", "isCancelled"] {

@@ -34,9 +34,10 @@ const withPreCall = (e) => {
 };
 
 const meetingOf = async (e) => (await invoke("list_meetings")).find((m) => m.eventId === e.id);
-// Four fetches run one at a time, each firing every captured read through Git Bash: allow a minute.
+// Five fetches run one at a time, each firing every captured read through Git Bash (~10 s each where a process start
+// costs 0.4-0.6 s): allow two minutes.
 const until = (e, state) =>
-  browser.waitUntil(async () => (await meetingOf(e))?.state === state, { timeout: 60000, timeoutMsg: `${e.subject} never became ${state}` });
+  browser.waitUntil(async () => (await meetingOf(e))?.state === state, { timeout: 120000, timeoutMsg: `${e.subject} never became ${state}` });
 const folder = (m, ...p) => root("library", m.id, ...p);
 const row = (id, part = "") => $(`.row[data-id="${id}"] ${part}`.trim());
 const argAfter = (argv, flag) => argv[argv.indexOf(flag) + 1];

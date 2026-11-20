@@ -9,6 +9,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::UpdaterExt;
 
+pub mod adhoc;
 pub mod calendar;
 pub mod chat;
 pub mod claude;
@@ -448,6 +449,33 @@ fn refresh_calendar_now(app: &AppHandle, scheduled: bool) {
         state.calendar.tick(now, run, changed);
     } else {
         state.calendar.refresh(now, run, changed);
+    }
+    find_adhoc_calls(app);
+}
+
+/// After a refresh that listed the chats: each transcribed call in a meeting chat that no meeting owns gets an
+/// Awaiting transcript folder (adhoc::find), fetched by the next fetch_due. Gated as check_chats is: not during first
+/// run, and in a dev instance only against a stand-in claude. The list is taken either way, so it is used once.
+fn find_adhoc_calls(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let chats = state.calendar.take_chats();
+    let overridden = std::env::var_os("RECAPYBARA_CLAUDE").is_some_and(|v| !v.is_empty());
+    if chats.is_empty() || first_running(app) || !chat::checks_on(state.dev, overridden) {
+        return;
+    }
+    let Ok(lib) = library_path(app) else { return };
+    let (runs, home, program) = (state.data_dir.join("runs"), state.home.clone(), claude::program());
+    let excluded = state.settings.lock().unwrap().excluded();
+    let job = std::panic::AssertUnwindSafe(|| {
+        let deleted = |id: &str| state.calendar.deleted(id);
+        adhoc::find(&lib, &state.data_dir.join(adhoc::CURSORS), &chats, &state.calendar.events(), &excluded, deleted, chrono::Utc::now(), |r| claude::run(&program, &runs, &home, r))
+    });
+    match std::panic::catch_unwind(job) {
+        Ok(Ok(made)) => made.iter().for_each(|id| {
+            let _ = app.emit("meeting-changed", id);
+        }),
+        Ok(Err(e)) => eprintln!("adhoc: {e}"),
+        Err(_) => eprintln!("adhoc: the search panicked"),
     }
 }
 

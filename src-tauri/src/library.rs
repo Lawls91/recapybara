@@ -43,6 +43,9 @@ pub enum State {
 #[serde(rename_all = "camelCase", default)]
 pub struct Meeting {
     pub event_id: Option<String>,
+    /// An ad-hoc call's Teams call id (adhoc): the meeting has no calendar event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
     pub join_url: Option<String>,
     pub subject: String,
     pub start: Option<DateTime<FixedOffset>>,

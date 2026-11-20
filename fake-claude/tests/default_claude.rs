@@ -29,7 +29,7 @@ fn the_default_claude_is_found_on_path() {
     // Never the real claude: a real install later on PATH must not be the one found.
     let program = claude::program();
     assert_eq!(PathBuf::from(&program), fake, "the fake, first on PATH, is the claude found");
-    let run = claude::ClaudeRun { ..calendar::run_for(chrono::Utc::now(), &[]) };
+    let run = claude::ClaudeRun { ..calendar::run_for(chrono::Utc::now(), &[], false) };
     let out = claude::run(&program, &dir.join("data").join("runs"), &dir.join("home"), &run);
     let out: Value = serde_json::from_str(&out.expect("the claude on PATH ran").stdout).unwrap();
     assert_eq!(out["structured_output"]["overview"], "from PATH");

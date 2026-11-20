@@ -155,11 +155,17 @@ fn text(v: &Value) -> String {
     v.as_str().map(Into::into).unwrap_or_else(|| v.to_string())
 }
 
+/// Whether a transcript created at `created` (ended at `ended`, if known) belongs to the meeting from `start` to `end`:
+/// created by the end, and either from `early` before the start or still running at it. The fetch keeps such a
+/// transcript (`judge`, `early` = `EARLY` for a scheduled meeting), and adhoc leaves such a call to that meeting.
+pub fn belongs(created: DateTime<Utc>, ended: Option<DateTime<Utc>>, start: DateTime<Utc>, end: DateTime<Utc>, early: Duration) -> bool {
+    created <= end && (created >= start - early || ended.is_some_and(|e| e > start))
+}
+
 /// The attempt's verdict from the run's captured payloads. Only a read whose `tool_input.uri` equals
 /// `url` exactly counts. Its response must be `{meeting, transcripts[]}` (text blocks or one string); the transcripts
-/// created by `end` and either from 30 minutes before `start` or still running at `start` are kept, and each must be
-/// VTT with at least one cue.
-pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<Utc>) -> Attempt {
+/// that `belong` to `start`-`end` are kept, and each must be VTT with at least one cue.
+pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<Utc>, early: Duration) -> Attempt {
     let Some(p) = captured.iter().rev().find(|p| p["tool_name"] == READ && p["tool_input"]["uri"].as_str() == Some(url)) else {
         return Attempt::Missed("Claude didn't read the transcript link.".into());
     };
@@ -187,8 +193,7 @@ pub fn judge(captured: &[Value], url: &str, start: DateTime<Utc>, end: DateTime<
         let Some(created) = t["createdDateTime"].as_str().and_then(utc) else {
             return Attempt::Invalid("Teams sent a transcript with no creation time.".into());
         };
-        let running = t["endDateTime"].as_str().and_then(utc).is_some_and(|e| e > start);
-        if created > end || (created < start - EARLY && !running) {
+        if !belongs(created, t["endDateTime"].as_str().and_then(utc), start, end, early) {
             continue;
         }
         let content = t["content"].as_str().unwrap_or_default();
@@ -471,9 +476,12 @@ fn widened(url: &str) -> String {
     format!("{path}?{}", params.join("&"))
 }
 
-/// The fetch run for meeting `m` (its link widened), judged.
+/// The fetch run for meeting `m`, judged. A scheduled meeting's link is widened and a pre-call kept (`EARLY`); an
+/// ad-hoc call's (one with a `call_id`, adhoc) is read for the call's own window, so a call just before it is a meeting of its own.
 fn verdict(m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&ClaudeRun) -> io::Result<Output>) -> Attempt {
-    let url = widened(m.transcript_url.as_deref().unwrap_or_default());
+    let adhoc = m.call_id.is_some();
+    let link = m.transcript_url.as_deref().unwrap_or_default();
+    let (url, early) = if adhoc { (link.to_string(), Duration::zero()) } else { (widened(link), EARLY) };
     // No end, no schedule to keep: fail closed rather than retry forever.
     let end: DateTime<Utc> = m.end.map(Into::into).unwrap_or(now);
     let start = m.start.map(Into::into).unwrap_or(end);
@@ -483,7 +491,7 @@ fn verdict(m: &Meeting, now: DateTime<Utc>, run: &mut impl FnMut(&ClaudeRun) -> 
         Attempt::Missed("The calendar event has no Teams transcript link.".into())
     } else {
         match run(&run_for(&url)) {
-            Ok(o) => judge(&o.captured, &url, start, end),
+            Ok(o) => judge(&o.captured, &url, start, end, early),
             Err(e) => {
                 eprintln!("fetch: claude run failed: {e}");
                 Attempt::Missed(match e.kind() {
@@ -909,7 +917,7 @@ mod tests {
         json!([{ "type": "text", "text": text }])
     }
     fn judged(captured: &[Value]) -> Attempt {
-        judge(captured, URL, start(), end())
+        judge(captured, URL, start(), end(), EARLY)
     }
 
     #[test]
@@ -1006,6 +1014,31 @@ mod tests {
         let close = [Part { created: t("2026-11-05T10:56:00Z"), content: VTT_A.into() }, Part { created: t("2026-11-05T10:59:00Z"), content: VTT_B.into() }];
         assert!(!merge(&close, Some(start())).contains("NOTE"));
         assert!(!merge(&parts, None).contains("NOTE"));
+    }
+
+    #[test]
+    fn an_ad_hoc_call_s_fetch_reads_its_exact_window_and_keeps_nothing_from_before_it() {
+        const LINK: &str = "meeting-transcript:///events/U1lOVEg?start=2026-11-05T11%3A00%3A00.0000000Z&end=2026-11-05T11%3A50%3A00.0000000Z";
+        let m = Meeting {
+            call_id: Some("ADHOC".into()),
+            transcript_url: Some(LINK.into()),
+            start: Some(start().fixed_offset()),
+            end: Some(end().fixed_offset()),
+            ..Meeting::default()
+        };
+        // A call 10 minutes before this one, then this call.
+        let body = blocks(&json!({ "meeting": {}, "transcripts": [
+            { "createdDateTime": "2026-11-05T10:45:00Z", "endDateTime": "2026-11-05T10:50:00Z", "content": VTT_A },
+            { "createdDateTime": "2026-11-05T11:00:05Z", "endDateTime": "2026-11-05T11:50:00Z", "content": VTT_B },
+        ] }).to_string());
+        let mut asked = vec![];
+        let mut run = |r: &ClaudeRun| {
+            asked.push(r.prompt.clone());
+            Ok(Output { stdout: String::new(), captured: vec![read(LINK, body.clone())] })
+        };
+        let Attempt::Captured(parts) = verdict(&m, end(), &mut run) else { panic!("the exact link's read counts") };
+        assert_eq!(parts.iter().map(|p| p.created).collect::<Vec<_>>(), [t("2026-11-05T11:00:05Z")], "the call before is a meeting of its own");
+        assert!(asked[0].contains(LINK), "not widened");
     }
 
     #[test]

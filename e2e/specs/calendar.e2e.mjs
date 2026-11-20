@@ -42,12 +42,12 @@ describe("calendar refresh", () => {
     await expect($$(".rt*=Subject Claude retyped")).toBeElementsArrayOfSize(0);
   });
 
-  it("the refresh runs haiku, allows only the calendar search and read_resource, and captures both", async () => {
+  it("the refresh runs haiku, allows only the calendar search, read_resource and (pressed by hand) the chat list, and captures them", async () => {
     scenario(calendar([], []));
     await refreshCalendar();
     const argv = claudeRecords().at(-1).argv;
     expect(argAfter(argv, "--model")).toBe("haiku");
-    const tools = [`${M365}outlook_calendar_search`, `${M365}read_resource`];
+    const tools = [`${M365}outlook_calendar_search`, `${M365}read_resource`, `${M365}teams_list_chats`];
     expect(argAfter(argv, "--allowedTools").split(",")).toEqual(tools);
     const settings = JSON.parse(argAfter(argv, "--settings"));
     for (const hook of ["PostToolUse", "PostToolUseFailure"]) {

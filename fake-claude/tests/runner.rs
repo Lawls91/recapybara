@@ -34,7 +34,7 @@ fn run_within(name: &str, scenario_json: &str, capture: &'static [&'static str],
     fs::create_dir_all(&sibling).unwrap();
     // Bigger than a pipe buffer, as a long meeting's transcript is.
     let stdin = format!("on stdin{}", "x".repeat(200_000));
-    let run = claude::ClaudeRun { stdin, capture, timeout, ..calendar::run_for(chrono::Utc::now(), &[]) };
+    let run = claude::ClaudeRun { stdin, capture, timeout, ..calendar::run_for(chrono::Utc::now(), &[], false) };
     let out = claude::run(&FAKE.into(), &dir.join("data").join("runs"), &dir.join("home"), &run);
     (dir, out)
 }
