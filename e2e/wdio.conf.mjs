@@ -4,10 +4,17 @@ const pinWindow = async () => {
   const { browser } = await import("@wdio/globals");
   await browser.switchToWindow((await browser.getWindowHandles())[0]);
   // The session can start before the page has loaded (seen on CI runners): wait for its Tauri bridge.
-  await browser.waitUntil(() => browser.execute(() => !!window.__TAURI_INTERNALS__).catch(() => false), {
-    timeout: 30000,
-    timeoutMsg: "the app's page never loaded its Tauri bridge",
-  });
+  await browser
+    .waitUntil(() => browser.execute(() => !!window.__TAURI_INTERNALS__).catch(() => false), { timeout: 30000 })
+    .catch(async () => {
+      // Seen once on CI, after a reloadSession: name what each window holds, so the next one shows why.
+      const pages = [];
+      for (const h of await browser.getWindowHandles()) {
+        await browser.switchToWindow(h);
+        pages.push(await browser.execute(() => `${location.href} (${document.readyState})`).catch((e) => String(e)));
+      }
+      throw new Error(`the app's page never loaded its Tauri bridge; windows: ${JSON.stringify(pages)}`);
+    });
 };
 
 // Launched per spec by e2e/run.mjs, which sets MC_APP and the RECAPYBARA_* env vars.
