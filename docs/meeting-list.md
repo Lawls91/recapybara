@@ -25,6 +25,8 @@ Each row has a **...** button (or right-click the row) with the meeting's action
 - **Your library.** Every meeting the app has captured, skipped, imported or written notes for has a folder in the
   library, and stays in the list for good unless you [delete](meeting-actions.md#delete) it.
 - **Imports.** A `.vtt` transcript file, or past meetings fetched with [Import from Teams](importing.md).
+- **Calls in your meeting chats.** A transcribed call in a meeting's chat that no meeting on your calendar accounts
+  for, such as an ad-hoc call between a series' meetings: see [below](#calls-in-your-meeting-chats).
 
 If an event couldn't be read, or is in a time zone the app can't convert, the status line says so, for example
 "Updated 14:00 · 1 event couldn't be read".
@@ -143,6 +145,37 @@ summarised. The app keeps only three times (call started, transcription started,
 **Cost.** Each chat check is a short Claude run, so a 30-minute meeting costs about 12 of them. Meetings that are
 skipped, excluded or already captured are never checked. If a meeting's chat can't be read twice in a row, the app
 stops checking it and the meeting keeps its scheduled behaviour.
+
+## Calls in your meeting chats
+
+A call started from a meeting's chat, away from its slot (an ad-hoc call between a series' meetings, a follow-up
+after one, a call in the chat of a series that hasn't started yet), has no calendar event of its own. The app still
+finds it:
+
+- About once an hour, and when you press Refresh calendar, the refresh also lists your 25 most recently active Teams
+  chats. A meeting chat with anything new since the last look has its latest messages read for call events, as above.
+- Each call there that was transcribed, and that no meeting on your calendar accounts for, becomes a meeting of its
+  own: named after the chat, dated at the call, its participants as attendees. Its row reads "ad-hoc call", and its
+  page says "A call in the … chat, not on your calendar." It is fetched for the call's own times and summarised like
+  any other meeting, and **Show all in this series**, Skip, Delete and Exclude series work on it as usual.
+- A call from 30 minutes before a meeting's start, or one still running at the start, stays part of that meeting.
+- Every transcribed call is captured, whether you joined it or not.
+
+What it can't find:
+
+- Calls before the app first looked at your chats: it starts from then, and doesn't bring in older calls.
+- A call whose chat fell out of your 25 most recently active chats, or whose call events scrolled past that chat's
+  latest 50 messages, before the app looked (for example, after days with the app closed).
+- Calls in 1:1 and group chats, and ad-hoc calls in a channel: Teams doesn't make those transcripts available to the
+  app. Download the `.vtt` from the call's recap and [import it](importing.md).
+
+**Privacy.** The chat list gives the app each chat's id, type, topic, members and last-updated time. It keeps only each
+meeting chat's id and last-updated time, in `chat-cursors.json` in its settings folder, and the topic of a chat it
+makes a meeting from; 1:1 and group chats, and every member list, are passed over unread. Message text is never read,
+as above.
+
+**Cost.** The chat list adds about $0.02 to a refresh, about $0.50 a day. A meeting chat with something new costs one
+short read; a captured call costs a fetch and a summary, like any meeting.
 
 ## When the library folder is missing
 

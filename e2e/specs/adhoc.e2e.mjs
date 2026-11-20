@@ -1,7 +1,7 @@
-import { browser, expect } from "@wdio/globals";
+import { $, browser, expect } from "@wdio/globals";
 import fs from "node:fs";
 import path from "node:path";
-import { calendar, claudeRecords, invoke, M365, root, scenario, vtt } from "../helpers.mjs";
+import { at as dayAt, calendar, claudeRecords, invoke, M365, root, scenario, seed, vtt } from "../helpers.mjs";
 
 // Ad-hoc calls: a transcribed call in a meeting chat with no calendar slot becomes a meeting of its own. The refresh
 // lists the chats; a meeting chat that moved since its cursor is read for its call events; the call is fetched for its
@@ -31,7 +31,7 @@ const chats = {
   tool_name: LIST,
   tool_input: { limit: 25 },
   tool_response: text([
-    { id: THREAD, chatType: "meeting", topic: "Synthetic design chat", lastUpdatedDateTime: ended.toISOString(), memberCount: 2, members: [{ displayName: "Speaker B", email: "b@example.invalid" }] },
+    { id: THREAD, chatType: "meeting", topic: "Synthetic design review", lastUpdatedDateTime: ended.toISOString(), memberCount: 2, members: [{ displayName: "Speaker B", email: "b@example.invalid" }] },
     { id: ONE_TO_ONE, chatType: "oneOnOne", topic: null, lastUpdatedDateTime: ended.toISOString(), memberCount: 2, members: [] },
   ]),
 };
@@ -65,13 +65,15 @@ describe("ad-hoc calls", () => {
     // The chats were last listed two hours ago, the 1:1 chat among them; the meeting chat is new to the list, brought
     // into it by the call, so it is read from that listing on.
     fs.writeFileSync(root("data", "chat-cursors.json"), JSON.stringify({ listedAt: min(-120).toISOString(), chats: { [ONE_TO_ONE]: min(-120).toISOString() } }));
+    // Last week's meeting of the same chat: a week away, it doesn't own the call, but it makes one series with it.
+    seed("last week", { subject: "Synthetic design review", start: dayAt(-7, 10), end: dayAt(-7, 11), joinUrl, eventId: "occ-last-week", state: "noTranscript", source: "connector" });
     await browser.reloadSession(); // app start: its first refresh lists the chats
   });
 
   it("a transcribed call in a meeting chat with no slot becomes its own meeting and is summarised", async () => {
     await browser.waitUntil(async () => (await adhoc())[0]?.state === "done", { timeout: 60000, timeoutMsg: "no ad-hoc meeting reached Summary ready" });
     const [m] = await adhoc();
-    expect(m.subject).toBe("Synthetic design chat");
+    expect(m.subject).toBe("Synthetic design review");
     expect(m.callId).toBe("call-adhoc");
     expect(m.eventId ?? null).toBeNull();
     expect(m.attendees).toEqual(["Speaker B"]);
@@ -95,5 +97,29 @@ describe("ad-hoc calls", () => {
     await invoke("refresh_calendar");
     expect(chatReads(THREAD).length).toBe(1);
     expect((await adhoc()).length).toBe(1);
+  });
+
+  it("its row reads ad-hoc call, its page says where it came from, and it shows with its chat's series", async () => {
+    const [m] = await adhoc();
+    const row = $(`.row[data-id="${m.id}"]`);
+    await expect(row.$(".r2")).toHaveText("ad-hoc call", { containing: true });
+    await row.click();
+    await expect($("#detail-adhoc")).toHaveText("A call in the Synthetic design review chat, not on your calendar.");
+    await row.$(".kebab").click();
+    await $("#menu-series").click();
+    await expect($("#series-chip")).toHaveText("Series: Synthetic design review ×");
+    const ids = await browser.execute(() => [...document.querySelectorAll("#meeting-list .row")].map((r) => r.dataset.id));
+    expect(ids).toEqual([m.id, "last week"]);
+    await $("#series-clear").click();
+  });
+
+  it("Delete removes it and records its call, so it is never made again", async () => {
+    const [m] = await adhoc();
+    await $(`.row[data-id="${m.id}"] .kebab`).click();
+    await $("#menu-delete").click();
+    await $("#confirm-delete").click();
+    await browser.waitUntil(async () => (await adhoc()).length === 0, { timeoutMsg: "the ad-hoc meeting is still listed" });
+    const deleted = JSON.parse(fs.readFileSync(root("data", "deleted-events.json"), "utf8"));
+    expect(deleted.map((d) => d.eventId)).toContain("call:call-adhoc");
   });
 });

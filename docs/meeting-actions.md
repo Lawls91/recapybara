@@ -53,7 +53,8 @@ Delete asks first, for example `Delete “Release planning” (Sun 8 Nov 10:00)?
 transcript, summary and notes, to the Windows Recycle Bin (the Trash on a Mac).
 
 A deleted meeting never comes back: not at the next calendar refresh, not after a restart, and not through
-[Import from Teams](importing.md#import-from-teams), which counts it as deleted and leaves it out. Delete isn't
+[Import from Teams](importing.md#import-from-teams), which counts it as deleted and leaves it out. A deleted
+[ad-hoc call](meeting-list.md#calls-in-your-meeting-chats) isn't captured again either. Delete isn't
 offered while the meeting's summary is being written, or for a calendar meeting the app hasn't made a folder for yet
 (Skip that one instead).
 

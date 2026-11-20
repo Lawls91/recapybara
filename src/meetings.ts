@@ -26,6 +26,8 @@ export interface Meeting {
   attendees: string[];
   joinUrl: string | null;
   eventId: string | null;
+  /** An ad-hoc call's Teams call id: a call in a meeting chat, not on the calendar. */
+  callId?: string | null;
   source: string | null;
   state: State;
   hasTranscript: boolean;
@@ -273,14 +275,16 @@ export function menuFor(m: Meeting): MenuItem[] {
   return items;
 }
 
-/** Marks each meeting of a series: its join URL is shared by two or more meetings, or one of them has a transcript
- * URL scoped to an occurrence (`?start=`), which the connector gives only a series' occurrences. Returns the list. */
+/** Marks each meeting of a series: its join URL is shared by two or more meetings (an ad-hoc call in its chat
+ * included), or one calendar meeting of it has a transcript URL scoped to an occurrence (`?start=`), which the
+ * connector gives only a series' occurrences. An ad-hoc call's URL is always scoped, so it doesn't count. Returns the
+ * list. */
 export function markSeries(list: Meeting[]): Meeting[] {
   const seen = new Map<string, number>();
   const scoped = new Set<string>();
   for (const m of list.filter((m) => m.joinUrl)) {
     seen.set(m.joinUrl!, (seen.get(m.joinUrl!) ?? 0) + 1);
-    if (/[?&]start=/.test(m.transcriptUrl ?? "")) scoped.add(m.joinUrl!);
+    if (!m.callId && /[?&]start=/.test(m.transcriptUrl ?? "")) scoped.add(m.joinUrl!);
   }
   for (const m of list) m.series = !!m.joinUrl && ((seen.get(m.joinUrl) ?? 0) > 1 || scoped.has(m.joinUrl));
   return list;
