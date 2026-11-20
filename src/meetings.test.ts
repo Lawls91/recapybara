@@ -66,6 +66,10 @@ test("a join URL is a series when two meetings share it or one's transcript URL 
   // A one-off made a series later: its new occurrences' scoped URL makes the earlier meeting part of it too.
   const converted = markSeries([at("c", "https://teams.example/j/c", "meeting-transcript:///events/Yw"), at("c2", "https://teams.example/j/c", "meeting-transcript:///events/Yw?start=x&end=y")]);
   expect(converted.map((m) => m.series)).toEqual([true, true]);
+  // An ad-hoc call's link is always scoped: alone it is no series; beside a meeting of its chat it is that series.
+  const call = { ...at("x", "https://teams.example/j/x", "meeting-transcript:///events/eA?start=x&end=y"), callId: "call-x" };
+  expect(markSeries([call]).map((m) => m.series)).toEqual([false]);
+  expect(markSeries([{ ...call }, at("x2", "https://teams.example/j/x", "meeting-transcript:///events/eA")]).map((m) => m.series)).toEqual([true, true]);
 });
 
 test("a meeting from the calendar cache has no Open folder until it is captured", () => {

@@ -197,8 +197,9 @@ fn skip_meeting(app: AppHandle, id: String) -> Result<String, String> {
     Ok(done)
 }
 
-/// Delete, after the page's confirmation: its calendar event, if any, is recorded to stay out of the list and the
-/// fetch, even across restarts; then the folder goes to the Recycle Bin. Off the main thread, like search.
+/// Delete, after the page's confirmation: its calendar event, or an ad-hoc meeting's call (`call:<id>`, adhoc::find),
+/// is recorded to stay out of the list and the fetch, even across restarts; then the folder goes to the Recycle Bin.
+/// Off the main thread, like search.
 #[tauri::command]
 async fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
     let lib = library_path(&app)?;
@@ -208,9 +209,9 @@ async fn delete_meeting(app: AppHandle, id: String) -> Result<(), String> {
     let owner = 0;
     tauri::async_runtime::spawn_blocking(move || {
         library::delete(&lib, &id, owner, |m| {
-            let Some(event) = &m.event_id else { return Ok(()) };
+            let Some(event) = m.event_id.clone().or_else(|| m.call_id.as_ref().map(|c| format!("call:{c}"))) else { return Ok(()) };
             let end = m.end.map_or_else(chrono::Utc::now, Into::into);
-            app.state::<AppState>().calendar.forget(event, end).map_err(|e| format!("{id} wasn't deleted: {e}"))
+            app.state::<AppState>().calendar.forget(&event, end).map_err(|e| format!("{id} wasn't deleted: {e}"))
         })
         .map(|_| ())
     })

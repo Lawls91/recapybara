@@ -464,7 +464,7 @@ function drawList() {
         g.items
           .map((m) => {
             const adHoc = m.source === "import" && !m.joinUrl && !m.eventId;
-            const second = [span(m), adHoc ? "imported" : (m.organiser ?? "")].filter(Boolean).map(esc).join(" · ");
+            const second = [span(m), adHoc ? "imported" : m.callId ? "ad-hoc call" : (m.organiser ?? "")].filter(Boolean).map(esc).join(" · ");
             return `<div id="row-${slug(m.id)}" class="row f-${look(m).family}${m.id === selected ? " sel" : ""}" role="option" tabindex="${m.id === selected ? 0 : -1}" data-id="${esc(m.id)}" data-state="${m.state}">
               <div class="rmain"><div class="rt">${esc(m.subject || m.id)}</div><div class="r2">${second}</div></div>
               ${mark(m)}
@@ -1345,7 +1345,8 @@ async function renderDetail() {
   const people = peopleLine(m).map(esc).join(", ");
   const head = `<div class="ttlrow"><h2 id="detail-title" class="ttl">${esc(m.subject || m.id)}</h2>
       <button id="detail-menu" class="kebab" title="More" aria-label="More actions">${ic("more_horizontal")}</button></div>
-    <div class="dmeta" id="detail-meta">${meta}</div>${people ? `<div class="att">${people}</div>` : ""}`;
+    <div class="dmeta" id="detail-meta">${meta}</div>${people ? `<div class="att">${people}</div>` : ""}` +
+    (m.callId ? `<div class="att" id="detail-adhoc">A call in the ${esc(m.subject)} chat, not on your calendar.</div>` : "");
 
   const sumStatus =
     m.state === "summarising" ? `<i class="spin"></i>` : m.state === "summaryFailed" ? `<span class="tq err">Failed</span>` : m.hasSummary ? "" : `<span class="tq">Not run</span>`;
