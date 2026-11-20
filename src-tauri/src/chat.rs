@@ -171,17 +171,7 @@ fn walk(v: &Value, out: &mut Vec<Seen>) {
 /// scheduled start (someone opened the link early and left) isn't this meeting's: its events, and any ended or
 /// transcription event dated before the start with no call id, are ignored. A failed read is an error.
 pub fn parse(captured: &[Value], uri: &str, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Chat, String> {
-    let want = decode(uri);
-    let Some(p) = captured.iter().rev().find(|p| p["tool_name"] == READ && p["tool_input"]["uri"].as_str().is_some_and(|u| decode(u) == want)) else {
-        return Err("Claude didn't read the meeting chat.".into());
-    };
-    if p["hook_event_name"] == "PostToolUseFailure" {
-        return Err(format!("Reading the meeting chat failed: {}", crate::claude::first_line(&p["error"].to_string())));
-    }
-    let answers = crate::calendar::values(&p["tool_response"]);
-    if !answers.iter().any(|a| a.is_object() || a.is_array()) || answers.iter().any(crate::summary::is_error) {
-        return Err("Teams answered the chat read with an error.".into());
-    }
+    let answers = page(captured, uri)?;
     let mut seen = vec![];
     answers.iter().for_each(|a| walk(a, &mut seen));
     seen.retain(|s| s.at >= start - EARLY && s.at <= end + LATE);
@@ -196,6 +186,23 @@ pub fn parse(captured: &[Value], uri: &str, start: DateTime<Utc>, end: DateTime<
         ended_at: of(Kind::Ended).filter(call).map(|s| s.at).max(),
         restarted: of(Kind::Started).count() > 1,
     })
+}
+
+/// The chat page a run read at `uri` (escapes aside), as JSON values: the last such read. A missing or failed read,
+/// or an error answer, is an error.
+pub fn page(captured: &[Value], uri: &str) -> Result<Vec<Value>, String> {
+    let want = decode(uri);
+    let Some(p) = captured.iter().rev().find(|p| p["tool_name"] == READ && p["tool_input"]["uri"].as_str().is_some_and(|u| decode(u) == want)) else {
+        return Err("Claude didn't read the meeting chat.".into());
+    };
+    if p["hook_event_name"] == "PostToolUseFailure" {
+        return Err(format!("Reading the meeting chat failed: {}", crate::claude::first_line(&p["error"].to_string())));
+    }
+    let answers = crate::calendar::values(&p["tool_response"]);
+    if !answers.iter().any(|a| a.is_object() || a.is_array()) || answers.iter().any(crate::summary::is_error) {
+        return Err("Teams answered the chat read with an error.".into());
+    }
+    Ok(answers)
 }
 
 /// What a click on the transcription-off notification asks for: its Skip button, or the body (open the meeting).
