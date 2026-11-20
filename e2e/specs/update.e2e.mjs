@@ -270,7 +270,9 @@ describe("self-update", () => {
     const [said, age] = await browser.execute(() => [document.getElementById("sr-status").textContent, performance.now()]);
     expect(said === "" || age >= 2000).toBe(true);
     await browser.waitUntil(async () => (await announced()) === failed, { timeout: 10000, timeoutMsg: "never announced" });
-    await expect($("#update-pill")).not.toBeDisplayed(); // nothing to install until the check finds it again
+    // Nothing to install until the check finds it again. That check runs 10 s after start (update::START_DELAY), so on
+    // a slow runner it may already have: the pill is only checked while the page is clearly younger than that.
+    if ((await browser.execute(() => performance.now())) < 8000) await expect($("#update-pill")).not.toBeDisplayed();
     await $("#settings-button").click();
     await expect($("#update-status")).toHaveText(failed);
     await $("#settings-back").click();
